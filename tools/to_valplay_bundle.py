@@ -45,7 +45,7 @@ import struct as _struct
 import sys
 import tempfile
 import time
-from collections import defaultdict
+from collections import Counter, defaultdict
 from itertools import islice
 from pathlib import Path
 from typing import NamedTuple
@@ -273,6 +273,9 @@ class _Tally(dict):
             "events whose time_ms is lower than the line before (tie-break unsound)",
         "upstream_row_count_disagreement":
             "row counts the export declared that its own tables contradict",
+        "unknown_actor_lifecycle_events":
+            "actors.event values this adapter has no event type for "
+            "(published as actor_lifecycle_unknown)",
     }
 
     def __init__(self):
@@ -1592,6 +1595,46 @@ def _normalize_rpc_param(rpc_name: str, param: str, value, is_raw: bool) -> dict
 #: 1 -> 2: `quality`, `net_field_export_groups` and `adapter` were added. A
 #: bundle at 1 carries no upstream accounting at all, so a consumer cannot
 #: distinguish "the export was complete" from "nobody counted".
+#:
+#: NOT bumped for `actor_dormant`, deliberately. The version gate in valplay
+#: (`scripts/parse_replays.py`, `ADAPTER_SCHEMA_VERSION`) is an equality check
+#: that REFUSES any bundle whose version it does not match, and
+#: `valplay/tests/ci-stack-smoke.mjs` asserts the built worker image's adapter
+#: constant equals it -- so a bump breaks valplay's CI and refuses every
+#: existing bundle until that repo re-pins `VRFKIT_REF` and rebuilds its worker
+#: image. The version exists to force a rebuild when a bundle would otherwise
+#: be MISREAD, and that is not the case here:
+#:
+#: * `actor_dormant` is an ADDITIVE type. valplay filters events by exact
+#:   `type` equality and keeps no event-type allowlist, so a consumer that does
+#:   not know it simply does not match it -- no crash, no misread.
+#: * Every field on `actor_closed` is unchanged; `actor_event` is added
+#:   alongside them, and an unknown key is ignored by every reader here.
+#: * The change makes existing consumers MORE correct with no edit on their
+#:   side: `actor_closed` stops carrying dormancies, so a spawn/close pairing
+#:   that used to truncate a settled ability's lifetime now leaves that
+#:   instance unpaired instead of wrongly ended.
+#:
+#: What DOES change for valplay is which instances it measures, and this was
+#: MEASURED against its real `compute_ability_detail`, not assumed. On 8 Sage
+#: walls where 6 are destroyed at 3,000ms and 2 settle dormant at 40,000ms:
+#:
+#:   before: instances 8, cap 40,000ms, destroyed 6 (75.0%)
+#:   after : instances 6, cap  3,000ms, destroyed 0 (0.0%)
+#:
+#: Both the before and after are imperfect, in opposite directions, and neither
+#: is caused by this adapter guessing. Before, a dormancy was a fabricated
+#: despawn inflating the cap. After, the dormant instances are excluded, so the
+#: cap is taken from destroyed instances only and under-estimates -- which
+#: valplay already flags as `cap_ms_from_observed_max`, but which now bites
+#: harder. valplay must treat `actor_dormant` as an OPEN-ENDED (censored)
+#: lifetime, exactly as `tools/extract_active_effects.py` does on the same
+#: column, rather than as an absent one. That is a change in the valplay repo
+#: and is reported, not made from here.
+#:
+#: A version bump could not have communicated any of that -- it would only have
+#: refused the bundle outright. Bump this when a bundle would be MISREAD by a
+#: consumer that ignores the change, which is the opposite of this case.
 BUNDLE_SCHEMA_VERSION = 2
 
 
@@ -1843,16 +1886,35 @@ def _group_rows(cols: _FieldColumns):
     return actor_first, actor_last, prop_groups, rpc_groups, unresolved_cnc_rows
 
 
+#: `actors.event` -> the bundle event type it publishes as. THREE values, not
+#: two: `dormant` is the server suspending replication of an actor that is
+#: still alive, so it is NOT a despawn and must not share a type with one. See
+#: CLAUDE.md ("Dormancy is not destruction; only `close` is a despawn") and
+#: `tools/extract_active_effects.py`, which pairs the same column.
+#:
+#: A value absent from this map is published as `actor_lifecycle_unknown` and
+#: counted, never folded into the nearest known type.
+_ACTOR_EVENT_TYPES = {
+    "close": "actor_closed",
+    "dormant": "actor_dormant",
+}
+
+
 def _build_actor_events(export_dir: Path, actor_first: dict, actor_last: dict,
-                        verbose: bool):
-    """Build actor_spawned / actor_closed events.
+                        verbose: bool, tally: "_Tally"):
+    """Build actor_spawned / actor_closed / actor_dormant events.
 
     Returns ``(events, guid_class)``. `guid_class` maps an actor GUID to its
     spawn class path and is filled from the same pass, because the shot events
     built later need it for weapon identity.
+
+    `tally` is required, not optional: the unknown-lifecycle-value counter is
+    the only thing that distinguishes "this export used the three values this
+    adapter knows" from "a fourth appeared and was published as an unknown".
     """
     events = []
     guid_class = {}  # actor net guid -> spawn class path
+    actor_event_counts = Counter()
 
     # actors.parquet is authoritative: it carries class/archetype/location from
     # the spawn data itself.
@@ -1913,15 +1975,55 @@ def _build_actor_events(export_dir: Path, actor_first: dict, actor_last: dict,
                 }
                 events.append((a_pid[i], a_time[i], event))
             else:
+                # `actors.event` has THREE values -- open / close / dormant --
+                # and this was an `else`, so every dormant row published as
+                # `actor_closed`. Dormancy is the server stopping replication
+                # of an actor that is STILL ALIVE, which for a settled smoke,
+                # wall or trap is its normal steady state; valplay reads
+                # `actor_closed` as a despawn (pipeline/metrics/
+                # ability_detail.py pairs spawn/close into a lifetime), so a
+                # settled ability read as destroyed with its lifetime
+                # truncated to the moment it stopped moving.
+                #
+                # `tools/extract_active_effects.py` in this same directory
+                # already gets this right and says why. This is that reasoning
+                # applied one hop later, at the last seam before the data is
+                # consumed.
+                #
+                # WHY a distinct type rather than a flag on `actor_closed`:
+                # valplay filters events by exact `type` equality and has no
+                # event-type allowlist, so a new type is ignored by consumers
+                # that do not know it while `actor_closed` immediately stops
+                # over-reporting despawns. A flag would leave every existing
+                # consumer reading dormancy as destruction until valplay
+                # changed in lockstep. See BUNDLE_SCHEMA_VERSION for why this
+                # is not a version bump.
+                raw_event = a_event[i]
+                event_type = _ACTOR_EVENT_TYPES.get(raw_event)
+                if event_type is None:
+                    # A fourth value the parser learned and this adapter has
+                    # not. Defaulting it to a despawn is the bug above; it is
+                    # published under its own type carrying the raw value, and
+                    # counted, so it is a visible unknown rather than a
+                    # plausible close.
+                    tally.bump("unknown_actor_lifecycle_events")
+                    event_type = "actor_lifecycle_unknown"
+                actor_event_counts[event_type] += 1
                 event = {
-                    "type": "actor_closed",
+                    "type": event_type,
                     "time_ms": a_time[i],
                     "actor_net_guid": a_guid[i],
+                    # The wire's own value, forwarded so a consumer can audit
+                    # the mapping above instead of trusting this adapter's
+                    # choice of type name.
+                    "actor_event": raw_event,
                 }
                 events.append((a_pid[i], a_time[i], event))
 
         if verbose:
             print(f"  {len(actors_table):,} actor lifecycle events from actors.parquet")
+            for name, count in sorted(actor_event_counts.items()):
+                print(f"    {name}: {count:,}")
     else:
         # Fallback: infer from first/last field appearance (legacy behavior)
         for actor, (ms, pid, gp) in actor_first.items():
@@ -1937,13 +2039,22 @@ def _build_actor_events(export_dir: Path, actor_first: dict, actor_last: dict,
             }
             events.append((pid, ms, event))
 
+        # This branch infers lifetimes from the first and last field row for
+        # each actor because actors.parquet is absent, so there is no `event`
+        # column and no dormancy information AT ALL -- the last field row is
+        # the last time the actor was seen, whatever the reason. `actor_event`
+        # is therefore null rather than "close": this path cannot tell a
+        # despawn from a dormancy, and claiming either would be inventing the
+        # distinction the actors.parquet branch above exists to preserve.
         for actor, (ms, pid) in actor_last.items():
             event = {
                 "type": "actor_closed",
                 "time_ms": ms,
                 "actor_net_guid": actor,
+                "actor_event": None,
             }
             events.append((pid + 1, ms, event))
+            actor_event_counts["actor_closed"] += 1
 
     return events, guid_class
 
@@ -2473,7 +2584,7 @@ def _convert_into(export_dir: Path, output_dir: Path, *, verbose: bool = False):
 
     # 1 & 2. actor_spawned and actor_closed
     events, guid_class = _build_actor_events(
-        export_dir, actor_first, actor_last, verbose
+        export_dir, actor_first, actor_last, verbose, tally
     )
 
     # 3. export_group_received events (replicated properties)

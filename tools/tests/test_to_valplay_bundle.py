@@ -44,6 +44,44 @@ def write_fields_parquet(path: Path, rows: list[dict]) -> None:
     pq.write_table(table, path)
 
 
+def write_actors_parquet(path: Path, rows: list[dict]) -> None:
+    """Write an actors.parquet with the columns `_build_actor_events` reads.
+
+    Column types follow `crates/vrf-export/src/schema.rs::actors_schema` --
+    `class_path`/`archetype_path` are dictionary-encoded there, and the adapter
+    has a separate code path for dictionary columns, so encoding them as plain
+    strings here would exercise the wrong branch.
+    """
+    def values(name, default=None):
+        return [row.get(name, default) for row in rows]
+
+    def u32(name):
+        return pa.array([row.get(name, 0) for row in rows], type=pa.uint32())
+
+    def f32(name):
+        return pa.array(values(name), type=pa.float32())
+
+    dict_type = pa.dictionary(pa.int32(), pa.string())
+    table = pa.table(
+        {
+            "time_ms": u32("time_ms"),
+            "packet_id": u32("packet_id"),
+            "channel_index": u32("channel_index"),
+            "actor_net_guid": u32("actor"),
+            "event": pa.array(values("event"), type=pa.string()),
+            "class_path": pa.array(values("class_path"), type=pa.string()).dictionary_encode().cast(dict_type),
+            "archetype_path": pa.array(values("archetype_path"), type=pa.string()).dictionary_encode().cast(dict_type),
+            "spawn_x": f32("spawn_x"),
+            "spawn_y": f32("spawn_y"),
+            "spawn_z": f32("spawn_z"),
+            "spawn_pitch": f32("spawn_pitch"),
+            "spawn_yaw": f32("spawn_yaw"),
+            "spawn_roll": f32("spawn_roll"),
+        }
+    )
+    pq.write_table(table, path)
+
+
 #: One innocuous replicated property, so `convert` has a fields.parquet to read
 #: when the case under test is about some other table.
 MINIMAL_FIELD_ROWS = [
@@ -1033,7 +1071,7 @@ class SeamTestCase(unittest.TestCase):
     """Build an export with every table the adapter reads, then convert it."""
 
     def build(self, tmp, *, field_rows=None, movement_rows=(), guid_rows=(),
-              manifest=None):
+              actor_rows=(), manifest=None):
         root = Path(tmp)
         export = root / "export"
         export.mkdir()
@@ -1041,6 +1079,8 @@ class SeamTestCase(unittest.TestCase):
             export / "fields.parquet",
             list(MINIMAL_FIELD_ROWS if field_rows is None else field_rows),
         )
+        if actor_rows:
+            write_actors_parquet(export / "actors.parquet", list(actor_rows))
         if movement_rows:
             write_movement_parquet(export / "movement.parquet", list(movement_rows))
         if guid_rows:
@@ -1068,6 +1108,160 @@ class SeamTestCase(unittest.TestCase):
         }
         manifest.update(overrides)
         return manifest
+
+
+#: A settled Sage wall: it opens, then goes DORMANT (the server stops
+#: replicating an actor that is still standing). `dormant` is the third value
+#: of `actors.event`; there is no `close` here, because nothing destroyed it.
+SAGE_WALL_CLASS = "/Game/Characters/Sage/S0/Ability_Barrier/BarrierProjectile_C"
+
+DORMANCY_ACTOR_ROWS = [
+    {"time_ms": 100, "packet_id": 1, "actor": 501, "event": "open",
+     "class_path": SAGE_WALL_CLASS, "archetype_path": "Default__Barrier",
+     "spawn_x": 1.0, "spawn_y": 2.0, "spawn_z": 3.0},
+    # Destroyed for real, early.
+    {"time_ms": 200, "packet_id": 2, "actor": 502, "event": "open",
+     "class_path": SAGE_WALL_CLASS, "archetype_path": "Default__Barrier",
+     "spawn_x": 4.0, "spawn_y": 5.0, "spawn_z": 6.0},
+    {"time_ms": 3200, "packet_id": 3, "actor": 502, "event": "close"},
+    # Settles into dormancy, still alive.
+    {"time_ms": 40100, "packet_id": 4, "actor": 501, "event": "dormant"},
+]
+
+
+class ActorLifecycleEventTests(SeamTestCase):
+    """`actors.event` has THREE values and this file used to publish two.
+
+    The branch was `if event == "open": spawn else: closed`, so every `dormant`
+    row -- the server suspending replication of an actor that is STILL ALIVE --
+    published as `actor_closed`. valplay reads `actor_closed` as a despawn
+    (`pipeline/metrics/ability_detail.py` pairs spawn/close into a lifetime), so
+    a settled smoke, wall or trap read as destroyed with its lifetime truncated
+    to the moment it stopped moving.
+
+    CLAUDE.md names this trap outright, and `tools/extract_active_effects.py`
+    in this same directory already honours it on the same column.
+    """
+
+    def read_events(self, out):
+        text = (out / "events.ndjson").read_text(encoding="utf-8")
+        return [json.loads(line) for line in text.splitlines()]
+
+    def convert(self, actor_rows):
+        with tempfile.TemporaryDirectory() as tmp:
+            out, published, _ = self.build(
+                tmp, actor_rows=actor_rows, manifest=self.full_manifest()
+            )
+            return self.read_events(out), published
+
+    def test_a_dormant_row_is_not_published_as_a_despawn(self):
+        """The defect itself. `dormant` must not become `actor_closed`."""
+        events, _ = self.convert(DORMANCY_ACTOR_ROWS)
+        closed = [e for e in events if e["type"] == "actor_closed"]
+        self.assertEqual(
+            [e["actor_net_guid"] for e in closed], [502],
+            "a dormant actor was published as a despawn: "
+            f"{[(e['type'], e['actor_net_guid']) for e in events]}",
+        )
+
+    def test_a_dormant_row_is_published_under_its_own_type(self):
+        """Not dropped either: the row and its timestamp are real data."""
+        events, _ = self.convert(DORMANCY_ACTOR_ROWS)
+        dormant = [e for e in events if e["type"] == "actor_dormant"]
+        self.assertEqual(len(dormant), 1, events)
+        self.assertEqual(dormant[0]["actor_net_guid"], 501)
+        self.assertEqual(dormant[0]["time_ms"], 40100)
+
+    def test_every_actors_row_still_becomes_exactly_one_event(self):
+        """No row is lost and none is duplicated by the re-labelling."""
+        events, _ = self.convert(DORMANCY_ACTOR_ROWS)
+        lifecycle = [
+            e for e in events
+            if e["type"] in {"actor_spawned", "actor_closed", "actor_dormant",
+                             "actor_lifecycle_unknown"}
+        ]
+        self.assertEqual(len(lifecycle), len(DORMANCY_ACTOR_ROWS))
+
+    def test_the_raw_wire_value_is_carried_on_the_event(self):
+        """A consumer can audit the mapping instead of trusting the type name."""
+        events, _ = self.convert(DORMANCY_ACTOR_ROWS)
+        by_type = {
+            e["type"]: e.get("actor_event")
+            for e in events if e["type"] in {"actor_closed", "actor_dormant"}
+        }
+        self.assertEqual(by_type, {"actor_closed": "close",
+                                   "actor_dormant": "dormant"})
+
+    def test_an_unknown_event_value_is_not_folded_into_a_close(self):
+        """A fourth value must be a visible unknown, never a plausible despawn.
+
+        This is the same drift one step ahead: `dormant` WAS such a value once,
+        and the `else` turned it into a despawn silently.
+        """
+        rows = [
+            {"time_ms": 100, "packet_id": 1, "actor": 601, "event": "open",
+             "class_path": SAGE_WALL_CLASS, "archetype_path": "Default__X"},
+            {"time_ms": 200, "packet_id": 2, "actor": 601,
+             "event": "torn_off_in_a_future_build"},
+        ]
+        events, published = self.convert(rows)
+        lifecycle = [
+            e["type"] for e in events if e["type"].startswith("actor_")
+        ]
+        self.assertEqual(
+            lifecycle, ["actor_spawned", "actor_lifecycle_unknown"], events)
+        self.assertNotIn("actor_closed", lifecycle)
+        unknown = [e for e in events if e["type"] == "actor_lifecycle_unknown"][0]
+        self.assertEqual(unknown["actor_event"], "torn_off_in_a_future_build")
+        self.assertEqual(
+            published["adapter"]["losses"]["unknown_actor_lifecycle_events"], 1,
+            "an unrecognised lifecycle value was published without a count",
+        )
+
+    def test_the_known_values_do_not_touch_the_unknown_counter(self):
+        """The counter must not cry wolf on the three values that are known."""
+        _, published = self.convert(DORMANCY_ACTOR_ROWS)
+        self.assertEqual(
+            published["adapter"]["losses"]["unknown_actor_lifecycle_events"], 0)
+
+    def test_the_event_type_map_covers_the_values_claude_md_documents(self):
+        """`open` is handled by the branch above the map; `close`/`dormant` in it.
+
+        Pins the three-value fact itself, so a map that quietly lost `dormant`
+        again is a red test rather than a silent despawn.
+        """
+        self.assertEqual(set(bundle._ACTOR_EVENT_TYPES),
+                         {"close", "dormant"})
+        self.assertEqual(bundle._ACTOR_EVENT_TYPES["close"], "actor_closed")
+        self.assertNotEqual(bundle._ACTOR_EVENT_TYPES["dormant"],
+                            bundle._ACTOR_EVENT_TYPES["close"])
+
+    def test_spawns_are_unchanged_by_the_dormancy_split(self):
+        """The open branch must keep its class path, archetype and location."""
+        events, _ = self.convert(DORMANCY_ACTOR_ROWS)
+        spawns = [e for e in events if e["type"] == "actor_spawned"]
+        self.assertEqual(len(spawns), 2)
+        first = [e for e in spawns if e["actor_net_guid"] == 501][0]
+        self.assertEqual(first["archetype_path"], "Default__Barrier")
+        self.assertEqual(first["location"], {"x": 1.0, "y": 2.0, "z": 3.0})
+        self.assertTrue(first["replication_class_path"].endswith(
+            "BarrierProjectile_C"))
+
+    def test_the_fallback_path_does_not_claim_a_close_reason_it_cannot_know(self):
+        """With no actors.parquet there is no `event` column at all.
+
+        The inferred close comes from the last field row, which says nothing
+        about WHY the actor stopped appearing. `actor_event` is null there --
+        a visible absence rather than a fabricated "close".
+        """
+        with tempfile.TemporaryDirectory() as tmp:
+            out, _, _ = self.build(tmp, manifest=self.full_manifest())
+            events = self.read_events(out)
+        closed = [e for e in events if e["type"] == "actor_closed"]
+        self.assertTrue(closed)
+        for event in closed:
+            self.assertIsNone(event["actor_event"])
+            self.assertIn("actor_event", event)
 
 
 class UpstreamAccountingForwardingTests(SeamTestCase):
