@@ -220,9 +220,22 @@ fields requires re-exporting from the original `.vrf`.
 
 ### `actors.parquet` -- actor spawn/despawn
 
-`event` (`open` / `close`), `class_path`, `archetype_path`,
+`event` (`open` / `close` / `dormant`), `class_path`, `archetype_path`,
 `spawn_x/y/z`, `spawn_pitch/yaw/roll`. This is where weapon and ability
 instance classes are found.
+
+**Three values, not two, and only `close` is a despawn.**
+`ChannelCloseReason::Dormancy` means the server stopped replicating an actor that
+is still alive, so it is exported as `dormant`; every other close reason is the
+actor going away. Both labels were written as `close` until the flag was plumbed
+through to the row, and that cost real time: a persistent effect settling into
+dormancy read as a despawn, so its lifetime ended early and the later wake-up
+re-open read as a *second spawn of the same object*. No row and no timestamp was
+ever lost -- only the label was wrong, and only for the closes that were never
+despawns. Code that pairs spawns with despawns must therefore treat `dormant` as
+neither: the channel keeps its archetype across a dormant close
+(`crates/vrfkit/src/sink/stream.rs`), and the matching `open` is a wake-up, not a
+new instance.
 
 ### `net_guids.parquet` -- GUID to path, and containment
 
@@ -311,9 +324,31 @@ disabling it would produce files this crate could not explain.
 
 CI also compiles every advertised core-only and singleton feature from
 `--no-default-features`, checks all workspace targets/all features, builds the
-standalone probe tool, and runs strict rustdoc. Copy the exact executable
-matrix from [`CONTRIBUTING.md`](CONTRIBUTING.md#before-you-open-a-pr); it is the
-same list in `.github/workflows/ci.yml`.
+standalone probe tool, and runs strict rustdoc. The executable matrix is in
+[`CONTRIBUTING.md`](CONTRIBUTING.md#before-you-open-a-pr) as 25 `cargo check`
+lines; `.github/workflows/ci.yml` expresses **the same 25 cases** as a PowerShell
+array of `@("crate","feature")` pairs. Same set, same order, two notations -- so
+they are not copies of one another and nothing checks that they agree. If you add
+a case, add it in both, and confirm the sets still match rather than eyeballing
+them:
+
+```bash
+python - <<'EOF'
+import re
+sh = re.findall(r'cargo \+1\.86\.0 check -p (\S+) --no-default-features'
+                r'(?: --features (\S+))? --locked',
+                open('CONTRIBUTING.md', encoding='utf-8').read())
+block = re.search(r'\$matrix = @\((.*?)\n\s*\)',
+                  open('.github/workflows/ci.yml', encoding='utf-8').read(), re.S).group(1)
+ci = re.findall(r'@\("([^"]+)",\s*"([^"]*)"\)', block)
+sh = [(c, f or '') for c, f in sh]
+print(len(sh), 'in CONTRIBUTING,', len(ci), 'in ci.yml; identical:', sh == ci)
+print('only in CONTRIBUTING:', sorted(set(sh) - set(ci)))
+print('only in ci.yml:', sorted(set(ci) - set(sh)))
+EOF
+```
+
+(Measured 2026-08-30: 25 and 25, identical -- including order.)
 
 ## Performance
 
@@ -528,14 +563,24 @@ a claim about Unreal, not a guess about any one Blueprint, and it holds for
 groups no replay has spawned yet. It types 6,048 further rows with decode errors
 still at zero across the 215-replay corpus.
 
-`02d4d478` at the current HEAD:
+`02d4d478` (`02d4d478-1dfb-4412-9a77-29ca29105a9d.vrf`), as recorded by the
+committed export baseline `tools/baselines/export_02d4d478.json` (pinned in
+`ee34e9a`) -- not retyped from a console:
 
 ```
-Decoded OK:   716,633      Decode errors:      0
-Raw/Skip:      74,657      Not in table: 195,697
-No field name:  1,996      Typed:          72.5%
+Decoded OK:   742,738      Decode errors:      0
+Raw/Skip:      72,644      Not in table: 171,605
+No field name:  1,996      Typed:          75.1%
 Effect blobs:  53,908
 ```
+
+The four buckets partition `Rows offered` exactly (742,738 + 72,644 + 171,605 +
+1,996 = 988,983), and `Typed` is `Decoded OK / Rows offered`. The figures this
+block held until 2026-08-30 partitioned the same 988,983 rows differently -- they
+were an older snapshot, taken before overlay entries that moved rows out of `Not
+in table`, and they contradicted the baseline this repo commits for the same
+replay. `check_docs.py` compares the *parquet row/byte table* against that
+baseline but not these counters, so the drift went unreported.
 
 **Effect decoding is additive and does not move these buckets.** The overlay
 buckets are settled before the effect pass, so rows that gained a value from an
@@ -543,10 +588,23 @@ effect are still counted under `Not in table`; merging them into `Decoded OK`
 would double-count and move the baseline for unrelated reasons. `Effect blobs`
 is reported separately -- without it, 53,908 rows gain a value yet the summary
 prints identically. (The bucket counts themselves do move as overlay entries
-are added; the figures above are post-economy-typing.)
+are added, which is exactly how the figures above went stale once; they are
+whatever `tools/baselines/export_02d4d478.json` currently records.)
 
-The real coverage figure is the fraction of all 1,256,947 rows with a filled
-`value_*`. Before effect linkage 68.8% were untyped; it is now **36.8%.**
+The real coverage figure is the fraction of all 1,277,658 rows in
+`fields.parquet` with a filled `value_*`. Against the baseline above, overlay
+typing alone leaves **41.9%** untyped (`1 - 742,738/1,277,658`); adding the
+53,908 effect blobs brings it to **37.6%**. Both are derived from
+`tools/baselines/export_02d4d478.json` -- `overlay_decoded_ok`,
+`effect_blobs_decoded` and `parquet.fields.rows` -- so they can be recomputed
+without a replay on disk:
+
+```bash
+python -c "import json; c=json.load(open('tools/baselines/export_02d4d478.json')); \
+n=c['parquet']['fields']['rows']; k=c['counters']; \
+print('overlay only %.1f%%' % (100*(1-k['overlay_decoded_ok']/n))); \
+print('with effects %.1f%%' % (100*(1-(k['overlay_decoded_ok']+k['effect_blobs_decoded'])/n)))"
+```
 
 **These numbers change often; re-measure before quoting** -- four of the six
 were left stale at one point:
@@ -562,7 +620,7 @@ denominator includes every RPC parameter, so it reads low -- most of `Not in
 table` is RPC parameters without a C# descriptor, plus the groups the replay
 declares (475) that are not in the table. (Rows with a filled `value_*` also
 include additive decoders like effects and structs, so real value coverage is
-wider than this ratio -- see the 36.8% untyped figure above.) A row whose type
+wider than this ratio -- see the 37.6% untyped figure above.) A row whose type
 is unknown still ships with `raw_bits`, so it is **uninterpreted, not lost.**
 
 `fields.parquet` also carries the replay's own `compatible_checksum` per row,

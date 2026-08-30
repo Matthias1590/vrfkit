@@ -135,8 +135,12 @@ member and handle by name.
 #### Reading the `Typed` ratio
 
 ```
-  Typed:            72.5% (properties + RPC parameters)
+  Typed:            75.1% (properties + RPC parameters)
 ```
+
+(That figure is `02d4d478`'s, from `tools/baselines/export_02d4d478.json`:
+`overlay_decoded_ok / overlay_rows_offered` = 742,738 / 988,983. It moves as
+overlay entries are added -- re-measure before quoting it.)
 
 The denominator is **every row offered** to the overlay, and thanks to RPC
 parameter expansion it includes both replicated properties and RPC parameters.
@@ -466,7 +470,7 @@ Those 133 corrections are the whole live expectation set the script re-verifies;
 subset of it that has no C# descriptor behind it at all.
 
 The `ADDITIONS` pass inserts items the C# descriptor is **silent on**. There are
-currently 70 of them, and every one is admitted on wire evidence written into the
+currently 73 of them, and every one is admitted on wire evidence written into the
 comment above the list -- bit width, value range, distribution -- and nothing else.
 The original three still show the bar: `BaseTeamState.LoadoutValue` /
 `AverageLoadoutValue` (26-I, where the reference declares the type of the same
@@ -475,6 +479,19 @@ property and only moves the group) and `BombGameState.ChosenCeremonyForRound`
 reason these additions are allowed -- read archive/PROJECT_STATUS.md 26-I and 32
 first, and read the "Deliberately NOT added" note in the same comment, which
 records the fields that failed the bar and why.
+
+Both counts above are measured, not maintained by hand. `check_docs.py` reads the
+133 against `expectation_count(table.rs)`, so a stale one is caught -- but
+**nothing checks the `ADDITIONS` figure**, which is why it sat at 70 while the
+list held 73. Re-measure it by importing the module rather than counting the
+source by eye (`tools/` has to be on the path; the module imports `atomic_io`
+from beside itself):
+
+```bash
+python -c "import importlib.util,sys; sys.path.insert(0,'tools'); \
+spec=importlib.util.spec_from_file_location('atc','tools/apply_type_corrections.py'); \
+m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); print(len(m.ADDITIONS))"
+```
 
 ### Validation
 

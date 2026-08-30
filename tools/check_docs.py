@@ -27,11 +27,26 @@ and passes every test. So this reads the repo and the docs and compares:
      `CLAUDE.md` too
  11. generated-file inventories include every live target and generator
  12. README and USAGE export rows/bytes match the committed baseline JSON
+ 13. the four overlay buckets in the committed baseline still partition
+     `overlay_rows_offered` exactly, and every counter the docs quote is still
+     present in it -- see `overlay_partition_problems`
+ 14. no quoted overlay counter or `Typed` ratio in any of `ALL_DOCS` is stale,
+     against that same baseline -- see `stale_overlay_counters`
+ 15. README still carries the overlay summary block at all, so (14) cannot be
+     satisfied by deleting it -- see `check_overlay_counters_present`
 
 (6) is (5) upgraded the way (8) was: (5) asks only whether the live number
 appears somewhere in README and USAGE, so a stale size could sit one line from
 the correct one and be excused by it -- exactly how `387 tests` and
 `355 passing` coexisted for twelve commits.
+
+(13)-(15) are (12) extended to the same file's `counters`. (12) compared the
+parquet row/byte table against `tools/baselines/export_02d4d478.json` and stopped
+there, so README's overlay summary block -- `Decoded OK`, `Raw/Skip`, `Not in
+table`, `No field name`, `Typed` -- was an older snapshot of the same replay,
+partitioning the same 988,983 rows differently, contradicting the baseline this
+repo commits, with nothing reading it. All of it is derivable from that committed
+JSON, so none of these needs a `.vrf`.
 
 (9) and (10) exist because this file used to read exactly two documents. Every
 number in `docs/DATA.md` -- the most number-dense file in the repo -- and in
@@ -282,15 +297,36 @@ ALL_DOCS = ("README.md", "docs/USAGE.md", "docs/DATA.md", "CONTRIBUTING.md",
             "CLAUDE.md")
 
 #: Numbers that are quoted in prose *and* produced by something runnable, with
-#: the phrasing narrow enough that a match is always that claim. Both of these
-#: rotted while sitting in files this guard already read.
-#: `(count pattern, line context)`. The context is what keeps "files" from
-#: meaning the corpus: README says "all 215 files" about replays two lines
-#: apart from nothing to do with ASCII. A line must name the check to be read
-#: as claiming its count.
+#: the phrasing narrow enough that a match is always that claim. All three of
+#: these rotted while sitting in files this guard already read.
+#: `(count pattern, context, context window)`. The context is what keeps "files"
+#: from meaning the corpus: README says "all 215 files" about replays two lines
+#: apart from nothing to do with ASCII. A line must name the check to be read as
+#: claiming its count.
+#:
+#: The window is how many lines ABOVE the count the context may appear on, and 0
+#: -- same line only -- is the default every entry had when this was a pair. It
+#: exists because prose wraps: USAGE.md writes "The `ADDITIONS` pass ... There
+#: are" and then "currently 73 of them" on the next line, so a same-line context
+#: matched nothing and the count went unchecked while the guard still printed
+#: "OK: the docs still describe this repo". Widening the *pattern* instead would
+#: have been the other way to fix that, and the wrong one: "currently N of them"
+#: with no context is a generic English phrase that some future paragraph will
+#: use about something else.
 MEASURED_RE = {
-    "ascii": (re.compile(r"(\d+) files?\b"), re.compile(r"ascii", re.I)),
-    "corrections": (re.compile(r"(\d+) corrections"), None),
+    "ascii": (re.compile(r"(\d+) files?\b"), re.compile(r"ascii", re.I), 0),
+    "corrections": (re.compile(r"(\d+) corrections"), None, 0),
+    # `ADDITIONS` is the descriptor-silent subset of the corrections list, and
+    # it rotted exactly the way `corrections` did -- USAGE said 70 while the
+    # list held 73. `expectation_count` was guarded; this was not.
+    #
+    # The context is what makes the phrasing safe to read as this claim.
+    # "currently N of them" is not a sentence anything else in these docs
+    # writes, but it is generic on its own, so a line only counts when it also
+    # names ADDITIONS. That pairing is the same bargain the `ascii` row strikes
+    # to keep "all 215 files" from being read as the ASCII sweep's count.
+    "additions": (re.compile(r"currently (\d+) of them"),
+                  re.compile(r"ADDITIONS"), 2),
 }
 
 
@@ -365,6 +401,141 @@ def check_baseline_figures(
     return problems
 
 
+#: The overlay summary block README reprints, mapped to the baseline counter
+#: each line quotes. `vrfkit export` prints these; the committed baseline
+#: `tools/baselines/export_02d4d478.json` records them for the reference replay,
+#: so every one of them is checkable with no `.vrf` on disk -- which matters,
+#: because CI has none and neither does any machine without the private corpus.
+#:
+#: `check_baseline_figures` already compares the parquet row/byte table against
+#: this same file. It did not read these, and they drifted: the block was an
+#: older snapshot that partitioned the same 988,983 rows differently, taken
+#: before overlay entries moved rows out of `Not in table`. It contradicted the
+#: baseline this repo commits for the same replay and nothing said so.
+#:
+#: Keyed by the label as printed, so a match is always that counter.
+#:
+#: `Decode errors` is deliberately NOT here, though the same block prints it and
+#: the baseline records it. The string "Decode errors: 0" is used across this
+#: repo as the NAME of a failure mode rather than as a measurement of this
+#: replay -- CLAUDE.md twice ("means the decoder did not throw"), docs/DATA.md
+#: once, and docs/USAGE.md as an annotated illustration of what to watch. All
+#: four are correct English about the general case and none is a claim about
+#: `export_02d4d478.json`. Guarding it would fire on every one of them the first
+#: time the baseline records a nonzero value, which is a guard that gets deleted
+#: rather than fixed -- and the counter it would protect is the one the repo's
+#: own doctrine says proves the least ("Decode errors: 0 means the decoder did
+#: not throw. It does not mean the values are right."). The five it does guard
+#: are the ones that only ever appear as this replay's measured figures.
+OVERLAY_COUNTER_KEYS = {
+    "Decoded OK": "overlay_decoded_ok",
+    "Raw/Skip": "overlay_raw_skip",
+    "Not in table": "overlay_not_in_table",
+    "No field name": "overlay_no_field_name",
+    "Effect blobs": "effect_blobs_decoded",
+}
+
+#: The four buckets that partition every row offered to the overlay. Their sum
+#: is `overlay_rows_offered` exactly -- not approximately -- so the relationship
+#: is checkable arithmetic rather than six independent equalities. A future
+#: baseline that breaks it means either a bucket was added or one of these
+#: stopped counting, and both are worth a red build.
+OVERLAY_PARTITION = ("overlay_decoded_ok", "overlay_raw_skip",
+                     "overlay_not_in_table", "overlay_no_field_name")
+
+#: `Typed` is not stored; it is `Decoded OK / Rows offered` as a percentage, and
+#: it is quoted in both README and USAGE. Derived rather than pinned, so it
+#: cannot drift away from the two counters it is a ratio of.
+TYPED_RE = re.compile(r"Typed:\s*([\d.]+)%")
+
+
+def baseline_overlay_counters() -> dict[str, int]:
+    """The overlay counters the committed reference export recorded."""
+    export = json.loads(read(REPO / "tools" / "baselines" / "export_02d4d478.json"))
+    return {k: int(v) for k, v in export["counters"].items()}
+
+
+def overlay_partition_problems(counters: dict[str, int]) -> list[str]:
+    """The buckets must still add up, and the keys must still be there.
+
+    A missing key would otherwise make every quoted line unverifiable while
+    `stale_overlay_counters` skipped it and this file printed OK -- the same
+    hole `measured_counts` had for the ascii count.
+    """
+    problems = []
+    needed = set(OVERLAY_PARTITION) | {"overlay_rows_offered"} | set(
+        OVERLAY_COUNTER_KEYS.values())
+    for key in sorted(needed - counters.keys()):
+        problems.append(
+            f"export_02d4d478.json: counters.{key} is missing, so every doc "
+            f"line quoting it went unchecked")
+    if needed - counters.keys():
+        return problems
+
+    total = sum(counters[k] for k in OVERLAY_PARTITION)
+    offered = counters["overlay_rows_offered"]
+    if total != offered:
+        problems.append(
+            f"export_02d4d478.json: the four overlay buckets sum to {total:,} "
+            f"but counters.overlay_rows_offered is {offered:,}; they are "
+            f"documented as a partition of every row offered "
+            f"({' + '.join(k.removeprefix('overlay_') for k in OVERLAY_PARTITION)})")
+    return problems
+
+
+def stale_overlay_counters(docs: dict[str, str],
+                           counters: dict[str, int]) -> list[str]:
+    """Every quoted overlay counter, in any doc, that is not the live one.
+
+    The stronger question `stale_measured_counts` asks, for the same reason: a
+    stale figure must not be excused by a correct one nearby. Scoped to the
+    printed `Label: N` form, so prose that merely names a bucket -- README's
+    "most of `Not in table` is RPC parameters" -- is not read as quoting it.
+    """
+    problems = []
+    for name, text in docs.items():
+        for i, line in enumerate(text.splitlines(), 1):
+            for label, key in OVERLAY_COUNTER_KEYS.items():
+                if key not in counters:
+                    continue
+                for quoted in re.findall(
+                        rf"{re.escape(label)}:\s*([\d,]+)", line):
+                    if int(quoted.replace(",", "")) != counters[key]:
+                        problems.append(
+                            f"{name}:{i}: says {label} {quoted}, but "
+                            f"counters.{key} is {counters[key]:,}")
+            if "overlay_decoded_ok" not in counters:
+                continue
+            for quoted in TYPED_RE.findall(line):
+                # Compared at the precision the doc chose, so 75.1 and 75.10
+                # are the same claim and 75.2 is not.
+                places = len(quoted.partition(".")[2])
+                live = round(
+                    100 * counters["overlay_decoded_ok"]
+                    / counters["overlay_rows_offered"], places)
+                if float(quoted) != live:
+                    problems.append(
+                        f"{name}:{i}: says Typed {quoted}%, but "
+                        f"overlay_decoded_ok / overlay_rows_offered is "
+                        f"{live}% ({counters['overlay_decoded_ok']:,} / "
+                        f"{counters['overlay_rows_offered']:,})")
+    return problems
+
+
+def check_overlay_counters_present(readme: str,
+                                   counters: dict[str, int]) -> list[str]:
+    """README must still carry the block, not merely not contradict it.
+
+    Without this, deleting the summary block would satisfy
+    `stale_overlay_counters` perfectly -- nothing quoted, nothing wrong -- and
+    the guard would go on reporting that it checked something.
+    """
+    return [f"README.md: overlay summary block is missing `{label}:`"
+            for label, key in OVERLAY_COUNTER_KEYS.items()
+            if key in counters
+            and not re.search(rf"{re.escape(label)}:\s*[\d,]+", readme)]
+
+
 def measured_counts(problems: list[str] | None = None) -> dict[str, int]:
     """The live values, read from the things that produce them.
 
@@ -385,11 +556,21 @@ def measured_counts(problems: list[str] | None = None) -> dict[str, int]:
             f"{r.returncode} ({(r.stderr or '').strip()[:120]}); every quoted "
             f"count went unchecked")
 
+    # `tools/` on the path first: apply_type_corrections.py imports `atomic_io`
+    # from beside itself, and under `spec_from_file_location` that import is
+    # resolved against sys.path, not against the file's own directory. Without
+    # this the exec_module below raises ModuleNotFoundError.
+    if str(REPO / "tools") not in sys.path:
+        sys.path.insert(0, str(REPO / "tools"))
     spec = importlib.util.spec_from_file_location(
         "_atc", REPO / "tools" / "apply_type_corrections.py")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     counts["corrections"] = module.expectation_count(read(module.TABLE_RS))
+    # Measured by importing the module, not by counting source lines -- the
+    # list spans a commented block per entry, so any line-counting heuristic
+    # would be a second thing to keep in step with it.
+    counts["additions"] = len(module.ADDITIONS)
     return counts
 
 
@@ -399,14 +580,28 @@ def stale_measured_counts(docs: dict[str, str], live: dict[str, int]) -> list[st
     Not "does the right number appear somewhere" -- that is the check that let
     README hold 387 and 355 at once. Every match must be right, so a file
     saying 85, 86 and 49 corrections reports two problems, not zero.
+
+    A count is only read as a claim when its context appears on the same line or
+    within `window` lines above it -- see `MEASURED_RE` for why a window exists
+    at all.
     """
-    return [f"{name}:{i}: says {quoted} {what}, but it is {live[what]}"
-            for name, text in docs.items()
-            for i, line in enumerate(text.splitlines(), 1)
-            for what, (pattern, context) in MEASURED_RE.items() if what in live
-            if context is None or context.search(line)
-            for quoted in pattern.findall(line)
-            if int(quoted) != live[what]]
+    problems = []
+    for name, text in docs.items():
+        lines = text.splitlines()
+        for i, line in enumerate(lines, 1):
+            for what, (pattern, context, window) in MEASURED_RE.items():
+                if what not in live:
+                    continue
+                if context is not None:
+                    scope = lines[max(0, i - 1 - window):i]
+                    if not any(context.search(ln) for ln in scope):
+                        continue
+                for quoted in pattern.findall(line):
+                    if int(quoted) != live[what]:
+                        problems.append(
+                            f"{name}:{i}: says {quoted} {what}, but it is "
+                            f"{live[what]}")
+    return problems
 
 
 def measure_tests() -> tuple[int, int, list[str]]:
@@ -452,6 +647,7 @@ def main() -> int:
 
     measurement_problems: list[str] = []
     live_counts = measured_counts(measurement_problems)
+    overlay_counters = baseline_overlay_counters()
 
     problems = (
         check_tools(usage)
@@ -466,12 +662,15 @@ def main() -> int:
         + stale_measured_counts(every, live_counts)
         + check_generated_inventory(generated_docs)
         + check_baseline_figures(docs, baseline_table_figures())
+        + overlay_partition_problems(overlay_counters)
+        + stale_overlay_counters(every, overlay_counters)
+        + check_overlay_counters_present(readme, overlay_counters)
         + [p for name in ALL_DOCS
            for p in check_links(REPO / name, every[name])
            if name not in ("README.md", "docs/USAGE.md")]
     )
 
-    checked = 12
+    checked = 15
     if not args.fast:
         rust, tools_n, run_problems = measure_tests()
         problems += run_problems
