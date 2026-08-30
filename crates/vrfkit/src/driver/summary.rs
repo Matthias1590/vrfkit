@@ -30,8 +30,8 @@ pub(super) struct RunTotals {
     pub replay_data_trailing_bytes: u64,
     pub elapsed: Duration,
     /// Event payloads whose declared word count did not fit the payload, so no
-    /// typed words were exported for them. Printed only when non-zero; a
-    /// non-zero value means an Event group changed shape.
+    /// typed words were exported for them. Printed unconditionally, zero
+    /// included; a non-zero value means an Event group changed shape.
     pub event_layout_mismatches: u64,
     /// The first such mismatch verbatim, so the summary can name the group.
     pub event_first_layout_mismatch: Option<String>,
@@ -141,9 +141,11 @@ pub(super) fn print(
     if let Some(err) = &totals.sink.movement_first_error {
         eprintln!("  Movement err:     {err}");
     }
-    // Printed only when non-zero: valid replays produce zero and the line would
-    // otherwise be noise on the pinned summary. A non-zero value means the
-    // array walker abandoned bits mid-element and flattened leaves were lost.
+    // Printed unconditionally, zeros included, for the reason the `Struct blobs`
+    // line above gives: a line that appears only when non-zero cannot tell
+    // "the array walker found nothing wrong" from "the array walker was never
+    // reached". A non-zero value means it abandoned bits mid-element and
+    // flattened leaves were lost.
     eprintln!(
         "  Array decode:     {} elements / {} fields / {} errors / {} truncations",
         totals.sink.array.elements_decoded,
