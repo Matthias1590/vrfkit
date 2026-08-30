@@ -19,6 +19,13 @@ slow" and nothing finer. A run well *under* the baseline is reported too --
 that means the baseline no longer describes the code, which needs the same
 attention as a regression.
 
+Only the default (checkpoint-free) timing is RECORDABLE.
+`tools/check_baseline_schemas.py` accepts exactly `{export, replay}` in
+`bench.json` and rejects anything else, so `--checkpoints --update` is refused
+rather than writing an `export_checkpoints` key that makes the committed
+baseline fail this repo's own pre-PR sweep. `--checkpoints` without `--update`
+still times and prints the number; see `BASELINE_KEYS`.
+
 Usage:
     python tools/bench_export.py --exe ./target/release/vrfkit.exe \\
         --replay "$VRFKIT_CORPUS_DIR/02d4d478-....vrf"
@@ -44,6 +51,26 @@ else:  # direct script execution
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_BASELINE = REPO / "tools" / "baselines" / "bench.json"
+
+#: The exact key set `tools/check_baseline_schemas.py` accepts in `bench.json`
+#: (`validate_bench_baseline`, via `_keys`). It is an EQUALITY check, not a
+#: subset one, so any other key makes the committed baseline invalid and the
+#: pre-PR sweep in CONTRIBUTING.md go red on `check_baseline_schemas.py`.
+#:
+#: This tool used to write `export_checkpoints` here under `--checkpoints
+#: --update` -- a generator emitting a file its own repo's validator rejects.
+#: The SKIP message on the comparison path then advised recording one with
+#: `--update`, which is advice that cannot be followed: doing it produces a
+#: baseline that fails the sweep. `--checkpoints --update` is now refused
+#: loudly and names what would have to change, rather than writing the key and
+#: leaving the rejection to be discovered later by a confusing error about a
+#: file this tool wrote.
+BASELINE_KEYS = frozenset({"export", "replay"})
+
+#: The timing key each mode measures. Only `export` has a slot in
+#: `BASELINE_KEYS`; `export_checkpoints` is measurable and printable but not
+#: recordable, and `--update` says so instead of writing it.
+TIMING_KEYS = {False: "export", True: "export_checkpoints"}
 
 #: Fraction either side of the baseline that counts as noise rather than news.
 #: Wall clock on a developer machine moves more than people expect -- a browser
@@ -109,7 +136,10 @@ def main() -> int:
     ap.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
     ap.add_argument("--repeats", type=int, default=5)
     ap.add_argument("--tolerance", type=float, default=DEFAULT_TOLERANCE)
-    ap.add_argument("--checkpoints", action="store_true")
+    ap.add_argument("--checkpoints", action="store_true",
+                    help="also decode checkpoints; times and prints the number "
+                         "but cannot be recorded -- bench.json has no slot for "
+                         "it (see BASELINE_KEYS)")
     ap.add_argument("--update", action="store_true",
                     help="rewrite the baseline with this run's numbers")
     args = ap.parse_args()
@@ -119,18 +149,37 @@ def main() -> int:
             print(f"SKIP: no {what} at {path}", file=sys.stderr)
             return 0
 
+    key = TIMING_KEYS[bool(args.checkpoints)]
+
+    # Refused BEFORE the timing runs: recording is the only thing --update
+    # does, so spending minutes on repeated exports to then reject the write
+    # would waste the run and read as a benchmark failure.
+    if args.update and key not in BASELINE_KEYS:
+        print(f"--checkpoints --update cannot be recorded: bench.json accepts "
+              f"exactly {sorted(BASELINE_KEYS)}, and check_baseline_schemas.py "
+              f"rejects any other key, so writing {key!r} would produce a "
+              f"baseline that fails the pre-PR sweep. Re-run without "
+              f"--checkpoints to record the export baseline, or time "
+              f"checkpoints without --update to just read the number. Adding "
+              f"a checkpoint baseline means teaching "
+              f"check_baseline_schemas.py's validate_bench_baseline the key "
+              f"first.", file=sys.stderr)
+        return 2
+
     samples = time_export(args.exe, args.replay, args.repeats, args.checkpoints)
     seconds = median(samples)
-    key = "export_checkpoints" if args.checkpoints else "export"
     print(f"{key}: median {seconds:.3f}s over {args.repeats} runs "
           f"(min {min(samples):.3f}, max {max(samples):.3f})")
 
     if args.update:
-        data = {}
-        if args.baseline.exists():
-            data = json.loads(args.baseline.read_text(encoding="utf-8"))
-        data[key] = round(seconds, 3)
-        data["replay"] = args.replay.name
+        # Written from scratch, NOT merged into what is already there. The
+        # merge kept every key the old file had while replacing `replay`, so
+        # recording against a different replay left the previous replay's
+        # timing sitting under the new replay's name -- a plausible wrong
+        # number attributed to a measurement that never happened. `replay` and
+        # the timing beside it come from the same run or neither does.
+        data = {"export": round(seconds, 3), "replay": args.replay.name}
+        assert set(data) == set(BASELINE_KEYS), data
         atomic_write_text(args.baseline, json.dumps(data, indent=2) + "\n")
         print(f"wrote {args.baseline}")
         return 0
@@ -141,7 +190,16 @@ def main() -> int:
 
     data = json.loads(args.baseline.read_text(encoding="utf-8"))
     if key not in data:
-        print(f"SKIP: baseline has no {key} entry -- record one with --update")
+        # No "record one with --update" here for the checkpoint key: that is
+        # advice this tool cannot honour (see BASELINE_KEYS), and pointing a
+        # reader at a command that produces an invalid baseline is worse than
+        # saying plainly that there is nothing to compare against.
+        recordable = key in BASELINE_KEYS
+        print(f"SKIP: baseline has no {key} entry"
+              + (" -- record one with --update" if recordable else
+                 f" and bench.json has no slot for one, so this timing has "
+                 f"nothing to compare against (only "
+                 f"{sorted(BASELINE_KEYS)} are recorded)"))
         return 0
 
     verdict, ratio = compare(seconds, data[key], args.tolerance)
