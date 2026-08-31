@@ -949,6 +949,74 @@ mod event_chunks {
     }
 
     #[test]
+    fn event_payload_reference_round_start_exposes_every_structural_value() {
+        let payload = parse_event_payload(&REFERENCE_ROUND_START_PAYLOAD, 1)
+            .expect("the measured one-word layout must consume the payload exactly");
+
+        assert_eq!(payload.tag, 2);
+        assert_eq!(payload.words, vec![0]);
+        assert_eq!(payload.name, "EReplayEventGroup::RoundStart");
+        assert_eq!(payload.seconds.to_bits(), 0x3D7F_C022);
+    }
+
+    #[test]
+    fn event_payload_refuses_a_word_count_that_does_not_consume_exactly() {
+        assert!(parse_event_payload(&REFERENCE_ROUND_START_PAYLOAD, 0).is_none());
+        assert!(parse_event_payload(&REFERENCE_ROUND_START_PAYLOAD, 2).is_none());
+    }
+
+    #[test]
+    fn known_event_groups_publish_only_measured_word_counts() {
+        assert_eq!(known_event_word_count("characterDeath"), Some(2));
+        assert_eq!(known_event_word_count("characterUltimateUsed"), Some(1));
+        assert_eq!(known_event_word_count("roundStarted"), Some(1));
+        assert_eq!(known_event_word_count("switchTeams"), Some(1));
+        assert_eq!(known_event_word_count("spikePlanted"), Some(0));
+        assert_eq!(known_event_word_count("spikeDefused"), Some(0));
+        assert_eq!(known_event_word_count("spikeExploded"), Some(0));
+        assert_eq!(known_event_word_count("futureGroup"), None);
+    }
+
+    #[test]
+    fn known_event_payload_requires_the_public_enum_name() {
+        let parsed = parse_known_event_payload("roundStarted", &REFERENCE_ROUND_START_PAYLOAD)
+            .expect("the reference enum name is the measured public constant");
+        assert_eq!(parsed.name, "EReplayEventGroup::RoundStart");
+
+        assert!(parse_known_event_payload("futureGroup", &REFERENCE_ROUND_START_PAYLOAD).is_none());
+
+        let mut renamed = REFERENCE_ROUND_START_PAYLOAD.to_vec();
+        renamed[12] = b'X';
+        assert!(parse_known_event_payload("roundStarted", &renamed).is_none());
+    }
+
+    #[test]
+    fn known_event_payload_requires_the_corpus_stable_group_tag() {
+        assert_eq!(known_event_payload_tag("characterDeath"), Some(8));
+        assert_eq!(known_event_payload_tag("characterUltimateUsed"), Some(11));
+        assert_eq!(known_event_payload_tag("roundStarted"), Some(2));
+        assert_eq!(known_event_payload_tag("switchTeams"), Some(3));
+        assert_eq!(known_event_payload_tag("spikePlanted"), Some(4));
+        assert_eq!(known_event_payload_tag("spikeDefused"), Some(5));
+        assert_eq!(known_event_payload_tag("spikeExploded"), Some(6));
+        assert_eq!(known_event_payload_tag("futureGroup"), None);
+
+        let mut retagged = REFERENCE_ROUND_START_PAYLOAD.to_vec();
+        retagged[..4].copy_from_slice(&99u32.to_le_bytes());
+        assert!(parse_known_event_payload("roundStarted", &retagged).is_none());
+    }
+
+    #[test]
+    fn event_payload_seconds_matches_the_chunk_millisecond_time() {
+        let seconds = f32::from_bits(0x3D7F_C022);
+        assert!(event_payload_seconds_matches_time(62, seconds));
+        assert!(event_payload_seconds_matches_time(100, 0.1));
+        assert!(!event_payload_seconds_matches_time(103, 0.1));
+        assert!(!event_payload_seconds_matches_time(0, f32::NAN));
+        assert!(!event_payload_seconds_matches_time(0, f32::INFINITY));
+    }
+
+    #[test]
     fn event_chunk_empty_metadata_is_empty_not_missing() {
         // `characterDeath` carries no metadata. An empty FString is a real value;
         // the parser must not turn it into anything else.

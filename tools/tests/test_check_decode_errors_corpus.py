@@ -213,6 +213,13 @@ class ArgParsingTests(unittest.TestCase):
         args = guard.parse_args(["vrfkit.exe", "corpus", "--checkpoints"])
         self.assertTrue(args.checkpoints)
 
+    def test_identifier_redaction_is_opt_in(self):
+        plain = guard.parse_args(["vrfkit.exe", "corpus"])
+        private = guard.parse_args(
+            ["vrfkit.exe", "corpus", "--redact-identifiers"])
+        self.assertFalse(plain.redact_identifiers)
+        self.assertTrue(private.redact_identifiers)
+
 
 #: The `=== Checkpoints ===` block, appended to a healthy main summary, exactly
 #: as summary.rs's print_checkpoints prints it.

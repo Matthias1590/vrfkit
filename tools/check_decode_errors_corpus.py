@@ -380,6 +380,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     help="also pass --checkpoints to vrfkit export and check "
                          "the checkpoint counters (opt-in: real extra time "
                          "and disk per replay)")
+    ap.add_argument("--redact-identifiers", action="store_true",
+                    help="replace corpus paths and replay filenames in output "
+                         "with private, run-local labels")
     return ap.parse_args(argv)
 
 
@@ -392,13 +395,14 @@ def main() -> int:
 
     scan = corpus_scan.discover(args.corpus, args.recursive)
     # Unconditional, `excluded=0` included -- see corpus_scan.py's docstring.
-    print(corpus_scan.scope_line(scan))
+    print(corpus_scan.scope_line(scan, args.redact_identifiers))
     files = scan.files
     if args.limit:
         files = files[: args.limit]
         print(f"limited to the first {len(files)} of {len(scan.files)} discovered")
     if not files:
-        print(f"no .vrf files under {args.corpus}", file=sys.stderr)
+        where = "<private corpus>" if args.redact_identifiers else str(args.corpus)
+        print(f"no .vrf files under {where}", file=sys.stderr)
         return 2
 
     if args.checkpoints:
@@ -424,6 +428,9 @@ def main() -> int:
             files,
         ):
             done += 1
+            name = corpus_scan.replay_label(
+                files[done - 1], done, args.redact_identifiers)
+            err = corpus_scan.diagnostic(err, args.redact_identifiers)
             if counters is None:
                 unreadable.append((name, err))
             else:

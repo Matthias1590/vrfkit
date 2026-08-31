@@ -118,6 +118,9 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     ap.add_argument("--recursive", action="store_true",
                     help="also walk subdirectories of <corpus> -- see "
                          "corpus_scan.py for why this is opt-in")
+    ap.add_argument("--redact-identifiers", action="store_true",
+                    help="replace corpus paths and replay filenames in output "
+                         "with private, run-local labels")
     return ap.parse_args(argv[1:])
 
 
@@ -131,15 +134,17 @@ def main(argv: list[str]) -> int:
     # Unconditional, `excluded=0` included -- see corpus_scan.py. A line that
     # only appeared when something was left out could not be told apart from
     # a scan that silently stopped discovering files at all.
-    print(corpus_scan.scope_line(scan))
+    print(corpus_scan.scope_line(scan, args.redact_identifiers))
     files = scan.files
     if args.limit is not None:
         files = files[: args.limit]
         print(f"limited to the first {len(files)} of {len(scan.files)} discovered")
     if not files:
-        raise SystemExit(f"no .vrf under {root}")
+        where = "<private corpus>" if args.redact_identifiers else str(root)
+        raise SystemExit(f"no .vrf under {where}")
 
-    print(f"\nvalidating {len(files)} replays with {exe} ({jobs} workers)\n")
+    executable = "<vrfkit>" if args.redact_identifiers else str(exe)
+    print(f"\nvalidating {len(files)} replays with {executable} ({jobs} workers)\n")
     ok = 0
     failures: list[tuple[str, str]] = []
     branches: collections.Counter[str] = collections.Counter()
@@ -156,18 +161,22 @@ def main(argv: list[str]) -> int:
         results = pool.map(lambda f: (f, _run_one(exe, f)), files)
 
         for i, (f, outcome) in enumerate(results, 1):
+            label = corpus_scan.replay_label(f, i, args.redact_identifiers)
             err, out = outcome
             if err is not None:
-                failures.append((f.name, err))
+                failures.append((label, corpus_scan.diagnostic(
+                    err, args.redact_identifiers)))
                 continue
             got, parse_error = parse_oracle_output(out)
             if parse_error is not None:
                 tail = " | ".join(l for l in out.splitlines()[-3:] if l.strip())
-                failures.append((f.name, f"{parse_error}: {tail[:160]}"))
+                detail = f"{parse_error}: {tail[:160]}"
+                failures.append((label, corpus_scan.diagnostic(
+                    detail, args.redact_identifiers)))
                 continue
             ok += 1
             branches[got["branch"].group(1)] += 1
-            rates.append((float(got["rate"].group(1)), f.name))
+            rates.append((float(got["rate"].group(1)), label))
             for key in ("blocks", "malformed", "skipped", "fields", "rpcs"):
                 if got[key]:
                     totals[key] += int(got[key].group(1))

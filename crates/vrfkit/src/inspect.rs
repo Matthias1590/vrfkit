@@ -6,7 +6,15 @@ use vrf_container::{ChunkIterator, ChunkType, parse_preamble};
 
 use crate::error::CliError;
 
-pub fn run(path: &str) -> Result<(), CliError> {
+fn friendly_name(value: &str, redact_identifiers: bool) -> &str {
+    if redact_identifiers {
+        "[redacted]"
+    } else {
+        value
+    }
+}
+
+pub fn run(path: &str, redact_identifiers: bool) -> Result<(), CliError> {
     let data = fs::read(path)?;
     let preamble = parse_preamble(&data)?;
 
@@ -19,7 +27,10 @@ pub fn run(path: &str) -> Result<(), CliError> {
     println!("  Duration:         {} ms", info.length_in_ms);
     println!("  Compressed:       {}", info.compressed);
     println!("  Encrypted:        {}", info.encrypted);
-    println!("  Friendly name:    {}", info.friendly_name);
+    println!(
+        "  Friendly name:    {}",
+        friendly_name(&info.friendly_name, redact_identifiers)
+    );
 
     println!();
     println!("=== Header ===");
@@ -80,4 +91,22 @@ pub fn run(path: &str) -> Result<(), CliError> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::friendly_name;
+
+    #[test]
+    fn redaction_never_returns_the_replay_value() {
+        let private = "identity-bearing replay label";
+        let shown = friendly_name(private, true);
+        assert_eq!(shown, "[redacted]");
+        assert!(!shown.contains(private));
+    }
+
+    #[test]
+    fn default_output_remains_backward_compatible() {
+        assert_eq!(friendly_name("ordinary label", false), "ordinary label");
+    }
 }

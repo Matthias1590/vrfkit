@@ -39,12 +39,14 @@ from __future__ import annotations
 import argparse
 import base64
 import json
+import math
 import os
 import re
 import struct as _struct
 import sys
 import tempfile
 import time
+from bisect import bisect_right
 from collections import Counter, defaultdict
 from itertools import islice
 from pathlib import Path
@@ -1586,7 +1588,7 @@ def _normalize_rpc_param(rpc_name: str, param: str, value, is_raw: bool) -> dict
 # Every phase that appends to `events` is order-sensitive: `events.sort` at the
 # end is stable, so events that tie on (packet_id, time_ms) come out in the
 # order the phases produced them. Keep the phase order (actors, properties,
-# RPCs) and the append order inside each phase.
+# RPCs, server timeline) and the append order inside each phase.
 # ---------------------------------------------------------------------------
 #: Bump when the bundle manifest's shape changes in a way a consumer must
 #: notice. valplay's resume marker records it, so an older bundle is rebuilt
@@ -1622,19 +1624,26 @@ def _normalize_rpc_param(rpc_name: str, param: str, value, is_raw: bool) -> dict
 #:   before: instances 8, cap 40,000ms, destroyed 6 (75.0%)
 #:   after : instances 6, cap  3,000ms, destroyed 0 (0.0%)
 #:
-#: Both the before and after are imperfect, in opposite directions, and neither
-#: is caused by this adapter guessing. Before, a dormancy was a fabricated
-#: despawn inflating the cap. After, the dormant instances are excluded, so the
-#: cap is taken from destroyed instances only and under-estimates -- which
-#: valplay already flags as `cap_ms_from_observed_max`, but which now bites
-#: harder. valplay must treat `actor_dormant` as an OPEN-ENDED (censored)
-#: lifetime, exactly as `tools/extract_active_effects.py` does on the same
-#: column, rather than as an absent one. That is a change in the valplay repo
-#: and is reported, not made from here.
+#: Valplay now consumes `actor_dormant` as a right-censored lifetime: a later
+#: real close remains an exact end, while a dormant actor with no close carries
+#: only the observed lower bound and never counts as destroyed. That preserves
+#: this adapter's wire-faithful distinction all the way into the metric instead
+#: of choosing either of the two imperfect measurements above.
 #:
 #: A version bump could not have communicated any of that -- it would only have
 #: refused the bundle outright. Bump this when a bundle would be MISREAD by a
 #: consumer that ignores the change, which is the opposite of this case.
+#:
+#: ``level_names_and_times`` is likewise additive. An older consumer ignores
+#: it and retains its existing event-path fallback; a newer consumer treats an
+#: absent value as unavailable and uses that same fallback. Neither generation
+#: can misread the other one's bundle, so this addition does not justify
+#: refusing every schema-2 bundle already on disk.
+#:
+#: ``server_timeline_event`` is additive for the same reason: older consumers
+#: match exact event types and ignore it, while newer consumers can use the
+#: server-labelled timeline as independent corroboration.  No existing event's
+#: shape or meaning changes.
 BUNDLE_SCHEMA_VERSION = 2
 
 
@@ -1650,6 +1659,32 @@ def _upstream_row_check(declared, observed) -> dict:
         "observed": observed,
         "agrees": None if declared is None else declared == observed,
     }
+
+
+def _public_level_names(value):
+    """Copy only the public, typed portion of replay level metadata.
+
+    The neighbouring ``game_specific_data`` header can contain account
+    subjects and loadout data, so forwarding the whole header is not an
+    option.  Level roots are independently useful (they are the map URL), but
+    even those cross the adapter seam as an explicit two-field allowlist.
+    """
+    if not isinstance(value, list):
+        return None
+    levels = []
+    for row in value:
+        if not isinstance(row, dict):
+            continue
+        name = row.get("name")
+        time_ms = row.get("time_ms")
+        if not isinstance(name, str) or not name:
+            continue
+        if isinstance(time_ms, bool) or not isinstance(time_ms, int):
+            continue
+        if not 0 <= time_ms <= 0xFFFF_FFFF:
+            continue
+        levels.append({"name": name, "time_ms": time_ms})
+    return levels
 
 
 def _write_manifest(manifest: dict, output_dir: Path, adapter: dict):
@@ -1669,6 +1704,10 @@ def _write_manifest(manifest: dict, output_dir: Path, adapter: dict):
       has been naming handles 41-45 from a hardcoded list while citing this
       table as its source. With the table present the naming becomes a check
       instead of an assumption.
+    * ``level_names_and_times`` -- the public level roots and their times,
+      copied through a strict two-field allowlist. The first root is the
+      replay's authoritative map URL; unlike event-path inference it is
+      present even when no map actor path reaches the converted event stream.
     * ``adapter`` -- what THIS process measured, kept in its own object so it
       can never be mistaken for an upstream figure. It carries the exact
       identities a consumer can re-verify (line counts) and the declared-vs-
@@ -1678,6 +1717,7 @@ def _write_manifest(manifest: dict, output_dir: Path, adapter: dict):
     """
     quality = manifest.get("quality")
     groups = manifest.get("net_field_export_groups")
+    levels = _public_level_names(manifest.get("level_names_and_times"))
     out_manifest = {
         "replay_version": manifest.get("replay_version", "unknown"),
         "duration_ms": manifest.get("duration_ms", 0),
@@ -1690,6 +1730,7 @@ def _write_manifest(manifest: dict, output_dir: Path, adapter: dict):
         "bundle_schema_version": BUNDLE_SCHEMA_VERSION,
         "quality": quality if isinstance(quality, dict) else None,
         "net_field_export_groups": groups if isinstance(groups, list) else None,
+        "level_names_and_times": levels,
         "adapter": adapter,
     }
     (output_dir / "manifest.json").write_text(
@@ -1900,6 +1941,162 @@ _ACTOR_EVENT_TYPES = {
 }
 
 
+# Event-chunk payload words are NOT self-describing.  This is the same closed
+# vocabulary used by ``crates/vrfkit/src/driver/mod.rs`` after its residual-zero
+# layout check: only these groups have a structurally established word count.
+# An unknown future group still crosses as a labelled timestamp, but none of
+# its payload words are assigned a meaning here.
+_SERVER_TIMELINE_WORD_COUNTS = {
+    "characterDeath": 2,
+    "characterUltimateUsed": 1,
+    "roundStarted": 1,
+    "switchTeams": 1,
+    "spikePlanted": 0,
+    "spikeDefused": 0,
+    "spikeExploded": 0,
+}
+
+# Structural Event-payload values measured over all 109,126 Event chunks in
+# the 527-replay, three-build corpus. These are public Unreal enum constants,
+# not replay-provided identities. The adapter rechecks them rather than trusting
+# an arbitrary Parquet string before allowing `payload_name` across the privacy
+# seam. Tag and seconds travel only when the whole tuple agrees; partial or
+# third-party rows fall back to the already-public group/times/words.
+_SERVER_TIMELINE_PAYLOAD_TAGS = {
+    "characterDeath": 8,
+    "characterUltimateUsed": 11,
+    "roundStarted": 2,
+    "switchTeams": 3,
+    "spikePlanted": 4,
+    "spikeDefused": 5,
+    "spikeExploded": 6,
+}
+_SERVER_TIMELINE_PAYLOAD_NAMES = {
+    "characterDeath": "EReplayEventGroup::CharacterDeath",
+    "characterUltimateUsed": "EReplayEventGroup::CharacterUltimateUsed",
+    "roundStarted": "EReplayEventGroup::RoundStart",
+    "switchTeams": "EReplayEventGroup::SwitchTeams",
+    "spikePlanted": "EReplayEventGroup::SpikePlanted",
+    "spikeDefused": "EReplayEventGroup::SpikeDefused",
+    "spikeExploded": "EReplayEventGroup::SpikeExploded",
+}
+EVENT_PAYLOAD_TIME_TOLERANCE_MS = 1.001
+
+
+class _PacketTimeIndex:
+    """Place packet-less Event chunks among packet-addressed replication rows.
+
+    Event chunks carry authoritative replay-relative times but no packet id;
+    the rest of ``events.ndjson`` is sorted in packet order because that is the
+    wire order.  For each event time we therefore use the largest packet id
+    observed at or before that time.  The prefix maximum keeps the derived key
+    monotone even if one malformed frame made a later packet report an earlier
+    timestamp -- the existing regression counter remains responsible for
+    surfacing that damaged time axis.
+
+    This key is ordering metadata only.  It is never published as if the Event
+    chunk itself declared a packet association.
+    """
+
+    def __init__(self, cols: "_FieldColumns"):
+        max_packet_at_time = {}
+        for time_ms, packet_id in zip(cols.time_ms, cols.packet_id):
+            previous = max_packet_at_time.get(time_ms)
+            if previous is None or packet_id > previous:
+                max_packet_at_time[time_ms] = packet_id
+        self.times = sorted(max_packet_at_time)
+        self.prefix_max_packets = []
+        highest = 0
+        for time_ms in self.times:
+            highest = max(highest, max_packet_at_time[time_ms])
+            self.prefix_max_packets.append(highest)
+
+    def packet_at_or_before(self, time_ms: int) -> int:
+        index = bisect_right(self.times, time_ms) - 1
+        return self.prefix_max_packets[index] if index >= 0 else 0
+
+
+def _build_server_timeline_events(export_dir: Path, cols: "_FieldColumns",
+                                  verbose: bool) -> tuple[list, int | None]:
+    """Publish the Event-chunk timeline through a privacy-safe allowlist.
+
+    ``events.parquet`` also holds a replay-scoped id, free-form metadata and
+    the original payload bytes. Any of those may contain account or match
+    identifiers, so none crosses this adapter seam. The structural payload
+    FString crosses only when it equals the fixed public enum constant for the
+    group and its tag/time tuple also matches the measured layout. Older
+    Parquet schemas simply omit those additive columns.
+
+    Returns ``(events, rows_read)``.  ``None`` means the table was absent;
+    zero means it was present and empty.  That distinction is needed for the
+    producer-declared row-count reconciliation in the bundle manifest.
+    """
+    path = export_dir / "events.parquet"
+    if not path.exists():
+        return [], None
+
+    table = pq.read_table(path)
+    groups = _dict_column_to_pylist(table.column("group"))
+    time1 = _numeric_column_to_pylist(table.column("time1"))
+    time2 = _numeric_column_to_pylist(table.column("time2"))
+    word0 = _nullable_numeric_to_pylist(table.column("word0"))
+    word1 = _nullable_numeric_to_pylist(table.column("word1"))
+    row_count = len(table)
+    payload_tag = (
+        _nullable_numeric_to_pylist(table.column("payload_tag"))
+        if "payload_tag" in table.column_names else [None] * row_count
+    )
+    payload_name = (
+        table.column("payload_name").to_pylist()
+        if "payload_name" in table.column_names else [None] * row_count
+    )
+    payload_seconds = (
+        _nullable_numeric_to_pylist(table.column("payload_seconds"))
+        if "payload_seconds" in table.column_names else [None] * row_count
+    )
+    packet_index = _PacketTimeIndex(cols)
+    events = []
+
+    for (group, first_time, second_time, first_word, second_word, tag,
+         payload_enum_name, seconds) in zip(
+        groups, time1, time2, word0, word1, payload_tag, payload_name,
+        payload_seconds
+    ):
+        event = {
+            "type": "server_timeline_event",
+            "time_ms": first_time,
+            "time2_ms": second_time,
+            "event_group": group,
+        }
+        word_count = _SERVER_TIMELINE_WORD_COUNTS.get(group, 0)
+        if word_count >= 1 and first_word is not None:
+            event["word0"] = first_word
+        if word_count >= 2 and second_word is not None:
+            event["word1"] = second_word
+        expected_tag = _SERVER_TIMELINE_PAYLOAD_TAGS.get(group)
+        expected_name = _SERVER_TIMELINE_PAYLOAD_NAMES.get(group)
+        seconds_matches = (
+            seconds is not None
+            and math.isfinite(seconds)
+            and abs(seconds * 1000.0 - first_time)
+            <= EVENT_PAYLOAD_TIME_TOLERANCE_MS
+        )
+        if (
+            expected_tag is not None
+            and tag == expected_tag
+            and payload_enum_name == expected_name
+            and seconds_matches
+        ):
+            event["payload_tag"] = tag
+            event["payload_name"] = payload_enum_name
+            event["payload_seconds"] = _f32_shortest(seconds)
+        events.append((packet_index.packet_at_or_before(first_time), first_time, event))
+
+    if verbose:
+        print(f"  {len(events):,} server timeline events from events.parquet")
+    return events, len(table)
+
+
 def _build_actor_events(export_dir: Path, actor_first: dict, actor_last: dict,
                         verbose: bool, tally: "_Tally"):
     """Build actor_spawned / actor_closed / actor_dormant events.
@@ -1931,6 +2128,9 @@ def _build_actor_events(export_dir: Path, actor_first: dict, actor_last: dict,
         a_sx = actors_table.column('spawn_x').to_pylist()
         a_sy = actors_table.column('spawn_y').to_pylist()
         a_sz = actors_table.column('spawn_z').to_pylist()
+        a_spitch = actors_table.column('spawn_pitch').to_pylist()
+        a_syaw = actors_table.column('spawn_yaw').to_pylist()
+        a_sroll = actors_table.column('spawn_roll').to_pylist()
 
         for i in range(len(actors_table)):
             if a_event[i] == 'open':
@@ -1951,6 +2151,24 @@ def _build_actor_events(export_dir: Path, actor_first: dict, actor_last: dict,
                     _f32_shortest(a_sy[i]) if a_sy[i] is not None else 0,
                     _f32_shortest(a_sz[i]) if a_sz[i] is not None else 0,
                 ) if has_loc else None
+                # Spawn rotation is independent of spawn location: a static
+                # actor can omit both, while a dynamic projectile may carry a
+                # direction even when its position is the origin.  Preserve
+                # that distinction and never fabricate a zero rotation for a
+                # row whose three nullable wire columns are all absent.
+                has_rotation = (
+                    a_spitch[i] is not None
+                    or a_syaw[i] is not None
+                    or a_sroll[i] is not None
+                )
+                rotation = {
+                    axis: _f32_shortest(value) if value is not None else 0
+                    for axis, value in (
+                        ("pitch", a_spitch[i]),
+                        ("yaw", a_syaw[i]),
+                        ("roll", a_sroll[i]),
+                    )
+                } if has_rotation else None
                 class_path = a_class[i]
                 if class_path:
                     # First open wins: a GUID can be reused after a close, but
@@ -1969,9 +2187,11 @@ def _build_actor_events(export_dir: Path, actor_first: dict, actor_last: dict,
                     "type": "actor_spawned",
                     "time_ms": a_time[i],
                     "actor_net_guid": a_guid[i],
+                    "channel": a_chan[i],
                     "replication_class_path": _to_package_path(class_path) if class_path else None,
                     "archetype_path": archetype,
                     "location": location,
+                    "rotation": rotation,
                 }
                 events.append((a_pid[i], a_time[i], event))
             else:
@@ -2013,6 +2233,7 @@ def _build_actor_events(export_dir: Path, actor_first: dict, actor_last: dict,
                     "type": event_type,
                     "time_ms": a_time[i],
                     "actor_net_guid": a_guid[i],
+                    "channel": a_chan[i],
                     # The wire's own value, forwarded so a consumer can audit
                     # the mapping above instead of trusting this adapter's
                     # choice of type name.
@@ -2606,6 +2827,16 @@ def _convert_into(export_dir: Path, output_dir: Path, *, verbose: bool = False):
     )
     events += rpc_events
 
+    # 5. The server's own labelled Event-chunk timeline.  Its rows have no
+    # packet id, so _build_server_timeline_events derives a private sort key
+    # from the replication time index and publishes only group/time plus the
+    # fixed-layout words Rust already validated.  Event id, metadata and raw
+    # payload never cross the adapter seam.
+    timeline_events, server_timeline_rows_read = _build_server_timeline_events(
+        export_dir, cols, verbose
+    )
+    events += timeline_events
+
     # Only now is it known whether the empty tag table cost anything: a replay
     # with no shots loses nothing by having no tag names, and counting it
     # there would cry wolf.
@@ -2633,9 +2864,10 @@ def _convert_into(export_dir: Path, output_dir: Path, *, verbose: bool = False):
 
     # ---- Cross-check what vrfkit declared against what was actually read ----
     #
-    # Only the two identities that are exact are judged. `quality.movement_rows`
-    # and `quality.net_guid_rows` are the row counts of the tables vrfkit wrote,
-    # so they must equal the heights this adapter reads back. `quality.net.fields`
+    # Only exact table-height identities are judged. `quality.movement_rows`,
+    # `quality.net_guid_rows` and `quality.event_rows` are the row counts of the
+    # tables vrfkit wrote, so they must equal the heights this adapter reads
+    # back. `quality.net.fields`
     # is NOT such an identity -- fields.parquet carries flattened array leaves,
     # struct sub-fields and preservation rows on top of the wire fields
     # (1,277,658 rows against 429,637 fields on the 02d4d478 reference) -- so it
@@ -2649,6 +2881,9 @@ def _convert_into(export_dir: Path, output_dir: Path, *, verbose: bool = False):
         ),
         "net_guid_rows": _upstream_row_check(
             declared.get("net_guid_rows"), net_guid_rows_read
+        ),
+        "event_rows": _upstream_row_check(
+            declared.get("event_rows"), server_timeline_rows_read
         ),
     }
     disagreements = sum(
@@ -2669,6 +2904,8 @@ def _convert_into(export_dir: Path, output_dir: Path, *, verbose: bool = False):
         "movement_rows_read": movement_rows_read,
         "movement_rows_written": movement_written,
         "net_guid_rows_read": net_guid_rows_read,
+        "server_timeline_rows_read": server_timeline_rows_read,
+        "server_timeline_events_written": len(timeline_events),
         "field_rows_read": cols.n_rows,
         "field_rows_unresolved_class_net_cache": unresolved_cnc_rows,
         "upstream_row_counts": upstream_row_counts,

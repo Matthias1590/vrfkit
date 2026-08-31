@@ -5,16 +5,18 @@
 //! millisecond timestamp, instead of having to be inferred from replicated
 //! properties and RPCs.
 //!
-//! Why the payload is a blob: the Event chunk header is fully decoded, but the
-//! bytes it wraps are a group-dependent word list with no count on the wire
-//! (see `vrf_container::EventChunk`). Emitting those words under invented
-//! names would be a guess; `raw_payload` keeps every byte and claims nothing.
+//! The bytes it wraps contain a group-dependent word list with no count on the
+//! wire (see `vrf_container::EventChunk`). Groups with an established count
+//! expose the structural tag, FString and trailing f32 alongside neutral word
+//! columns; `raw_payload` keeps every byte either way.
 
 use std::sync::Arc;
 
 use arrow_array::builder::StringDictionaryBuilder;
 use arrow_array::types::Int32Type;
-use arrow_array::{ArrayRef, BinaryArray, Int32Array, RecordBatch, StringArray, UInt32Array};
+use arrow_array::{
+    ArrayRef, BinaryArray, Float32Array, Int32Array, RecordBatch, StringArray, UInt32Array,
+};
 use arrow_schema::Schema;
 
 use crate::error::ExportError;
@@ -79,6 +81,14 @@ impl Table for EventsTable {
         ));
         let word0: ArrayRef = Arc::new(UInt32Array::from_iter(rows.iter().map(|r| r.word0)));
         let word1: ArrayRef = Arc::new(UInt32Array::from_iter(rows.iter().map(|r| r.word1)));
+        let payload_tag: ArrayRef =
+            Arc::new(UInt32Array::from_iter(rows.iter().map(|r| r.payload_tag)));
+        let payload_name: ArrayRef = Arc::new(StringArray::from_iter(
+            rows.iter().map(|r| r.payload_name.as_deref()),
+        ));
+        let payload_seconds: ArrayRef = Arc::new(Float32Array::from_iter(
+            rows.iter().map(|r| r.payload_seconds),
+        ));
 
         RecordBatch::try_new(
             events_schema_ref(),
@@ -92,6 +102,9 @@ impl Table for EventsTable {
                 raw_payload,
                 word0,
                 word1,
+                payload_tag,
+                payload_name,
+                payload_seconds,
             ],
         )
         .map_err(|e| ExportError::Parquet(e.into()))

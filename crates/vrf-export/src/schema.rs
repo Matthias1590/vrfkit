@@ -203,17 +203,19 @@ pub fn net_guids_schema_ref() -> Arc<Schema> {
 ///
 /// Event chunks are the server's own labelled timeline -- the ground truth the
 /// rest of the pipeline only reconstructs indirectly from RPCs. The six header
-/// fields are decoded; the inner payload is not.
+/// fields are decoded. For groups whose word count has been established, the
+/// inner payload's structural tag, FString and trailing f32 are also exposed;
+/// group-dependent words retain their neutral `word0`/`word1` names unless
+/// independent evidence establishes a meaning.
 ///
-/// `raw_payload` is the whole payload verbatim. Its structure is observable but
-/// not self-describing (see `vrf_container::EventChunk`), so decoding it into
-/// named columns would mean inventing names for words whose meaning is not
-/// established. A blob the caller can inspect is worth more than a column of
-/// plausible-looking guesses.
+/// `raw_payload` remains the whole payload verbatim. Its word count is not
+/// self-describing (see `vrf_container::EventChunk`), so a group whose arity is
+/// unknown leaves all structural overlay columns null rather than guessing.
 ///
-/// No column is nullable. Every field is present in every chunk: an empty
-/// `metadata` is an empty string on the wire, and a zero-length payload is an
-/// empty blob -- neither is a missing value.
+/// The six outer fields and `raw_payload` are non-nullable: an empty `metadata`
+/// is an empty string on the wire, and a zero-length payload is an empty blob.
+/// The structural overlay columns are nullable because an unknown or changed
+/// group deliberately falls back to raw-only preservation.
 pub fn events_schema() -> Schema {
     Schema::new(vec![
         Field::new("id", DataType::Utf8, false),
@@ -236,6 +238,9 @@ pub fn events_schema() -> Schema {
         // zero or one. `raw_payload` still keeps every byte.
         Field::new("word0", DataType::UInt32, true),
         Field::new("word1", DataType::UInt32, true),
+        Field::new("payload_tag", DataType::UInt32, true),
+        Field::new("payload_name", DataType::Utf8, true),
+        Field::new("payload_seconds", DataType::Float32, true),
     ])
 }
 

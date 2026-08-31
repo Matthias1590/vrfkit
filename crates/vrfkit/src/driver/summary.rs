@@ -29,12 +29,19 @@ pub(super) struct RunTotals {
     pub event_trailing_bytes: u64,
     pub replay_data_trailing_bytes: u64,
     pub elapsed: Duration,
-    /// Event payloads whose declared word count did not fit the payload, so no
-    /// typed words were exported for them. Printed unconditionally, zero
-    /// included; a non-zero value means an Event group changed shape.
+    /// Known Event payloads whose arity, tag, enum name, exact consumption or
+    /// time relation failed, so no structural overlay was exported for them.
+    /// Printed unconditionally, zero included; a non-zero value means an Event
+    /// group changed shape.
     pub event_layout_mismatches: u64,
     /// The first such mismatch verbatim, so the summary can name the group.
     pub event_first_layout_mismatch: Option<String>,
+    /// Known Event payloads whose arity, tag, enum-name and millisecond time
+    /// all matched the measured structural layout.
+    pub event_payloads_decoded: u64,
+    /// Event groups outside the measured public vocabulary. Their raw payload
+    /// remains preserved and no structural columns are populated.
+    pub event_payload_unknown_groups: u64,
     /// Everything the per-packet sinks counted. One struct rather than a dozen
     /// loose fields, because the failure this guards against is a counter that
     /// exists on `ExportStats` and reaches no summary line. See
@@ -169,6 +176,10 @@ pub(super) fn print(
         totals.sink.rpc_suffix_bits_dropped
     );
     eprintln!("  Event layout err: {}", totals.event_layout_mismatches);
+    eprintln!(
+        "  Event payloads:    {} decoded / {} unknown groups",
+        totals.event_payloads_decoded, totals.event_payload_unknown_groups
+    );
     if let Some(err) = &totals.event_first_layout_mismatch {
         eprintln!("  Event layout msg: {err}");
     }

@@ -174,8 +174,8 @@ def check_table_sizes(docs: dict[str, str]) -> list[str]:
 #: that claims to BE a table size must be the live one, so a stale figure
 #: cannot sit one line away from the correct one.
 TABLE_CLAIM_RE = (
-    ("overlay table", 0, re.compile(r"([\d,]+)\s+entries\b")),
-    ("handle table", 1, re.compile(r"([\d,]+)\s+handles\b")),
+    ("overlay table", 0, re.compile(r"(\d[\d,]*)\s+entries\b")),
+    ("handle table", 1, re.compile(r"(\d[\d,]*)\s+handles\b")),
 )
 
 

@@ -26,9 +26,12 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 use vrf_container::{
-    ChunkIterator, ChunkType, decompress_replay_data_with_trailing, parse_event_chunk,
-    parse_preamble,
+    ChunkIterator, ChunkType, decompress_replay_data_with_trailing,
+    event_payload_seconds_matches_time, known_event_word_count, parse_event_chunk,
+    parse_known_event_payload, parse_preamble,
 };
+#[cfg(test)]
+use vrf_container::{EventPayload, parse_event_payload};
 use vrf_decode::OverlayErrorReport;
 use vrf_export::{
     ActorWriter, EventRecord, EventWriter, FieldRecord, FieldWriter, MovementRecord,
@@ -47,8 +50,8 @@ use summary::RunTotals;
 use totals::SinkTotals;
 use writers::WriterThread;
 
-/// The first two payload words for an Event group that declares `word_count` of
-/// them, or `None` when the payload does not fit that layout.
+/// The structural payload for an Event group that declares `word_count` words,
+/// or `None` when the payload does not fit that layout.
 ///
 /// The payload is `[u32 tag][N x u32 words][FString name][f32 seconds]` and is
 /// not self-describing: no count precedes the words. `N` was therefore assumed
@@ -66,43 +69,12 @@ use writers::WriterThread;
 /// plausible wrong number when bits are left over -- applied to the container
 /// the leaves sit in.
 ///
-/// A group claiming no words is not checked. Those are `spikePlanted` and
-/// friends plus every group this build does not recognise; they export no words
-/// either way, and measuring them against a layout nobody established would
-/// only manufacture alarms about payload shapes the project has never claimed
-/// to know.
-fn typed_event_words(payload: &[u8], word_count: u8) -> Option<(Option<u32>, Option<u32>)> {
-    if word_count == 0 {
-        return Some((None, None));
-    }
-    let words = usize::from(word_count);
-    let word_at = |i: usize| -> Option<u32> {
-        let start = 4 + i * 4;
-        payload
-            .get(start..start + 4)
-            .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-    };
-
-    // The FString sits immediately after the words: an i32 length, then that
-    // many code units. Unreal counts the null terminator in the length, and a
-    // negative length means UTF-16 (two bytes per unit).
-    let name_at = 4 + words * 4;
-    let raw = payload
-        .get(name_at..name_at + 4)
-        .map(|b| i32::from_le_bytes([b[0], b[1], b[2], b[3]]))?;
-    let units = i64::from(raw).unsigned_abs();
-    let name_bytes = if raw < 0 {
-        units.checked_mul(2)?
-    } else {
-        units
-    };
-    // tag + words + length prefix + name + the trailing f32.
-    let expected = (4 + words as u64 * 4) + 4 + name_bytes + 4;
-    if expected != payload.len() as u64 {
-        return None;
-    }
-
-    Some((word_at(0), if words >= 2 { word_at(1) } else { None }))
+/// A measured zero-word group is still checked: zero is an established arity,
+/// not the absence of a claim. Unknown groups never call this test helper and
+/// remain raw-only in the production path.
+#[cfg(test)]
+fn typed_event_payload(payload: &[u8], word_count: usize) -> Option<EventPayload> {
+    parse_event_payload(payload, word_count)
 }
 
 pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), CliError> {
@@ -183,6 +155,8 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
     let mut sink_totals = SinkTotals::default();
     let mut event_layout_mismatches: u64 = 0;
     let mut event_first_layout_mismatch: Option<String> = None;
+    let mut event_payloads_decoded: u64 = 0;
+    let mut event_payload_unknown_groups: u64 = 0;
     let mut cp_stats = CheckpointStats::default();
 
     while let Some(chunk) = chunk_iter.next_chunk()? {
@@ -197,32 +171,48 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
         if chunk.chunk_type == ChunkType::Event {
             let event = parse_event_chunk(payload)?;
             event_trailing_bytes += event.trailing_bytes as u64;
-            // Typed payload words for groups whose word count is structurally
-            // fixed. Payload layout: [u32 tag][N x u32 words][FString][f32].
-            // `typed_event_words` checks that the assumed N consumes the
-            // payload exactly before naming anything; a payload that disagrees
-            // yields no words and is counted, never guessed at.
-            // `raw_payload` still keeps every byte either way.
-            let word_count: u8 = match event.group.as_str() {
-                "characterDeath" => 2,
-                "characterUltimateUsed" | "roundStarted" | "switchTeams" => 1,
-                // spikePlanted/Defused/Exploded carry no words; any unknown
-                // group claims none rather than guessing.
-                _ => 0,
-            };
-            let (word0, word1) = match typed_event_words(event.payload, word_count) {
-                Some(words) => words,
-                None => {
-                    event_layout_mismatches += 1;
-                    event_first_layout_mismatch.get_or_insert_with(|| {
-                        format!(
-                            "{} declared {word_count} word(s) but its {}-byte payload does not fit that layout",
-                            event.group,
-                            event.payload.len()
-                        )
-                    });
-                    (None, None)
+            // Structural payload fields for groups whose word count, tag and
+            // public enum-name FString are established. Payload layout:
+            // [u32 tag][N x u32 words][FString][f32]. The guarded parser also
+            // requires exact consumption; the final filter checks the inner
+            // seconds against Time1. A disagreement yields no overlay fields
+            // and is counted, never guessed at. `raw_payload` still keeps
+            // every byte either way.
+            let word_count = known_event_word_count(&event.group);
+            let parsed_payload = match word_count {
+                Some(count) => {
+                    let parsed =
+                        parse_known_event_payload(&event.group, event.payload).filter(|payload| {
+                            event_payload_seconds_matches_time(event.time1, payload.seconds)
+                        });
+                    if parsed.is_some() {
+                        event_payloads_decoded += 1;
+                    } else {
+                        event_layout_mismatches += 1;
+                        event_first_layout_mismatch.get_or_insert_with(|| {
+                            format!(
+                                "{} declared {count} word(s), public tag/name and millisecond time but its {}-byte payload does not fit that layout",
+                                event.group,
+                                event.payload.len()
+                            )
+                        });
+                    }
+                    parsed
                 }
+                None => {
+                    event_payload_unknown_groups += 1;
+                    None
+                }
+            };
+            let (word0, word1, payload_tag, payload_name, payload_seconds) = match parsed_payload {
+                Some(parsed) => (
+                    parsed.words.first().copied(),
+                    parsed.words.get(1).copied(),
+                    Some(parsed.tag),
+                    Some(parsed.name),
+                    Some(parsed.seconds),
+                ),
+                None => (None, None, None, None, None),
             };
             event_writer.push(EventRecord {
                 id: event.id,
@@ -234,6 +224,9 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
                 raw_payload: event.payload.to_vec(),
                 word0,
                 word1,
+                payload_tag,
+                payload_name,
+                payload_seconds,
             })?;
             event_rows += 1;
             continue;
@@ -394,6 +387,8 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
             replay_data_trailing_bytes,
             event_layout_mismatches,
             event_first_layout_mismatch: event_first_layout_mismatch.as_deref(),
+            event_payloads_decoded,
+            event_payload_unknown_groups,
             net: net_stats,
             sink: &sink_totals,
             error_report: &error_report,
@@ -422,6 +417,8 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
             elapsed,
             event_layout_mismatches,
             event_first_layout_mismatch,
+            event_payloads_decoded,
+            event_payload_unknown_groups,
             sink: sink_totals,
         },
         &error_report,
@@ -434,7 +431,7 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
 
 #[cfg(test)]
 mod tests {
-    use super::{SinkTotals, typed_event_words};
+    use super::{SinkTotals, typed_event_payload};
     use vrf_decode::OverlayErrorReport;
 
     /// Every counter a packet's sink produced must survive the sink.
@@ -539,12 +536,16 @@ mod tests {
             &[0x1111_1111, 0x2222_2222],
             "EReplayEventGroup::CharacterDeath",
         );
-        assert_eq!(
-            typed_event_words(&p, 2),
-            Some((Some(0x1111_1111), Some(0x2222_2222)))
-        );
+        let parsed = typed_event_payload(&p, 2).expect("two-word layout");
+        assert_eq!(parsed.tag, 3);
+        assert_eq!(parsed.words, [0x1111_1111, 0x2222_2222]);
+        assert_eq!(parsed.name, "EReplayEventGroup::CharacterDeath");
+        assert_eq!(parsed.seconds, 1.5);
         let p1 = payload(3, &[0x3333_3333], "EReplayEventGroup::RoundStart");
-        assert_eq!(typed_event_words(&p1, 1), Some((Some(0x3333_3333), None)));
+        assert_eq!(
+            typed_event_payload(&p1, 1).map(|value| value.words),
+            Some(vec![0x3333_3333])
+        );
     }
 
     /// A build that changes the word count must not export a plausible NetGUID
@@ -561,29 +562,32 @@ mod tests {
         // One real word, but `characterDeath`'s assumed count is two.
         let p = payload(3, &[0x1111_1111], "EReplayEventGroup::CharacterDeath");
         assert_eq!(
-            typed_event_words(&p, 2),
+            typed_event_payload(&p, 2),
             None,
             "a payload one word short must refuse to name word1"
         );
         // ...and the reverse: three words where two were assumed.
         let p3 = payload(3, &[1, 2, 3], "EReplayEventGroup::CharacterDeath");
-        assert_eq!(typed_event_words(&p3, 2), None);
+        assert_eq!(typed_event_payload(&p3, 2), None);
     }
 
-    /// A group that claims no words is not measured against a layout nobody
-    /// established. `spikePlanted` and every unrecognised group land here, and
-    /// they already export no words; validating them would only invent alarms
-    /// about payload shapes this project has never claimed to know.
+    /// A measured zero-word group is still validated through its tag, FString
+    /// and trailing f32. Unknown groups never call this helper.
     #[test]
-    fn a_group_claiming_no_words_is_not_checked() {
-        assert_eq!(typed_event_words(&[], 0), Some((None, None)));
-        assert_eq!(typed_event_words(&[0xAB; 3], 0), Some((None, None)));
+    fn a_measured_zero_word_group_must_still_fit_the_structural_tail() {
+        let p = payload(4, &[], "EReplayEventGroup::SpikePlanted");
+        let parsed = typed_event_payload(&p, 0).expect("zero-word layout");
+        assert_eq!(parsed.tag, 4);
+        assert!(parsed.words.is_empty());
+        assert_eq!(parsed.name, "EReplayEventGroup::SpikePlanted");
+        assert_eq!(parsed.seconds, 1.5);
+        assert_eq!(typed_event_payload(&[0xAB; 3], 0), None);
     }
 
     /// A truncated payload cannot be verified, so it yields nothing rather than
     /// whatever `get()` happens to return.
     #[test]
     fn a_truncated_payload_yields_nothing() {
-        assert_eq!(typed_event_words(&[0u8; 6], 1), None);
+        assert_eq!(typed_event_payload(&[0u8; 6], 1), None);
     }
 }

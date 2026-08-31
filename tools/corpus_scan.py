@@ -95,7 +95,25 @@ def discover(root: Path, recursive: bool) -> CorpusScan:
                       excluded=excluded)
 
 
-def scope_line(scan: CorpusScan) -> str:
+def replay_label(path: Path, index: int, redact_identifiers: bool) -> str:
+    """Return a diagnostic label without exposing a replay filename.
+
+    Replay filenames are frequently account- or session-derived identifiers.
+    Corpus tools still need a stable label within one sorted sweep so an
+    operator can correlate the rate and failure sections without printing the
+    underlying filename.
+    """
+    return f"replay-{index:04d}" if redact_identifiers else path.name
+
+
+def diagnostic(detail: str, redact_identifiers: bool) -> str:
+    """Strip subprocess tails that may echo private input metadata."""
+    if not redact_identifiers:
+        return detail
+    return detail.partition(":")[0]
+
+
+def scope_line(scan: CorpusScan, redact_identifiers: bool = False) -> str:
     """One line that states the corpus scope from the printed output alone.
 
     Printed unconditionally by callers, `excluded=0` included -- see the
@@ -103,8 +121,9 @@ def scope_line(scan: CorpusScan) -> str:
     defect this module exists to close.
     """
     mode = "recursive" if scan.recursive else "top-level only"
+    root = "<private corpus>" if redact_identifiers else str(scan.scanned_root)
     line = (f"corpus scope: {len(scan.files)} .vrf file(s) under "
-            f"{scan.scanned_root} ({mode}); {scan.excluded} more in "
+            f"{root} ({mode}); {scan.excluded} more in "
             f"subdirectories excluded")
     if not scan.recursive:
         line += " (pass --recursive to include)"

@@ -97,6 +97,15 @@ class ArgParsingTests(unittest.TestCase):
         args = guard.parse_args(["validate_corpus.py", "vrfkit.exe", "corpus"])
         self.assertIsNone(args.limit)
 
+    def test_identifier_redaction_is_opt_in(self):
+        plain = guard.parse_args(
+            ["validate_corpus.py", "vrfkit.exe", "corpus"])
+        private = guard.parse_args(
+            ["validate_corpus.py", "vrfkit.exe", "corpus",
+             "--redact-identifiers"])
+        self.assertFalse(plain.redact_identifiers)
+        self.assertTrue(private.redact_identifiers)
+
 
 #: Stand-in for `vrfkit.exe`, invoked exactly as `_run_one` invokes the real
 #: one -- `[str(exe), "validate", str(path)]`. Run under `sys.executable`, the

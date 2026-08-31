@@ -1,7 +1,7 @@
 """Extract the payload-transform golden vectors from the upstream C# test suite
 and emit them as a Rust test-data module.
 
-These 55 vectors are the only independent check that our port of the five
+These 66 vectors are the only independent check that our port of the six
 per-build transforms is bit-exact. Transcribing 36-byte hex strings by hand would
 undermine that, so they are lifted mechanically and the count is asserted.
 
@@ -26,6 +26,7 @@ EXPECTED_BRANCHES = (
     "++Ares-Core+release-13.00",
     "++Ares-Core+release-13.01",
     "++Ares-Core+release-13.02",
+    "++Ares-Core+release-13.04",
 )
 EXPECTED_BOUNDARIES = (0, 1, 7, 8, 31, 32, 63, 64, 65, 287, 288)
 EXPECTED_CASE_COUNT = len(EXPECTED_BRANCHES) * len(EXPECTED_BOUNDARIES)

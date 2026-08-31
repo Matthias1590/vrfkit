@@ -99,7 +99,11 @@ pub use preamble::{Preamble, parse_preamble};
 #[cfg(feature = "checkpoint")]
 pub use checkpoint::{CheckpointChunk, decompress_checkpoint, parse_checkpoint_chunk};
 #[cfg(feature = "event")]
-pub use event::{EventChunk, parse_event_chunk};
+pub use event::{
+    EVENT_PAYLOAD_TIME_TOLERANCE_MS, EventChunk, EventPayload, event_payload_seconds_matches_time,
+    known_event_payload_name, known_event_payload_tag, known_event_word_count, parse_event_chunk,
+    parse_event_payload, parse_known_event_payload,
+};
 
 #[cfg(test)]
 mod tests;

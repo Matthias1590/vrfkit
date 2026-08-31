@@ -17,10 +17,13 @@
   "movement_rows": 1839607,
   "net_guid_rows": 16167,
   "event_rows": 195,
-  "overlay_decoded_ok": 742738,
+  "event_layout_mismatches": 0,
+  "event_payloads_decoded": 195,
+  "event_payload_unknown_groups": 0,
+  "overlay_decoded_ok": 743036,
   "overlay_decode_errors": 0,
   "overlay_raw_skip": 72644,
-  "overlay_not_in_table": 171605,
+  "overlay_not_in_table": 171307,
   "overlay_no_field_name": 1996,
   "overlay_rows_offered": 988983,
   "effect_blobs_decoded": 53908,
@@ -39,8 +42,8 @@
  "parquet": {
   "fields": {
    "rows": 1277658,
-   "bytes": 15880542,
-   "sha256": "e3f9857602b9a0228367826e6cc2fcf7ac6ae72d9fd7b30d2c6f652ce36a1dbc"
+   "bytes": 15880976,
+   "sha256": "3f16866b326a59aaa8408bef038f059a0f6fbd439459defde714dab70b52c85a"
   },
   "movement": {
    "rows": 1839607,
@@ -59,13 +62,13 @@
   },
   "events": {
    "rows": 195,
-   "bytes": 11136,
-   "sha256": "d5d057517b19aa5d07dfdfcf219b038421c67035d17ae53d92322922c8c58317"
+   "bytes": 13411,
+   "sha256": "e3879e2aabfc83ecae48be30ef8056fc8ec10ee1dab50c3882dc2b72d0f12af2"
   },
   "checkpoint_fields": {
    "rows": 78850,
-   "bytes": 231256,
-   "sha256": "e2b6470d3aebc4204effba26511641a3aa1ec12959ae61280002e3f45ae07791"
+   "bytes": 231320,
+   "sha256": "269ba8311a5a41cfae69ca1ed75fb2b60797eddad66fa047297027f30c41cc25"
   }
  }
 }
