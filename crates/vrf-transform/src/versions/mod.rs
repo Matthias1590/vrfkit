@@ -13,14 +13,15 @@
 //! | release-13.00 | `0x2949b6ef` | `0x11` | subtract | yes |
 //! | release-13.01 | `0xe62fcd5c` | `0x24` | subtract | no |
 //! | release-13.02 | `0x9e81a37c` | `0x04` | subtract | yes |
+//! | release-13.04 | `0x076dc658` | `0x28` | subtract | no |
 //!
-//! In all five, `TAIL_XOR == SEED_ADDEND & 0xff`. That is asserted per version
+//! In all six, `TAIL_XOR == SEED_ADDEND & 0xff`. That is asserted per version
 //! rather than assumed, so a future build that breaks the pattern fails a test
 //! instead of silently corrupting the final partial byte of every payload.
 //!
 //! ## One file per build
 //!
-//! The five `impl`s are deliberately kept in separate files. They are near-
+//! The six `impl`s are deliberately kept in separate files. They are near-
 //! identical in shape and differ only in the order of a handful of bit
 //! primitives, which is exactly the situation where a copy-paste error is
 //! invisible in review; a per-build file makes `git log` on one build show only
@@ -34,12 +35,14 @@ mod v12_11;
 mod v13_00;
 mod v13_01;
 mod v13_02;
+mod v13_04;
 
 pub use v12_10::V12_10;
 pub use v12_11::V12_11;
 pub use v13_00::V13_00;
 pub use v13_01::V13_01;
 pub use v13_02::V13_02;
+pub use v13_04::V13_04;
 
 /// One build's payload transform.
 ///
@@ -106,6 +109,7 @@ mod tests {
             row::<V13_00>(),
             row::<V13_01>(),
             row::<V13_02>(),
+            row::<V13_04>(),
         ]
     }
 

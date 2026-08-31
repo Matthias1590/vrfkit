@@ -187,6 +187,41 @@ fn decode_into_scratch(
     Some(byte_count)
 }
 
+/// Bits to charge to `skipped_bits` when an inner-stream parser returns `Err`.
+///
+/// The whole block, not the reader's `bits_remaining()`.
+///
+/// `bits_remaining()` is what the reader had not yet reached, which is not what
+/// the failure lost. `read_int_packed` consumes its chunks *before* discovering
+/// the value runs off the end, so a block whose last `IntPacked` expires exactly
+/// at the block end leaves the reader at `position() == len` with
+/// `bits_remaining() == 0`. Charging the remainder charged **zero** for a block
+/// that lost every bit it had, and `field_stream_failures` /
+/// `rpc_stream_failures` then moved with no bit tally behind them -- a failure
+/// counted at block level and nowhere in the bit accounting.
+///
+/// The whole block is also what the two sibling failure paths in each caller
+/// already charge: a transform failure and a rejected `with_bit_len` window
+/// both add `bit_count` and increment the same stream-failure counter. And it
+/// agrees with [`NetStats::lost_content_blocks`], which counts one of these
+/// failures as an entirely lost block regardless of how many records the parser
+/// emitted before it stopped. Nothing downstream re-charges these bits: this is
+/// the last frame that sees the block, and the caller has already advanced the
+/// bunch reader past `content_bits`.
+///
+/// The `Ok` arms are left alone -- there the parser walked its records
+/// successfully and reports the abandoned tail itself.
+///
+/// Tradeoff, stated rather than hidden: a parser that emitted some records
+/// before failing has those bits counted in `fields` / `rpcs` *and* here. The
+/// alternative needs the doomed record's start offset, which only the parser
+/// holds and does not return on `Err`. Charging the block whose loss is already
+/// declared one counter over is the error this file prefers, because the
+/// direction it errs in is loud.
+fn abandoned_on_error(bit_count: usize) -> u64 {
+    bit_count as u64
+}
+
 pub(super) fn decode_and_parse_rep_layout(
     payload: &mut BitReader<'_>,
     bit_count: usize,
@@ -230,7 +265,7 @@ pub(super) fn decode_and_parse_rep_layout(
                 remaining_bits: remaining,
             });
             stage.stats.field_stream_failures += 1;
-            stage.stats.skipped_bits += remaining;
+            stage.stats.skipped_bits += abandoned_on_error(bit_count);
         }
     }
 }
@@ -284,7 +319,7 @@ pub(super) fn decode_and_parse_class_net_cache(
             }
             sink.on_stream_failure(failure);
             stage.stats.rpc_stream_failures += 1;
-            stage.stats.skipped_bits += remaining;
+            stage.stats.skipped_bits += abandoned_on_error(bit_count);
         }
     }
 }

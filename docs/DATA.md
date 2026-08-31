@@ -63,7 +63,7 @@ purchase; all ten players' purchases are replicated.
 | Data | Source | Status |
 |---|---|---|
 | K / D / A | `fields` CombatReport nested array | ✅ multiset-identical to the C# parser (on 13.01 -- see below) |
-| Kill log (killer/killed NetGUID) | `events.characterDeath` word0/word1 + `MulticastNotifyKilledEnemy` RPC | ✅ 132/132 on 13.01; 9,677/9,677 over 71 replays on 13.02 by the same two-source join |
+| Kill log (killer/killed NetGUID) | `events.characterDeath` word0/word1 + `MulticastNotifyKilledEnemy` RPC | ✅ 132/132 on 13.01; 9,677/9,677 over 71 replays on 13.02 by the same two-source join; Event structural overlay exact on 109,126/109,126 chunks across 527 replays |
 | Multikill level | `MulticastNotifyKilledEnemy.MultikillLevel` | ✅ single/double/triple/quad |
 | Kill timeline | `events.characterDeath` time_ms | ✅ (recovers the +13 the C# parser lost) |
 
@@ -146,7 +146,7 @@ Phoenix -- Run It Back, not a decode fault. On the reset broadcast
 
 | Data | Source | Status |
 |---|---|---|
-| Ultimate cast | `events.characterUltimateUsed` (word0 = character) | ✅ |
+| Ultimate cast corroboration | `events.characterUltimateUsed` (word0 resolves to a character on 15,699/15,768 rows) | ◐ do not count Event rows as casts: they outnumber `UltimateActive` False→True transitions by 51.5%; use the transition as authority and Event only as a ±100 ms cross-check |
 | Cooldown / start time | `Comp_Ability_CooldownComponent` | ✅ Double |
 | Ability cast count / cast log | `Comp_AbilityStatisticsReplicator.AbilityCastsThisRound[]` — `Player` (subject UUID), `Slot`, `Round`, `RoundPhase`, `CastTime`, `CastLocation` | ✅ one record per cast, all ten players; `Player` matches a manifest subject 352/352 |
 | Ability state stream | `AbilitiesAndBuffsComponent` (`_cnc_h1`) | ◐ fc=34 brute-forced, inner decomposed (flag + u32 stream); semantics need game assets |
@@ -323,9 +323,10 @@ below that, so treat it as a range. The slow lingers about 0.3-0.5 s after
 leaving. Sage's orb and Chamber's trap slow; Fade's Seize and Terra's time-slow
 grenade showed no movement-speed effect at their actor's position.
 
-**Crouch is not in `movement_state`.** That column is 0 on every row of the
-corpus. Crouch is `bCrouchHeld` on the character actor, or a ~19 cm drop in
-`pos_z`, and crouch speed is ~190 cm/s.
+**Crouch is not in `movement_state`.** That column is 0 on all
+1,034,035,170 exported movement rows in the current 527-replay corpus. Crouch
+is `bCrouchHeld` on the character actor, or a ~19 cm drop in `pos_z`, and
+crouch speed is ~190 cm/s.
 
 ## Movement & position
 

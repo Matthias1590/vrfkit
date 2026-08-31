@@ -46,7 +46,7 @@ indistinguishable from one that wrote the files.
 ## 2. CLI
 
 ```
-vrfkit inspect  <file.vrf>
+vrfkit inspect  <file.vrf> [--redact-identifiers]
 vrfkit validate <file.vrf> [--diagnostics]
 vrfkit export   <file.vrf> --out <dir> [--checkpoints]
 ```
@@ -56,6 +56,11 @@ vrfkit export   <file.vrf> --out <dir> [--checkpoints]
 See what the file is -- ReplayInfo, header, branch, chunk summary. It does no
 parsing, so it returns immediately. Use it to check up front whether the build
 is supported and whether the file is encrypted.
+
+ReplayInfo includes a free-form friendly name. When command output will be
+shared or archived, pass `--redact-identifiers`; the command prints
+`Friendly name: [redacted]` while leaving structural header and chunk fields
+available for diagnosis.
 
 ```
 === Header ===
@@ -77,27 +82,29 @@ reports a pass rate. **It writes no files.**
   Total content blocks: 743110
   Malformed framing:  0          <- blocks whose framing slipped. Nonzero is serious
   Transform failed:   0          <- payload transform failed. Signals an unsupported build
-  RPC stream failed:  7889       <- blocks whose group could not be identified, so the handle width is unknown
+  RPC payload lost:   0          <- unresolved payloads that were not preserved. Must stay zero
+  RPC unresolved/raw: 7889       <- full decoded payload preserved, but inner handles cannot be named
   NOT COVERED:          18 Checkpoint chunk(s) were NOT walked
-  ORACLE PASS RATE:     98.938381%
-  VERDICT: PASS - every content block framed (exit 0)
+  ORACLE PASS RATE:     100.000000% (743110 / 743110 blocks passed)
+  VERDICT: PASS - all ReplayData was consumed and decoded (exit 0)
 ```
 
-**Exit code**: `0` every content block framed, `1` malformed framing was found,
-`2` there was nothing to validate (no ReplayData blocks). Those are three
-different outcomes and are kept apart deliberately -- a file this command
-cannot read must not be reported as a file that passed. The pass rate itself is
-NOT gated; see below.
+**Exit code**: `0` all ReplayData was consumed or explicitly preserved, `1`
+validation found data loss, `2` there was nothing to validate (no ReplayData
+blocks). Those are three different outcomes and are kept apart deliberately --
+a file this command cannot read must not be reported as a file that passed.
 
 The oracle walks the **ReplayData stream only**. Checkpoint chunks carry their
 own replication framing and are not covered by this verdict; the count above
 says how many were skipped. Use `export --checkpoints` to decode them.
 
-**A pass rate below 100% is normal.** This is an attribution problem, not a
-framing one -- blocks are cut exactly, but some cannot be definitively assigned
-to a `_ClassNetCache` group. That is the `RPC stream failed` attribution gap,
-originating from `AbilitiesAndBuffsComponent`. The lines to watch are `Malformed
-framing` and `Transform failed`, and **both must be zero.**
+The current healthy pass rate is **100%**. Some blocks still cannot be
+definitively assigned to a `_ClassNetCache` group -- notably
+`AbilitiesAndBuffsComponent` -- but each complete decoded payload is emitted as
+one reserved `raw_bits` row. `RPC unresolved/raw` therefore means preserved but
+uninterpreted; it does not reduce the score. `Malformed framing`, `Transform
+failed`, and `RPC payload lost` must all be zero. A score below 100% is a
+regression or unsupported input, not the expected attribution gap.
 
 `--diagnostics` prints context for every failed block. By default it shows up to
 32 lines and prints totals / shown / omitted counts in the header.
@@ -135,8 +142,12 @@ member and handle by name.
 #### Reading the `Typed` ratio
 
 ```
-  Typed:            72.5% (properties + RPC parameters)
+  Typed:            75.1% (properties + RPC parameters)
 ```
+
+(That figure is `02d4d478`'s, from `tools/baselines/export_02d4d478.json`:
+`overlay_decoded_ok / overlay_rows_offered` = 743,036 / 988,983. It moves as
+overlay entries are added -- re-measure before quoting it.)
 
 The denominator is **every row offered** to the overlay, and thanks to RPC
 parameter expansion it includes both replicated properties and RPC parameters.
@@ -154,12 +165,12 @@ Measured on `02d4d478` (48,215,213 bytes):
 
 | File | Rows | Bytes | Notes |
 |---|---|---|---|
-| `fields.parquet` | 1,277,658 | 15,880,542 | |
+| `fields.parquet` | 1,277,658 | 15,880,976 | |
 | `movement.parquet` | 1,839,607 | 31,835,557 | |
 | `actors.parquet` | 3,827 | 87,281 | |
 | `net_guids.parquet` | 16,167 | 153,606 | |
-| `events.parquet` | 195 | 11,136 | |
-| `checkpoint_fields.parquet` | 78,850 | 231,256 | requires `--checkpoints` |
+| `events.parquet` | 195 | 13,411 | |
+| `checkpoint_fields.parquet` | 78,850 | 231,320 | requires `--checkpoints` |
 | `manifest.json` | -- | ~660,030 | varies: it records `elapsed_ms` |
 
 `export` takes 0.79 s (median of 5; re-measure with
@@ -277,9 +288,10 @@ look. (This said -180..180 for a while, which no row has ever matched.)
 - `timestamp` is a **128.0 Hz global server tick** and **resets at each round
   boundary.** Use it for in-round alignment; do not use it as a global timeline
   -- that is `time_ms`.
-- `movement_state` and `move_type` are constant (0, 1) across the entire 13.01
-  corpus. Constant in one build is not constant in general, so they are exported
-  verbatim.
+- `movement_state` and `move_type` are constant (0, 1) across all
+  1,034,035,170 exported rows in the current 527-replay corpus (builds 13.01,
+  13.02 and 13.04). A future build may break that invariant, so both bytes are
+  exported verbatim.
 - **Posture detail is `bCrouchHeld`, not `movement_state`.** It already ships as
   a separate field in `fields.parquet`.
 
@@ -340,14 +352,22 @@ The timeline the server wrote itself. One row per Event chunk.
 | `payload_size` | | Payload size |
 | `raw_payload` | bytes | Raw payload |
 | `word0` / `word1` | u32 | First two payload words |
+| `payload_tag` | u32? | Stable group tag, only for an exact known layout |
+| `payload_name` | str? | Fixed public `EReplayEventGroup` enum name, only for an exact known layout |
+| `payload_seconds` | f32? | Payload time in seconds, only when it agrees with `time1` |
 
 The payload is structured as `[u32 tag][N x u32 words][FString][f32 seconds]`,
 and `N` is fixed per group (CharacterDeath=2, CharacterUltimateUsed / RoundStart
 / SwitchTeams=1, SpikePlanted / Defused / Exploded=0 -- derived as the
-residual-zero count across the corpus), so the first two words are exported as
-`word0`/`word1`. For `characterDeath`, `(word0, word1)` is the `(killer,
-killed)` NetGUID; for `roundStarted`, `word0` is the round number. The original
-remains intact in `raw_payload`, so re-interpretation is possible.
+residual-zero count across the corpus). A 527-replay Event-only sweep spanning
+13.01, 13.02 and 13.04 consumed all 109,126 payloads exactly, found one stable
+tag per group, public enum names no longer than 40 bytes, and a maximum 0.999878
+ms absolute difference between `payload_seconds` and `time1`. The nullable
+overlay is populated atomically only when arity, tag, name and a 1.001 ms time
+tolerance all match. For `characterDeath`, `(word0, word1)` is the `(killer,
+killed)` NetGUID; for `roundStarted`, `word0` is the round number. On any future
+layout mismatch the overlay stays null and the original remains intact in
+`raw_payload`.
 
 ### `checkpoint_fields.parquet`
 
@@ -392,16 +412,20 @@ Every loss and fallback counter for the run, including the checkpoint pass when
 | Field | Meaning |
 |---|---|
 | `content_blocks_lost` | Content blocks whose payload never reached the tables. **Non-zero means the exported tables are missing replicated state.** |
+| `event_payloads_decoded` | Event payloads whose exact known arity, tag, public enum name and time relation populated the structural overlay. |
+| `event_payload_unknown_groups` | Event groups outside that measured vocabulary; their raw payload remains preserved. |
+| `event_layout_mismatches` | Known groups that failed any structural guard; all nullable overlay columns remain empty. |
 
 It is `malformed_content_blocks + transform_failures + field_stream_failures +
 max(0, rpc_stream_failures - unresolved_rpc_payloads_preserved)`, computed by
 `NetStats::lost_content_blocks` and shared with `validate`'s summary so the two
 cannot drift.
 
-Read this rather than the oracle pass rate. On `02d4d478` the pass rate is
-98.94% and `content_blocks_lost` is 0: the 7,889 unattributed blocks all had
-their payloads preserved as reserved rows, so nothing was lost. Do not read
-`skipped_bits` as loss either -- it is 19,135,006 on that same healthy replay.
+Read this together with the oracle pass rate. On `02d4d478`, both now report a
+complete run: the pass rate is 100% and `content_blocks_lost` is 0 because all
+7,889 unattributed blocks had their complete decoded payloads preserved as
+reserved rows. Do not read `skipped_bits` as loss either -- it is 19,135,006 on
+that same healthy replay and records the inner stream that could not be named.
 
 ---
 
@@ -413,7 +437,7 @@ Take only the layer you need. Every crate is `#![forbid(unsafe_code)]`, and
 | Layer | Crate | Feature flags |
 |---|---|---|
 | Bit reader / UE wire format | `vrf-bitio` | `alloc` (default; drop it for `no_std`) |
-| Payload transform (5 builds) | `vrf-transform` | none |
+| Payload transform (6 builds) | `vrf-transform` | none |
 | Container (info/header/chunk/event/checkpoint, Oodle) | `vrf-container` | `oodle` `event` `checkpoint` |
 | DemoFrame traversal | `vrf-frame` | none |
 | Dynamic schema + GUID cache + checkpoint tables | `vrf-schema` | `checkpoint` |
@@ -466,7 +490,7 @@ Those 133 corrections are the whole live expectation set the script re-verifies;
 subset of it that has no C# descriptor behind it at all.
 
 The `ADDITIONS` pass inserts items the C# descriptor is **silent on**. There are
-currently 70 of them, and every one is admitted on wire evidence written into the
+currently 73 of them, and every one is admitted on wire evidence written into the
 comment above the list -- bit width, value range, distribution -- and nothing else.
 The original three still show the bar: `BaseTeamState.LoadoutValue` /
 `AverageLoadoutValue` (26-I, where the reference declares the type of the same
@@ -475,6 +499,19 @@ property and only moves the group) and `BombGameState.ChosenCeremonyForRound`
 reason these additions are allowed -- read archive/PROJECT_STATUS.md 26-I and 32
 first, and read the "Deliberately NOT added" note in the same comment, which
 records the fields that failed the bar and why.
+
+Both counts above are measured, not maintained by hand. `check_docs.py` reads the
+133 against `expectation_count(table.rs)`, so a stale one is caught -- but
+**nothing checks the `ADDITIONS` figure**, which is why it sat at 70 while the
+list held 73. Re-measure it by importing the module rather than counting the
+source by eye (`tools/` has to be on the path; the module imports `atomic_io`
+from beside itself):
+
+```bash
+python -c "import importlib.util,sys; sys.path.insert(0,'tools'); \
+spec=importlib.util.spec_from_file_location('atc','tools/apply_type_corrections.py'); \
+m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); print(len(m.ADDITIONS))"
+```
 
 ### Validation
 
@@ -493,7 +530,7 @@ records the fields that failed the bar and why.
 | `compare_rpc_params.py` | RPC parameter comparison |
 | `compare_with_csharp.py` | Diff against the C# parser |
 | `check_effect_decoder.py` | Effect decoder (12 cases) |
-| `check_ascii.py` | Rust source ASCII sweep (118 files) |
+| `check_ascii.py` | Rust source ASCII sweep (119 files) |
 | `check_docs.py` | This document itself (below) |
 | `atomic_io.py` | Internal containment, recursive-removal and atomic-replacement helpers shared by mutating tools |
 
@@ -533,8 +570,10 @@ python tools/check_docs.py --fast    # skip the count comparison
 The bundle's `manifest.json` forwards the export's `quality` object and its
 `net_field_export_groups` table **verbatim**, and adds an `adapter` object of
 its own measurements -- `events_written`, `events_time_ms_regressions`,
-`field_rows_read`, the movement/net_guid row counts read back against the ones
-the export declared, and the conversion `losses` tally. `bundle_schema_version`
+`field_rows_read`, the movement/net_guid/Event row counts read back against the
+ones the export declared, and the conversion `losses` tally.
+`server_timeline_rows_read` and `server_timeline_events_written` make the Event
+path independently recountable. `bundle_schema_version`
 names the shape; valplay's resume marker records it and rebuilds when it moves.
 
 `players` is deliberately **not** forwarded: valplay derives the same table
@@ -547,9 +586,24 @@ An export with no `quality` object is forwarded as `"quality": null`, never as
 zeroes: a consumer must be able to tell "nothing was lost" from "nobody
 counted".
 
+`events.parquet` crosses as additive `server_timeline_event` rows through a
+deliberately narrow allowlist: server `event_group`, `time_ms`, `time2_ms`, and
+only `word0`/`word1` for groups whose fixed payload arity Rust already
+validated. The neutral `payload_tag`, `payload_name` and `payload_seconds`
+fields cross only as a complete tuple after the adapter independently checks
+the exact public tag/name allowlist, finiteness and the same 1.001 ms time
+tolerance. Older exports and any mismatching row simply omit the tuple. Replay
+event id, free-form metadata, payload size and raw payload never enter the
+NDJSON bundle. Actor lifecycle rows likewise retain the
+already-decoded channel and spawn rotation; absent rotation stays null rather
+than becoming a fabricated zero rotation.
+
 The ordering contract is the adapter's: events are written in `(packet_id,
 time_ms)` order with a stable sort, so ties keep wire order (actors, then
-properties, then RPCs). `time_ms` is **not** guaranteed monotonic -- it comes
+properties, then RPCs, then server timeline). Event chunks carry no packet id,
+so the adapter derives an ordering-only key from the greatest packet observed
+at or before their timestamp; that key is never published as a source field.
+`time_ms` is **not** guaranteed monotonic -- it comes
 from an unvalidated `read_f32` per demo frame and is 0 for a non-finite one --
 so a regression in written order is counted in
 `adapter.events_time_ms_regressions` rather than repaired by sorting away from
@@ -587,10 +641,41 @@ deliberately sequential for accuracy.
 | Script | What it does |
 |---|---|
 | `analyze_coverage.py` | Coverage analysis |
+| `analyze_raw_properties.py` | Streams a deterministic size-stratified corpus sample (or `--all`) one temporary export at a time and inventories preserved unnamed/raw replicated properties. Reports only build-level counts, bit widths, and anonymous recurrence ranks; it never prints replay paths/names, group/actor/object/handle/checksum identifiers, hashes, or payloads. Exits nonzero if an unnamed property row lacks exact-length `raw_bits`. Use `--format json` for a deterministic, versioned aggregate document. |
 | `find_skips.py` | Finds skipped bits |
 | `bench_export.py` | Times a full `export` against `tools/baselines/bench.json`. A smoke detector, not a profiler -- wall clock is noisy, so the default tolerance is 25% and it answers "did something get twice as slow", nothing finer. Reports a run *faster* than the baseline too: that means the recorded number no longer describes the code. |
 | `extract_active_effects.py` | Derives an `active_effects.parquet` view from an export -- one row per persistent ability instance (smoke/wall/molly/slow/trap/recon/orb) with class, spawn position, and open/close lifetime. A `dormant` event does NOT end an instance -- a settled smoke that stops replicating has not despawned -- so those instances stay open-ended and the summary counts them. The data already lives in `actors.parquet`; this filters and pairs it. |
 | `extract_spike_carrier.py` | Derives a `spike_carrier.parquet` view -- one row per spike custody interval, resolved through to the manifest `subject`. Reads `BombEquippable_C.Owner` on the spike's own channel rather than the inventory side, so it covers carrying-in-the-backpack and not just in-hand, and it follows proxy carriers (Gekko's Wingman) back through `Instigator`. |
+
+The raw-property inventory defaults to six size-stratified replays per selected
+build and holds only one temporary export at a time. Select builds explicitly,
+and opt into an exhaustive run only when its cost is intended:
+
+```bash
+python tools/analyze_raw_properties.py ./target/release/vrfkit <corpus> \
+  --build 13.02 --build 13.04 --limit-per-build 8
+python tools/analyze_raw_properties.py ./target/release/vrfkit <corpus> \
+  --build 13.04 --all --format json > raw-property-inventory.json
+```
+
+JSON schema version 1 contains `scope`, per-build counts and bit-width
+histograms, anonymous recurrence totals/ranks, and the raw-payload integrity
+verdict. `identifier_redacted: true` and
+`typing_inference_performed: false` are explicit. It contains no replay or
+group paths, filenames, actor/object/channel identifiers, field-handle values,
+compatible checksums, payloads, or persistent hashes.
+
+The exhaustive 2026-08-31 run covered all 527 current replays and 269,994,556
+non-ClassNetCache replicated-property rows. Of 59,291,880 raw-only rows,
+57,318,004 retained a wire name and 1,973,876 did not. Every unnamed row kept
+exact-length `raw_bits` (missing, typed, wrong-length, checksum-attributed and
+sentinel-handle violations were all zero); 90.6005% carried a non-zero payload
+and 11.6311% were not byte-aligned. The anonymous inventory found 1,699 field
+signatures and 1,029 update layouts. Release 13.04 has a larger genuinely new
+shape tail: 73.71% of its unnamed rows used a cross-build signature and 77.78%
+of its unnamed updates used a cross-build layout, versus approximately 100%
+for the two older builds. This establishes preservation and schema drift, not
+field meaning; the analyzer deliberately performs no type inference.
 
 ---
 
@@ -599,12 +684,12 @@ deliberately sequential for accuracy.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 563 passing
+cargo +1.86.0 test --workspace --locked                              # 580 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
-python -W error tools/check_ascii.py --check                         # 118 files
+python -W error tools/check_ascii.py --check                         # 119 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 503 passing
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 551 passing
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 133 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
@@ -638,6 +723,11 @@ python tools/compare_combat_report.py
 # real extra time and disk per replay, so it is not part of the line above.
 python tools/check_decode_errors_corpus.py ./target/release/vrfkit.exe <corpus> --checkpoints
 ```
+
+`validate_corpus.py` and `check_decode_errors_corpus.py` also accept
+`--redact-identifiers`. It replaces the corpus root and replay basenames in
+diagnostics with run-local labels such as `replay-0001`; use it whenever logs
+may leave the private analysis machine.
 
 These read their inputs from `VRFKIT_CORPUS_DIR`, `VRFKIT_CSHARP_DIR` and
 `VRFKIT_VALPLAY_DIR` -- see
@@ -689,15 +779,15 @@ silent change must be impossible.
 | Build | How it is verified |
 |---|---|
 | 12.10, 12.11, 13.00 | One preserved fixture each + golden vectors |
-| 13.01 | Full 215-replay corpus |
-| 13.02 | 62 MB preserved replay + live measurement |
+| 13.01 | 215-replay portion of the current multi-build sweep |
+| 13.02 | Preserved replay + 204-replay portion of the current sweep |
+| 13.04 | Upstream golden vectors + 108-replay export/checkpoint sweep |
 
-13.02 measurement (preserved copy `1.vrf`; the result is identical across all 27
-demos in the directory at time of writing):
+The current machine-local multi-build sweep (2026-08-31) reports:
 
 ```
-1.vrf     (62 MB)  774,299 blocks  568,557 fields  408,591 RPCs  pass 98.919512%
-                   malformed 0 / transform failed 0 / decode errors 0
+527/527 oracle passes at 100%: 215 build 13.01 + 204 build 13.02 + 108 build 13.04
+13.04 export/checkpoints: 108/108 readable, decode/struct/checkpoint failures 0
 ```
 
 Adding a new build takes one `SeededTransform` impl -- two constants and three
@@ -719,8 +809,10 @@ live in `%LOCALAPPDATA%\vrfkit\baseline-corpora`.
   the rest needs the game binary or UE headers -- this is not a table-editing
   problem (archive/PROJECT_STATUS.md section 24).
 - **`AbilitiesAndBuffsComponent`** -- the replay declares no ClassNetCache group
-  for that class at all. Confirmed across all 4,024 checkpoints. This is the
-  attribution gap that keeps the `validate` pass rate below 100%.
+  for that class at all. The historical 13.01 checkpoint sweep confirmed it
+  across 4,024 checkpoints. Its complete block payload is now preserved in one
+  marked raw row, so this typing/attribution gap no longer lowers the current
+  100% `validate` pass rate.
 - **Scoreboard stats** -- release-13.02 replicates cumulative K/D/A through
   `BasicCombatStatsComponent` and cumulative combat score through
   `PlayerScoreComponent`. vrfkit types all four as `Int32`; valplay computes

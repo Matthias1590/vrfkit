@@ -33,6 +33,16 @@
 use std::fs;
 use std::path::PathBuf;
 
+const KNOWN_EVENT_GROUPS: [&str; 7] = [
+    "characterDeath",
+    "characterUltimateUsed",
+    "roundStarted",
+    "switchTeams",
+    "spikePlanted",
+    "spikeDefused",
+    "spikeExploded",
+];
+
 /// The adapter source, read from the workspace this test was compiled in.
 ///
 /// A missing file is a failure, never a skip: the adapter is the published
@@ -115,6 +125,64 @@ fn python_constant(source: &str, name: &str) -> Option<String> {
     Some(value)
 }
 
+/// Parse one top-level numeric assignment used by both languages.
+fn python_f64_constant(source: &str, name: &str) -> Option<f64> {
+    source.lines().find_map(|line| {
+        let rest = line.strip_prefix(name)?.trim_start();
+        let value = rest.strip_prefix('=')?.trim();
+        value.parse().ok()
+    })
+}
+
+/// Parse the simple string-keyed dictionary literals used for the Event
+/// payload allowlist. The adapter intentionally keeps one entry per line, so
+/// accepting any other syntax here fails closed instead of attempting to be a
+/// Python parser.
+fn python_string_dict(source: &str, name: &str) -> Option<Vec<(String, String)>> {
+    let start = source.lines().position(|line| {
+        line.starts_with(name) && line[name.len()..].trim_start().starts_with('=')
+    })?;
+    let mut rows = Vec::new();
+    for line in source.lines().skip(start + 1) {
+        let line = line.trim();
+        if line == "}" {
+            rows.sort();
+            return Some(rows);
+        }
+        let entry = line.strip_suffix(',')?;
+        let (key, value) = entry.split_once(':')?;
+        let key = key.trim().strip_prefix('"')?.strip_suffix('"')?;
+        rows.push((key.to_string(), value.trim().to_string()));
+    }
+    None
+}
+
+fn rust_event_word_counts() -> Vec<(String, String)> {
+    let mut rows = KNOWN_EVENT_GROUPS
+        .into_iter()
+        .map(|group| {
+            (
+                group.to_string(),
+                vrf_container::known_event_word_count(group)
+                    .expect("known group must have a word count")
+                    .to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    rows.sort();
+    rows
+}
+
+fn assert_event_word_count_contract(source: &str) {
+    let python = python_string_dict(source, "_SERVER_TIMELINE_WORD_COUNTS")
+        .expect("the adapter must assign a simple Event word-count dictionary");
+    assert_eq!(
+        python,
+        rust_event_word_counts(),
+        "the adapter's Event word-count allowlist drifted"
+    );
+}
+
 #[test]
 fn adapter_pins_the_unresolved_class_net_cache_field_name() {
     let source = adapter_source();
@@ -138,6 +206,82 @@ fn adapter_pins_the_class_net_cache_suffix() {
         vrf_schema::CLASS_NET_CACHE_SUFFIX,
         "the adapter's RPC discriminator no longer matches vrf-schema's; \
          every RPC in the bundle would be classified as a replicated property"
+    );
+}
+
+#[test]
+fn adapter_pins_the_event_payload_time_tolerance() {
+    let source = adapter_source();
+    let python = python_f64_constant(&source, "EVENT_PAYLOAD_TIME_TOLERANCE_MS")
+        .expect("the adapter must assign EVENT_PAYLOAD_TIME_TOLERANCE_MS");
+    assert_eq!(
+        python,
+        vrf_container::EVENT_PAYLOAD_TIME_TOLERANCE_MS,
+        "the adapter and parser no longer agree on when payload_seconds is structurally valid"
+    );
+}
+
+#[test]
+fn adapter_pins_the_event_payload_word_counts() {
+    assert_event_word_count_contract(&adapter_source());
+}
+
+/// A source parser that quietly substitutes Rust's values would make the real
+/// contract tautological. Keep one complete but deliberately drifted Python
+/// dictionary to prove that a one-value disagreement reaches the assertion.
+#[test]
+#[should_panic(expected = "the adapter's Event word-count allowlist drifted")]
+fn event_word_count_contract_rejects_one_drifted_value() {
+    assert_event_word_count_contract(concat!(
+        "_SERVER_TIMELINE_WORD_COUNTS = {\n",
+        "    \"characterDeath\": 1,\n",
+        "    \"characterUltimateUsed\": 1,\n",
+        "    \"roundStarted\": 1,\n",
+        "    \"switchTeams\": 1,\n",
+        "    \"spikePlanted\": 0,\n",
+        "    \"spikeDefused\": 0,\n",
+        "    \"spikeExploded\": 0,\n",
+        "}\n",
+    ));
+}
+
+#[test]
+fn adapter_pins_the_event_payload_tags() {
+    let source = adapter_source();
+    let python = python_string_dict(&source, "_SERVER_TIMELINE_PAYLOAD_TAGS")
+        .expect("the adapter must assign a simple Event payload tag dictionary");
+    let mut rust = KNOWN_EVENT_GROUPS
+        .into_iter()
+        .map(|group| {
+            (
+                group.to_string(),
+                vrf_container::known_event_payload_tag(group)
+                    .expect("known group must have a tag")
+                    .to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    rust.sort();
+    assert_eq!(python, rust, "the adapter's Event tag allowlist drifted");
+}
+
+#[test]
+fn adapter_pins_the_event_payload_names() {
+    let source = adapter_source();
+    let python = python_string_dict(&source, "_SERVER_TIMELINE_PAYLOAD_NAMES")
+        .expect("the adapter must assign a simple Event payload name dictionary");
+    let mut rust = KNOWN_EVENT_GROUPS
+        .into_iter()
+        .map(|group| {
+            let name = vrf_container::known_event_payload_name(group)
+                .expect("known group must have a payload name");
+            (group.to_string(), format!("\"{name}\""))
+        })
+        .collect::<Vec<_>>();
+    rust.sort();
+    assert_eq!(
+        python, rust,
+        "the adapter's public Event-name allowlist drifted"
     );
 }
 
@@ -170,5 +314,17 @@ fn the_constant_scanner_reads_the_assignment_and_not_the_prose() {
         python_constant(source, "ABSENT"),
         None,
         "a missing assignment must be reported, not silently treated as empty"
+    );
+    assert_eq!(python_f64_constant("LIMIT = 1.001\n", "LIMIT"), Some(1.001));
+    assert_eq!(python_f64_constant("LIMIT = nope\n", "LIMIT"), None);
+    assert_eq!(
+        python_string_dict(
+            "VALUES = {\n    \"two\": \"second\",\n    \"one\": 1,\n}\n",
+            "VALUES",
+        ),
+        Some(vec![
+            ("one".to_string(), "1".to_string()),
+            ("two".to_string(), "\"second\"".to_string()),
+        ])
     );
 }

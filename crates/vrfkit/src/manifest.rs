@@ -40,6 +40,8 @@ pub(crate) struct ManifestQuality<'a> {
     pub replay_data_trailing_bytes: u64,
     pub event_layout_mismatches: u64,
     pub event_first_layout_mismatch: Option<&'a str>,
+    pub event_payloads_decoded: u64,
+    pub event_payload_unknown_groups: u64,
     pub net: &'a NetStats,
     pub sink: &'a SinkTotals,
     pub error_report: &'a OverlayErrorReport,
@@ -428,6 +430,18 @@ fn quality_json(quality: &ManifestQuality<'_>) -> String {
     );
     wkv(
         &mut out,
+        "event_payloads_decoded",
+        &quality.event_payloads_decoded.to_string(),
+        2,
+    );
+    wkv(
+        &mut out,
+        "event_payload_unknown_groups",
+        &quality.event_payload_unknown_groups.to_string(),
+        2,
+    );
+    wkv(
+        &mut out,
         "overlay_error_buckets",
         &quality.error_report.bucket_count().to_string(),
         2,
@@ -780,6 +794,8 @@ mod tests {
             replay_data_trailing_bytes: 0,
             event_layout_mismatches: 0,
             event_first_layout_mismatch: None,
+            event_payloads_decoded: 0,
+            event_payload_unknown_groups: 0,
             net: &net,
             sink: &sink,
             error_report: &errors,
@@ -859,6 +875,8 @@ mod tests {
             "replay_data_trailing_bytes",
             "event_layout_mismatches",
             "event_first_layout_mismatch",
+            "event_payloads_decoded",
+            "event_payload_unknown_groups",
             "checkpoint_chunks",
             "checkpoint_guid_entries",
             "checkpoint_group_records",
@@ -976,6 +994,8 @@ mod tests {
             replay_data_trailing_bytes: 0,
             event_layout_mismatches: 0,
             event_first_layout_mismatch: None,
+            event_payloads_decoded: 0,
+            event_payload_unknown_groups: 0,
             net: &net,
             sink: &sink,
             error_report: &errors,

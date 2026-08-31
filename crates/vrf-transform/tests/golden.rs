@@ -1,4 +1,4 @@
-//! Bit-exactness check for all five per-build payload transforms.
+//! Bit-exactness check for all six per-build payload transforms.
 //!
 //! The vectors are lifted mechanically from the reference implementation's test
 //! fixture (see `tools/extract_golden.py`), so a passing run means our port
@@ -67,7 +67,7 @@ fn transforms_match_reference_vectors() {
 fn every_registered_build_is_covered() {
     // A new transform must arrive with vectors; otherwise it is unverified code
     // that will happily emit garbage.
-    for version in vrf_transform::ALL_VERSIONS {
+    for version in vrf_transform::ALL_VERSIONS.iter().copied() {
         let count = VECTORS
             .iter()
             .filter(|(b, _, _)| *b == version.branch())
@@ -80,7 +80,7 @@ fn every_registered_build_is_covered() {
 fn vectors_cover_the_staging_boundaries() {
     // The transform stages 64 -> 32 -> 8 -> tail. If a build's vectors skipped a
     // boundary, an error in one stage could pass unnoticed.
-    for version in vrf_transform::ALL_VERSIONS {
+    for version in vrf_transform::ALL_VERSIONS.iter().copied() {
         let bits: Vec<usize> = VECTORS
             .iter()
             .filter(|(b, _, _)| *b == version.branch())

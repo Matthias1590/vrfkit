@@ -157,7 +157,8 @@ pub struct NetStats {
     /// Detailed diagnostic events for every skip/malformed occurrence, capped
     /// at [`MAX_DIAGNOSTIC_EVENTS`].
     ///
-    /// This is the primary debugging tool when the oracle pass rate is not 100%.
+    /// This is the primary debugging tool when the oracle pass rate is not 100%
+    /// or the validation verdict reports another ReplayData failure.
     /// Each event records the full context needed to locate the failure in the
     /// replay stream and compare with the C# reference parser.
     #[cfg(feature = "diagnostics")]
@@ -232,9 +233,10 @@ impl NetStats {
     /// ClassNetCache block is not a loss: its whole payload is exported as one
     /// reserved row (see `UNRESOLVED_CLASS_NET_CACHE_PAYLOAD_FIELD_NAME` in
     /// `vrf-export`), so the bits are still on disk even though no handle
-    /// could be named. On the 02d4d478 reference that netting is what
-    /// separates 7889 unattributed blocks from 0 lost ones, and the 98.94%
-    /// oracle pass rate from a complete export.
+    /// could be named. On the 02d4d478 reference that netting separates 7,889
+    /// unattributed blocks from 0 lost ones. Older, pre-preservation-aware
+    /// output scored that shape as 98.94%; the current oracle correctly reports
+    /// 100% while still exposing the unresolved/raw counter.
     ///
     /// `saturating_sub` rather than `-`: the two counters are incremented on
     /// different code paths, and a future path that preserves a payload
@@ -442,10 +444,10 @@ mod loss_tests {
         );
     }
 
-    /// The reference-replay shape: 7889 blocks could not be attributed to a
+    /// The reference-replay shape: 7,889 blocks could not be attributed to a
     /// group, and every one of their payloads was preserved as a reserved row.
-    /// Nothing was lost, so the loss total is zero even though the oracle pass
-    /// rate is 98.94%.
+    /// Nothing was lost, so both the loss total and current oracle failure count
+    /// are zero. The formerly reported 98.94% score is historical.
     #[test]
     fn preserved_unresolved_rpc_payloads_are_not_a_loss() {
         let stats = NetStats {

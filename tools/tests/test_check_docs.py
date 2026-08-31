@@ -202,6 +202,10 @@ class TableSizeClaimTests(unittest.TestCase):
                 "b.md": "1255 entries and 84 handles"}
         self.assertEqual(guard.stale_table_size_claims(docs, self.LENGTHS), [])
 
+    def test_punctuation_before_word_handles_is_not_a_size_claim(self):
+        docs = {"USAGE.md": "identifiers, handles, checksums, and payloads"}
+        self.assertEqual(guard.stale_table_size_claims(docs, self.LENGTHS), [])
+
     def test_the_shipped_docs_make_no_stale_size_claim(self):
         lengths = guard.table_lengths()
         docs = {name: guard.read(guard.REPO / name) for name in guard.ALL_DOCS}

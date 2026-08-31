@@ -1025,6 +1025,9 @@ fn event_roundtrip_preserves_payload_bytes_exactly() {
                 raw_payload: REFERENCE_EVENT_PAYLOAD.to_vec(),
                 word0: None,
                 word1: None,
+                payload_tag: Some(2),
+                payload_name: Some("EReplayEventGroup::RoundStart".into()),
+                payload_seconds: Some(f32::from_bits(0x3D7F_C022)),
             })
             .unwrap();
         // A second group, so the dictionary column carries more than one value.
@@ -1039,6 +1042,9 @@ fn event_roundtrip_preserves_payload_bytes_exactly() {
                 raw_payload: vec![0x00, 0xFF, 0x80],
                 word0: None,
                 word1: None,
+                payload_tag: None,
+                payload_name: None,
+                payload_seconds: None,
             })
             .unwrap();
         writer.finish().unwrap();
@@ -1106,6 +1112,28 @@ fn event_roundtrip_preserves_payload_bytes_exactly() {
     for i in 0..batch.num_rows() {
         assert_eq!(payload_size.value(i) as usize, raw.value(i).len());
     }
+
+    let payload_tag = batch
+        .column(batch.schema().index_of("payload_tag").unwrap())
+        .as_any()
+        .downcast_ref::<UInt32Array>()
+        .unwrap();
+    let payload_name = batch
+        .column(batch.schema().index_of("payload_name").unwrap())
+        .as_any()
+        .downcast_ref::<StringArray>()
+        .unwrap();
+    let payload_seconds = batch
+        .column(batch.schema().index_of("payload_seconds").unwrap())
+        .as_any()
+        .downcast_ref::<Float32Array>()
+        .unwrap();
+    assert_eq!(payload_tag.value(0), 2);
+    assert_eq!(payload_name.value(0), "EReplayEventGroup::RoundStart");
+    assert_eq!(payload_seconds.value(0).to_bits(), 0x3D7F_C022);
+    assert!(payload_tag.is_null(1));
+    assert!(payload_name.is_null(1));
+    assert!(payload_seconds.is_null(1));
 }
 
 #[test]
@@ -1131,6 +1159,9 @@ fn event_multiple_row_groups() {
                     raw_payload: i.to_le_bytes().to_vec(),
                     word0: None,
                     word1: None,
+                    payload_tag: None,
+                    payload_name: None,
+                    payload_seconds: None,
                 })
                 .unwrap();
         }

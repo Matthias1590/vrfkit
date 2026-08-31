@@ -13,12 +13,13 @@ const USAGE: &str = "\
 vrfkit -- VALORANT replay (.vrf) toolkit
 
 USAGE:
-    vrfkit inspect  <file.vrf>
+    vrfkit inspect  <file.vrf> [--redact-identifiers]
     vrfkit validate <file.vrf> [--diagnostics]
     vrfkit export   <file.vrf> --out <dir> [--checkpoints]
 
 SUBCOMMANDS:
     inspect   Print replay info, header, branch, and chunk summary
+              --redact-identifiers  Suppress the replay's friendly name
     validate  Run the RepLayout grammar oracle on every ReplayData content
               block. Exits 0 when all of them framed, 1 when any did not,
               and 2 when the file carried no content blocks to check.
@@ -48,12 +49,25 @@ pub fn run(args: &[String]) -> Result<u8, CliError> {
             let file = args
                 .get(2)
                 .ok_or_else(|| CliError::Usage("inspect requires <file.vrf>".to_string()))?;
-            if args.len() != 3 {
-                return Err(CliError::Usage(
-                    "inspect accepts exactly one <file.vrf> argument".to_string(),
-                ));
+            let mut redact_identifiers = false;
+            for arg in args.iter().skip(3) {
+                match arg.as_str() {
+                    "--redact-identifiers" if !redact_identifiers => {
+                        redact_identifiers = true;
+                    }
+                    "--redact-identifiers" => {
+                        return Err(CliError::Usage(
+                            "duplicate option: --redact-identifiers".to_string(),
+                        ));
+                    }
+                    other => {
+                        return Err(CliError::Usage(format!(
+                            "unknown inspect option or surplus argument: {other}"
+                        )));
+                    }
+                }
             }
-            inspect::run(file).map(|()| 0)
+            inspect::run(file, redact_identifiers).map(|()| 0)
         }
         "validate" => {
             let file = args
@@ -145,6 +159,31 @@ mod tests {
     fn inspect_rejects_surplus_arguments_before_opening_the_file() {
         let err = run(&owned(&["vrfkit", "inspect", "missing.vrf", "extra"]))
             .expect_err("inspect must not ignore a surplus positional argument");
+        assert!(matches!(err, CliError::Usage(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn inspect_accepts_identifier_redaction_before_opening_the_file() {
+        let err = run(&owned(&[
+            "vrfkit",
+            "inspect",
+            "missing.vrf",
+            "--redact-identifiers",
+        ]))
+        .expect_err("the missing input should still be opened after parsing");
+        assert!(matches!(err, CliError::Io(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn inspect_rejects_duplicate_identifier_redaction() {
+        let err = run(&owned(&[
+            "vrfkit",
+            "inspect",
+            "missing.vrf",
+            "--redact-identifiers",
+            "--redact-identifiers",
+        ]))
+        .expect_err("duplicate privacy options must not be ignored");
         assert!(matches!(err, CliError::Usage(_)), "got {err:?}");
     }
 

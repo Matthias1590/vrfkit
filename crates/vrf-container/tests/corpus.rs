@@ -29,7 +29,9 @@
 use std::path::{Path, PathBuf};
 
 use vrf_container::{
-    ChunkIterator, ChunkType, decompress_replay_data_with_trailing, parse_preamble,
+    ChunkIterator, ChunkType, decompress_replay_data_with_trailing,
+    event_payload_seconds_matches_time, known_event_payload_name, known_event_payload_tag,
+    known_event_word_count, parse_event_chunk, parse_event_payload, parse_preamble,
 };
 
 /// Fallback used when `VRFKIT_CORPUS_DIR` is unset. Empty so that on a machine
@@ -58,6 +60,34 @@ struct FileReport {
     /// printed instead: the first corpus run says whether they are ever
     /// non-zero, and that evidence is what would justify promoting them.
     notes: Vec<String>,
+    /// Privacy-safe observations from structurally known Event payloads. Group
+    /// names enter this vector only after matching the fixed public allowlist.
+    events: Vec<KnownEventObservation>,
+    event_rows: u64,
+    unknown_event_groups: u64,
+}
+
+/// One known Event payload, retaining no replay identifier and no unconstrained
+/// wire string.
+struct KnownEventObservation {
+    group: &'static str,
+    tag: u32,
+    name_len: usize,
+    seconds: f32,
+    time1: u32,
+}
+
+fn canonical_known_event_group(group: &str) -> Option<&'static str> {
+    match group.as_bytes() {
+        b"characterDeath" => Some("characterDeath"),
+        b"characterUltimateUsed" => Some("characterUltimateUsed"),
+        b"roundStarted" => Some("roundStarted"),
+        b"switchTeams" => Some("switchTeams"),
+        b"spikePlanted" => Some("spikePlanted"),
+        b"spikeDefused" => Some("spikeDefused"),
+        b"spikeExploded" => Some("spikeExploded"),
+        _ => None,
+    }
 }
 
 /// Parse one replay as far as the container layer goes, collecting problems
@@ -65,6 +95,9 @@ struct FileReport {
 fn scan_file(data: &[u8]) -> FileReport {
     let mut problems = Vec::new();
     let mut notes = Vec::new();
+    let mut events = Vec::new();
+    let mut event_rows = 0;
+    let mut unknown_event_groups = 0;
 
     let preamble = match parse_preamble(data) {
         Ok(p) => p,
@@ -75,6 +108,9 @@ fn scan_file(data: &[u8]) -> FileReport {
                 oodle_ok: false,
                 problems,
                 notes,
+                events,
+                event_rows,
+                unknown_event_groups,
             };
         }
     };
@@ -103,13 +139,84 @@ fn scan_file(data: &[u8]) -> FileReport {
             }
         };
 
-        if chunk.chunk_type != ChunkType::ReplayData {
+        let payload = &data[chunk.data_offset..chunk.data_offset + chunk.size_in_bytes as usize];
+        if chunk.chunk_type == ChunkType::Event {
+            event_rows += 1;
+            let event = match parse_event_chunk(payload) {
+                Ok(event) => event,
+                Err(error) => {
+                    problems.push(format!("event chunk: {error}"));
+                    continue;
+                }
+            };
+            if event.trailing_bytes != 0 {
+                problems.push(format!(
+                    "event chunk leaves {} byte(s) after its declared payload",
+                    event.trailing_bytes
+                ));
+                continue;
+            }
+            if event.time1 != event.time2 {
+                problems.push("event chunk Time1 and Time2 no longer agree".to_string());
+                continue;
+            }
+            let Some(group) = canonical_known_event_group(&event.group) else {
+                unknown_event_groups += 1;
+                continue;
+            };
+            let word_count =
+                known_event_word_count(group).expect("canonical known group must have an arity");
+            let expected_name = known_event_payload_name(group)
+                .expect("canonical known group must have a payload name");
+            let expected_tag = known_event_payload_tag(group)
+                .expect("canonical known group must have a payload tag");
+            let Some(parsed) = parse_event_payload(event.payload, word_count) else {
+                problems.push(format!(
+                    "known event group {group} no longer fits its {word_count}-word layout"
+                ));
+                continue;
+            };
+            if parsed.name != expected_name {
+                // Do not include the unconstrained wire string in diagnostics.
+                problems.push(format!(
+                    "known event group {group} no longer carries its public enum-name constant"
+                ));
+                continue;
+            }
+            if parsed.tag != expected_tag {
+                problems.push(format!(
+                    "known event group {group} no longer carries its stable tag"
+                ));
+                continue;
+            }
+            if !parsed.seconds.is_finite() {
+                problems.push(format!(
+                    "known event group {group} carries non-finite payload seconds"
+                ));
+                continue;
+            }
+            if !event_payload_seconds_matches_time(event.time1, parsed.seconds) {
+                problems.push(format!(
+                    "known event group {group} payload seconds no longer agrees with Time1"
+                ));
+                continue;
+            }
+            events.push(KnownEventObservation {
+                group,
+                tag: parsed.tag,
+                name_len: parsed.name.len(),
+                seconds: parsed.seconds,
+                time1: event.time1,
+            });
+            continue;
+        }
+
+        if chunk.chunk_type != ChunkType::ReplayData || oodle_ok {
             continue;
         }
 
         // First ReplayData chunk only: this test is a container smoke test, and
         // the whole-stream pass belongs to the driver.
-        let payload = &data[chunk.data_offset..chunk.data_offset + chunk.size_in_bytes as usize];
         match decompress_replay_data_with_trailing(
             payload,
             preamble.info.compressed,
@@ -125,7 +232,6 @@ fn scan_file(data: &[u8]) -> FileReport {
             }
             Err(e) => problems.push(format!("oodle: {e}")),
         }
-        break;
     }
 
     FileReport {
@@ -133,6 +239,9 @@ fn scan_file(data: &[u8]) -> FileReport {
         oodle_ok,
         problems,
         notes,
+        events,
+        event_rows,
+        unknown_event_groups,
     }
 }
 
@@ -159,6 +268,13 @@ fn parse_all_vrf_files() {
     let mut oodle_ok = 0u32;
     let mut failures: Vec<(String, String)> = Vec::new();
     let mut notes: Vec<(String, String)> = Vec::new();
+    let mut event_rows = 0u64;
+    let mut unknown_event_groups = 0u64;
+    let mut event_observations = 0u64;
+    let mut max_event_name_len = 0usize;
+    let mut max_event_time_delta_ms = 0.0f64;
+    let mut event_tags: std::collections::BTreeMap<&'static str, std::collections::BTreeSet<u32>> =
+        std::collections::BTreeMap::new();
 
     for entry in std::fs::read_dir(dir).expect("read corpus dir") {
         let entry = entry.expect("dir entry");
@@ -187,6 +303,16 @@ fn parse_all_vrf_files() {
         if report.problems.is_empty() {
             clean += 1;
         }
+        event_rows += report.event_rows;
+        unknown_event_groups += report.unknown_event_groups;
+        for event in report.events {
+            event_observations += 1;
+            max_event_name_len = max_event_name_len.max(event.name_len);
+            let seconds_ms = f64::from(event.seconds) * 1000.0;
+            max_event_time_delta_ms =
+                max_event_time_delta_ms.max((seconds_ms - f64::from(event.time1)).abs());
+            event_tags.entry(event.group).or_default().insert(event.tag);
+        }
         for problem in report.problems {
             failures.push((filename.clone(), problem));
         }
@@ -206,6 +332,19 @@ fn parse_all_vrf_files() {
         eprintln!("  {branch}: {count}");
     }
     eprintln!("Oodle decompress OK: {oodle_ok}");
+    eprintln!(
+        "Event payloads: {event_observations}/{event_rows} known layouts; \
+         {unknown_event_groups} unknown group(s)"
+    );
+    eprintln!("Event payload max public-name bytes: {max_event_name_len}");
+    eprintln!(
+        "Event payload seconds vs Time1 max absolute delta: \
+         {max_event_time_delta_ms:.6} ms"
+    );
+    eprintln!("Event tag cardinality by known group:");
+    for (group, tags) in &event_tags {
+        eprintln!("  {group}: {} distinct tag(s) {tags:?}", tags.len());
+    }
     // Measured, not asserted. Both counts are new; if either is ever non-zero
     // that is the evidence needed to decide whether it should be a failure.
     eprintln!("Unaccounted trailing bytes: {} file(s)", notes.len());
@@ -231,6 +370,14 @@ fn parse_all_vrf_files() {
         failures.is_empty(),
         "{} problem(s) across {total} files: {failures:#?}",
         failures.len()
+    );
+    assert_eq!(
+        unknown_event_groups, 0,
+        "{unknown_event_groups} Event chunk(s) use a group outside the measured vocabulary"
+    );
+    assert_eq!(
+        event_observations, event_rows,
+        "only {event_observations}/{event_rows} Event payloads matched the exact known layout"
     );
 }
 

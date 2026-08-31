@@ -22,6 +22,7 @@ and `ReconcileTests`.
 import contextlib
 import io
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -212,13 +213,20 @@ class ArgParsingTests(unittest.TestCase):
         args = guard.parse_args(["vrfkit.exe", "corpus", "--checkpoints"])
         self.assertTrue(args.checkpoints)
 
+    def test_identifier_redaction_is_opt_in(self):
+        plain = guard.parse_args(["vrfkit.exe", "corpus"])
+        private = guard.parse_args(
+            ["vrfkit.exe", "corpus", "--redact-identifiers"])
+        self.assertFalse(plain.redact_identifiers)
+        self.assertTrue(private.redact_identifiers)
+
 
 #: The `=== Checkpoints ===` block, appended to a healthy main summary, exactly
 #: as summary.rs's print_checkpoints prints it.
 CLEAN_WITH_CHECKPOINTS = LIVE_EXPORT + """
 === Checkpoints ===
   Checkpoints:      12
-  Overlay:          500 decoded / 0 errors / 20 raw-skip / 5 not-in-table / 2 unnamed / 1 effect blobs
+  Overlay:          500 decoded / 0 errors / 20 raw-skip / 5 not-in-table / 2 unnamed / 4 conflicts / 1 effect blobs
   Checkpoint blobs: 8 decoded / 0 failed
   Checkpoint fails: 0 array / 0 truncated RPC / 0 movement
   Checkpoint CNC:   3 RPC rows
@@ -260,6 +268,9 @@ class CheckpointCounterTests(unittest.TestCase):
         self.assertEqual(err, "")
         self.assertEqual(counters["checkpoint_decoded"], 500)
         self.assertEqual(counters["checkpoint_errors"], 0)
+        self.assertEqual(counters["checkpoint_unnamed"], 2)
+        self.assertEqual(counters["checkpoint_conflicts"], 4)
+        self.assertEqual(counters["checkpoint_effect_blobs"], 1)
         self.assertEqual(counters["checkpoint_blobs_decoded"], 8)
         self.assertEqual(counters["checkpoint_blobs_failed"], 0)
         self.assertEqual(counters["checkpoint_fail_array"], 0)
@@ -299,6 +310,146 @@ class CheckpointCounterTests(unittest.TestCase):
         self.assertIsNone(counters)
         self.assertIn("Checkpoint blobs", err)
         self.assertIn("Checkpoint fails", err)
+
+
+#: `crates/vrfkit/src/driver/summary.rs` -- read, not copied. See
+#: `SummaryFormatDriftTests`.
+SUMMARY_RS = (
+    Path(__file__).resolve().parents[2]
+    / "crates" / "vrfkit" / "src" / "driver" / "summary.rs"
+)
+
+
+def _overlay_format_string(source: str) -> str:
+    """The checkpoint `Overlay:` format string as summary.rs literally spells it.
+
+    Anchored on `Overlay:` inside a quoted Rust literal. The main pass prints
+    its overlay counters one-per-line and has no such literal, so this is
+    unambiguous -- but the count is asserted rather than assumed, because a
+    second matching literal would make "the format string" a coin toss.
+    """
+    matches = re.findall(r'"(  Overlay:[^"]*)"', source)
+    if len(matches) != 1:
+        raise AssertionError(
+            f"expected exactly one quoted '  Overlay:' format string in "
+            f"{SUMMARY_RS.name}, found {len(matches)}: {matches!r}"
+        )
+    return matches[0]
+
+
+class SummaryFormatDriftTests(unittest.TestCase):
+    """The regex is pinned against the REAL format string, read off summary.rs.
+
+    This is the defect that made the test necessary, not a hypothetical. The
+    Rust side grew a seventh field -- `conflicts` -- and `CHECKPOINT_OVERLAY`
+    still asked for six, so it matched NOTHING on a live `--checkpoints` run.
+    The fixture in this very file pinned the stale six-field format, so the
+    suite stayed green while the check it guards could not run at all.
+
+    A hand-copied fixture cannot catch that: it drifts in exactly the same
+    step as the regex. Reading summary.rs means the NEXT field added there
+    turns this red, which is the only version of this test that works.
+    """
+
+    def setUp(self):
+        if not SUMMARY_RS.is_file():
+            self.fail(f"{SUMMARY_RS} is missing: this test cannot be vacuous")
+        self.source = SUMMARY_RS.read_text(encoding="utf-8")
+
+    def test_the_regex_matches_the_line_summary_rs_actually_prints(self):
+        """Render summary.rs's own format string and match the regex on it.
+
+        Each `{}` becomes a distinct number, so a regex that matched the line
+        while mis-assigning its groups fails here too, not just one that fails
+        to match at all.
+        """
+        fmt = _overlay_format_string(self.source)
+        placeholders = fmt.count("{}")
+        values = [str(11 * (n + 1)) for n in range(placeholders)]
+        rendered = fmt
+        for value in values:
+            rendered = rendered.replace("{}", value, 1)
+
+        match = guard.CHECKPOINT_OVERLAY.search(rendered)
+        self.assertIsNotNone(
+            match,
+            f"CHECKPOINT_OVERLAY does not match the line summary.rs prints.\n"
+            f"  summary.rs: {fmt}\n"
+            f"  rendered  : {rendered}\n"
+            f"  regex     : {guard.CHECKPOINT_OVERLAY.pattern}\n"
+            f"A field was added to or removed from the Rust format string. "
+            f"Update CHECKPOINT_OVERLAY, CHECKPOINT_COUNTERS group numbers, "
+            f"and CHECKPOINT_REQUIRED together.",
+        )
+        self.assertEqual(
+            list(match.groups()), values,
+            "CHECKPOINT_OVERLAY matched but its capture groups are in the "
+            "wrong order or the wrong count for summary.rs's field order",
+        )
+
+    def test_every_field_summary_rs_prints_is_a_named_counter(self):
+        """A captured group nothing names is a counter that reaches no total.
+
+        The group count and the CHECKPOINT_COUNTERS entries pointing at this
+        pattern must agree, or a field is parsed and then dropped -- read but
+        never summed, never required, never printed.
+        """
+        fmt = _overlay_format_string(self.source)
+        named = [
+            key for key, pattern, _group in guard.CHECKPOINT_COUNTERS
+            if pattern is guard.CHECKPOINT_OVERLAY
+        ]
+        self.assertEqual(
+            len(named), fmt.count("{}"),
+            f"summary.rs prints {fmt.count('{}')} overlay fields but "
+            f"CHECKPOINT_COUNTERS names {len(named)} of them: {named}",
+        )
+        groups = sorted(
+            group for _key, pattern, group in guard.CHECKPOINT_COUNTERS
+            if pattern is guard.CHECKPOINT_OVERLAY
+        )
+        self.assertEqual(
+            groups, list(range(1, fmt.count("{}") + 1)),
+            "the overlay capture groups CHECKPOINT_COUNTERS reads are not "
+            f"exactly 1..{fmt.count('{}')}: {groups}",
+        )
+
+    def test_every_overlay_counter_is_required_and_reaches_a_total(self):
+        """Parsed is not enough: each must be REQUIRED and must be printed.
+
+        `conflicts` was the field the regex missed; a fix that parsed it but
+        left it out of CHECKPOINT_REQUIRED would let a summary that stopped
+        printing it read as fine, which is this repo's named failure mode.
+        """
+        required = {key for key, _label in guard.CHECKPOINT_REQUIRED}
+        for key, pattern, _group in guard.CHECKPOINT_COUNTERS:
+            if pattern is not guard.CHECKPOINT_OVERLAY:
+                continue
+            with self.subTest(counter=key):
+                self.assertIn(
+                    key, required,
+                    f"{key} is parsed but not REQUIRED: a summary that stops "
+                    f"printing it would read as a pass",
+                )
+
+    def test_the_fixture_in_this_file_matches_summary_rs_field_count(self):
+        """CLEAN_WITH_CHECKPOINTS is the fixture that drifted. Pin it too.
+
+        The stale fixture is what let the suite stay green: it described a
+        six-field line the Rust side had stopped printing, so every test built
+        on it agreed with the broken regex.
+        """
+        fmt = _overlay_format_string(self.source)
+        fixture = [
+            line for line in CLEAN_WITH_CHECKPOINTS.splitlines()
+            if line.strip().startswith("Overlay:")
+        ]
+        self.assertEqual(len(fixture), 1, fixture)
+        self.assertEqual(
+            fixture[0].count(" / ") + 1, fmt.count("{}"),
+            f"the fixture's Overlay line has a different field count from "
+            f"summary.rs:\n  fixture   : {fixture[0]}\n  summary.rs: {fmt}",
+        )
 
 
 class DeadCheckpointCounterTests(unittest.TestCase):

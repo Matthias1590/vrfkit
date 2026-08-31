@@ -1723,6 +1723,127 @@ mod tests {
         assert_eq!(sink.stream_failures[0].remaining_bits, 24);
     }
 
+    /// The `Err` arm must charge the block, not the reader's remainder.
+    ///
+    /// `read_int_packed` consumes each 8-bit chunk before it can discover the
+    /// value does not terminate, so a block whose last `IntPacked` expires
+    /// exactly at the block end leaves the reader at `position() == len` with
+    /// `bits_remaining() == 0`. The arm used to add that remainder, which
+    /// charged **zero** abandoned bits for a block that lost all nine of its
+    /// bits: `field_stream_failures` moved to 1 while `skipped_bits` stayed at
+    /// 0, a failure counted at block level and absent from the bit accounting
+    /// the oracle divides by failed blocks.
+    ///
+    /// Nine decoded bits: the checksum bit, then 0x01 -- an `IntPacked` chunk
+    /// whose low bit says "another chunk follows" when the block has none. The
+    /// handle read therefore fails with `Eof` having already consumed the
+    /// window whole.
+    #[test]
+    fn rep_layout_err_at_the_exact_block_end_still_charges_the_block() {
+        let mut decoded_bits = vec![false]; // property checksum
+        // 0x01 LSB-first: continuation set, payload bits all zero.
+        for index in 0..8 {
+            decoded_bits.push((0x01u8 & (1 << index)) != 0);
+        }
+        assert_eq!(decoded_bits.len(), 9);
+
+        let mut decoded = vec![0u8; decoded_bits.len().div_ceil(8)];
+        for (index, bit) in decoded_bits.iter().copied().enumerate() {
+            if bit {
+                decoded[index / 8] |= 1 << (index % 8);
+            }
+        }
+        let wire = wire_for_short_decoded(&decoded, decoded_bits.len(), 2);
+        let mut payload = BitReader::with_bit_len(&wire, decoded_bits.len() as u64).unwrap();
+        let mut scratch = Vec::new();
+        let mut stats = NetStats::default();
+        let mut channels = ChannelTable::default();
+        let mut sink = TestSink::default();
+        let mut stage = Stage {
+            stats: &mut stats,
+            channels: &mut channels,
+            transform: TransformVersion::V1301,
+            scratch: &mut scratch,
+        };
+
+        framing::decode_and_parse_rep_layout(
+            &mut payload,
+            decoded_bits.len(),
+            NetworkGuid(2),
+            &mut stage,
+            &mut sink,
+        );
+
+        assert_eq!(stats.field_stream_failures, 1);
+        assert_eq!(stats.fields, 0, "no field was emitted");
+        // The reader is exhausted, so `bits_remaining()` is 0 -- the number the
+        // arm used to charge. What was lost is the whole block.
+        assert_eq!(sink.stream_failures.len(), 1);
+        assert_eq!(sink.stream_failures[0].remaining_bits, 0);
+        assert_eq!(sink.stream_failures[0].consumed_bits, 9);
+        assert_eq!(
+            stats.skipped_bits, 9,
+            "a stream failure with no bits behind it is the defect this pins"
+        );
+    }
+
+    /// The RPC parser's `Err` arm, same shape and same reason.
+    ///
+    /// One handle bit (max clamped to 2) then 0x01, an `IntPacked` that claims
+    /// a chunk the block does not carry. `function_count` is 2 so the parser
+    /// walks the stream rather than bailing with `UnresolvedFunctionCount`,
+    /// which is a different arm with its own accounting.
+    #[test]
+    fn class_net_cache_err_at_the_exact_block_end_still_charges_the_block() {
+        let mut decoded_bits = Vec::new();
+        write_serialized_int(&mut decoded_bits, 0, 2); // one handle bit
+        for index in 0..8 {
+            decoded_bits.push((0x01u8 & (1 << index)) != 0);
+        }
+        assert_eq!(decoded_bits.len(), 9);
+
+        let mut decoded = vec![0u8; decoded_bits.len().div_ceil(8)];
+        for (index, bit) in decoded_bits.iter().copied().enumerate() {
+            if bit {
+                decoded[index / 8] |= 1 << (index % 8);
+            }
+        }
+        let wire = wire_for_short_decoded(&decoded, decoded_bits.len(), 2);
+        let mut payload = BitReader::with_bit_len(&wire, decoded_bits.len() as u64).unwrap();
+        let mut scratch = Vec::new();
+        let mut stats = NetStats::default();
+        let mut channels = ChannelTable::default();
+        let mut sink = TestSink::default();
+        let mut stage = Stage {
+            stats: &mut stats,
+            channels: &mut channels,
+            transform: TransformVersion::V1301,
+            scratch: &mut scratch,
+        };
+
+        framing::decode_and_parse_class_net_cache(
+            &mut payload,
+            decoded_bits.len(),
+            NetworkGuid(2),
+            2,
+            &mut stage,
+            &mut sink,
+        );
+
+        assert_eq!(stats.rpc_stream_failures, 1);
+        assert_eq!(stats.rpcs, 0, "no RPC was emitted");
+        assert_eq!(
+            stats.unresolved_rpc_payloads_preserved, 0,
+            "this is a walked stream that failed, not an unresolved group"
+        );
+        assert_eq!(sink.stream_failures.len(), 1);
+        assert_eq!(sink.stream_failures[0].remaining_bits, 0);
+        assert_eq!(
+            stats.skipped_bits, 9,
+            "a stream failure with no bits behind it is the defect this pins"
+        );
+    }
+
     /// Verifies that a content-block overrun produces a DiagnosticEvent with
     /// full context (packet id, channel, bunch flags, consumed/remaining bits).
     ///

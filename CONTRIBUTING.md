@@ -106,11 +106,23 @@ them are needed for the sweep above; all of them are needed for §6.
 
 | Variable | What it points at | Read by |
 |---|---|---|
-| `VRFKIT_CORPUS_DIR` | Directory of `.vrf` replays; a bare filename in a baseline resolves against it | `check_export_baseline.py`, `check_corpus_baseline.py` |
-| `VRFKIT_CSHARP_DIR` | Checkout root of the C# reference parser | `analyze_coverage.py`, `compare_*.py` |
-| `VRFKIT_VALPLAY_DIR` | valplay checkout root | `check_metrics_baseline.py` |
+| `VRFKIT_CORPUS_DIR` | Directory of `.vrf` replays; a bare filename in a baseline resolves against it | `check_export_baseline.py`, `check_corpus_baseline.py`, `check_metrics_baseline.py` |
+| `VRFKIT_CSHARP_DIR` | Checkout root of the C# reference parser | `analyze_coverage.py`, `extract_equippables.py` |
+| `VRFKIT_VALPLAY_DIR` | valplay checkout root | `check_metrics_baseline.py`, `validate_metrics_corpus.py`, `compare_combat_report.py`, `compare_rpc_params.py` |
 | `VRFKIT_JOBS` | Worker count for the corpus sweeps; default is cores - 2, capped at 16 | `validate_corpus.py` |
 | `VRFKIT_REQUIRE_CORPUS` | Set to anything to turn "corpus absent, skipping" into a failure | `crates/vrf-container/tests/corpus.rs` |
+
+The `compare_*.py` scripts were listed against `VRFKIT_CSHARP_DIR` here, which
+none of them reads. Two of them (`compare_combat_report.py`,
+`compare_rpc_params.py`) read `VRFKIT_VALPLAY_DIR`, because what they compare
+against is a valplay bundle. The third, `compare_with_csharp.py`, reads **no
+environment variable at all** -- it takes the C# bundle directory and the vrfkit
+output directory as its two positional arguments. Nothing checks this table, so
+verify a row by grepping for the variable rather than by reading the name:
+
+```bash
+grep -rn "VRFKIT_" tools/*.py | grep environ
+```
 
 **`tests/corpus.rs` is a container-level smoke test, not a decode sweep.** It
 parses each replay's header and decompresses its Oodle chunks; it never reaches

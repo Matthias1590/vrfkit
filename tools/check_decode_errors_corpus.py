@@ -43,9 +43,13 @@ Usage:
 `--checkpoints` passes the same flag on to `vrfkit export`, so it additionally
 decodes every Checkpoint chunk each replay carries, and this tool then checks
 the checkpoint counters the same way it checks the main pass: every one of the
-eleven checkpoint counters ("Overlay: ... / Checkpoint blobs: ... /
+twelve checkpoint counters ("Overlay: ... / Checkpoint blobs: ... /
 Checkpoint fails: ...") must be present, and the five failure counters among
-them must be zero. It is opt-in, not the default: decoding checkpoints is
+them must be zero. `conflicts` is present-and-printed but NOT one of those
+five: a handle conflict is the overlay REFUSING to type a row whose handle the
+replay renamed, which is the protection working, so a nonzero count is a
+legitimate outcome and gating on it would be a false alarm on real data. It is
+required and printed so a rule that started refusing everything is visible. It is opt-in, not the default: decoding checkpoints is
 real extra work, and both this tool's own docstring and every corpus sweep in
 this repo need a `--checkpoints`-free invocation to keep meaning the same
 thing it always has (see docs/USAGE.md). Before this flag existed, checkpoint
@@ -159,9 +163,24 @@ MUST_MOVE = (
 # crates/vrfkit/src/driver/summary.rs), unlike the main pass which gets one
 # regex per counter -- so each of these three patterns carries more than one
 # capture group, and CHECKPOINT_COUNTERS names which group is which counter.
+# The seven fields summary.rs prints, in its order. `conflicts` is the one this
+# pattern was missing: it prints
+#
+#   Overlay: {} decoded / {} errors / {} raw-skip / {} not-in-table /
+#            {} unnamed / {} conflicts / {} effect blobs
+#
+# and this regex asked for six fields, so it matched NOTHING on a real
+# `--checkpoints` run -- every replay came back "no Overlay ... decoded
+# (checkpoint) counter" and the whole sweep failed as unreadable. It failed
+# loudly rather than passing vacuously, which is the one thing that saved it,
+# but the check had not run since the Rust side grew the field.
+# test_check_decode_errors_corpus.py reads this format string OUT OF summary.rs
+# so the next field added there breaks the test instead of silently disabling
+# the check again.
 CHECKPOINT_OVERLAY = re.compile(
     r"Overlay:\s+(\d+) decoded / (\d+) errors / (\d+) raw-skip / "
-    r"(\d+) not-in-table / (\d+) unnamed / (\d+) effect blobs")
+    r"(\d+) not-in-table / (\d+) unnamed / (\d+) conflicts / "
+    r"(\d+) effect blobs")
 CHECKPOINT_BLOBS = re.compile(r"Checkpoint blobs:\s+(\d+) decoded / (\d+) failed")
 CHECKPOINT_FAILS = re.compile(
     r"Checkpoint fails:\s+(\d+) array / (\d+) truncated RPC / (\d+) movement")
@@ -177,7 +196,8 @@ CHECKPOINT_COUNTERS = (
     ("checkpoint_raw_skip", CHECKPOINT_OVERLAY, 3),
     ("checkpoint_not_in_table", CHECKPOINT_OVERLAY, 4),
     ("checkpoint_unnamed", CHECKPOINT_OVERLAY, 5),
-    ("checkpoint_effect_blobs", CHECKPOINT_OVERLAY, 6),
+    ("checkpoint_conflicts", CHECKPOINT_OVERLAY, 6),
+    ("checkpoint_effect_blobs", CHECKPOINT_OVERLAY, 7),
     ("checkpoint_blobs_decoded", CHECKPOINT_BLOBS, 1),
     ("checkpoint_blobs_failed", CHECKPOINT_BLOBS, 2),
     ("checkpoint_fail_array", CHECKPOINT_FAILS, 1),
@@ -198,6 +218,7 @@ CHECKPOINT_REQUIRED = (
     ("checkpoint_raw_skip", "Overlay ... raw-skip (checkpoint)"),
     ("checkpoint_not_in_table", "Overlay ... not-in-table (checkpoint)"),
     ("checkpoint_unnamed", "Overlay ... unnamed (checkpoint)"),
+    ("checkpoint_conflicts", "Overlay ... conflicts (checkpoint)"),
     ("checkpoint_effect_blobs", "Overlay ... effect blobs (checkpoint)"),
     ("checkpoint_blobs_decoded", "Checkpoint blobs ... decoded"),
     ("checkpoint_blobs_failed", "Checkpoint blobs ... failed"),
@@ -359,6 +380,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                     help="also pass --checkpoints to vrfkit export and check "
                          "the checkpoint counters (opt-in: real extra time "
                          "and disk per replay)")
+    ap.add_argument("--redact-identifiers", action="store_true",
+                    help="replace corpus paths and replay filenames in output "
+                         "with private, run-local labels")
     return ap.parse_args(argv)
 
 
@@ -371,13 +395,14 @@ def main() -> int:
 
     scan = corpus_scan.discover(args.corpus, args.recursive)
     # Unconditional, `excluded=0` included -- see corpus_scan.py's docstring.
-    print(corpus_scan.scope_line(scan))
+    print(corpus_scan.scope_line(scan, args.redact_identifiers))
     files = scan.files
     if args.limit:
         files = files[: args.limit]
         print(f"limited to the first {len(files)} of {len(scan.files)} discovered")
     if not files:
-        print(f"no .vrf files under {args.corpus}", file=sys.stderr)
+        where = "<private corpus>" if args.redact_identifiers else str(args.corpus)
+        print(f"no .vrf files under {where}", file=sys.stderr)
         return 2
 
     if args.checkpoints:
@@ -403,6 +428,9 @@ def main() -> int:
             files,
         ):
             done += 1
+            name = corpus_scan.replay_label(
+                files[done - 1], done, args.redact_identifiers)
+            err = corpus_scan.diagnostic(err, args.redact_identifiers)
             if counters is None:
                 unreadable.append((name, err))
             else:
@@ -447,6 +475,7 @@ def main() -> int:
               f"{totals['checkpoint_raw_skip']:,} raw-skip / "
               f"{totals['checkpoint_not_in_table']:,} not-in-table / "
               f"{totals['checkpoint_unnamed']:,} unnamed / "
+              f"{totals['checkpoint_conflicts']:,} conflicts / "
               f"{totals['checkpoint_effect_blobs']:,} effect blobs")
         print(f"checkpoint blobs  : {totals['checkpoint_blobs_decoded']:,} "
               f"decoded / {totals['checkpoint_blobs_failed']:,} failed")

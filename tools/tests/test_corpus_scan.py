@@ -139,6 +139,40 @@ class ScopeLineTests(unittest.TestCase):
             files=[], scanned_root=Path("/corpus"), recursive=True, excluded=0)
         self.assertIn("recursive", corpus_scan.scope_line(scan))
 
+    def test_redacted_scope_does_not_print_the_private_root(self):
+        scan = corpus_scan.CorpusScan(
+            files=[Path("private-name.vrf")],
+            scanned_root=Path("/private/player/corpus"),
+            recursive=False, excluded=0)
+        line = corpus_scan.scope_line(scan, redact_identifiers=True)
+        self.assertNotIn("/private/player/corpus", line)
+        self.assertIn("<private corpus>", line)
+
+
+class ReplayLabelTests(unittest.TestCase):
+    def test_redacted_label_does_not_print_the_filename(self):
+        label = corpus_scan.replay_label(
+            Path("account-or-session-identifier.vrf"), 7, True)
+        self.assertEqual(label, "replay-0007")
+        self.assertNotIn("identifier", label)
+
+    def test_unredacted_label_preserves_existing_output(self):
+        self.assertEqual(
+            corpus_scan.replay_label(Path("match.vrf"), 1, False),
+            "match.vrf")
+
+
+class DiagnosticTests(unittest.TestCase):
+    def test_redacted_diagnostic_drops_a_subprocess_tail(self):
+        detail = "exit 1: failed to open /private/player/match.vrf"
+        shown = corpus_scan.diagnostic(detail, True)
+        self.assertEqual(shown, "exit 1")
+        self.assertNotIn("private", shown)
+
+    def test_unredacted_diagnostic_preserves_existing_output(self):
+        detail = "exit 1: useful diagnostic"
+        self.assertEqual(corpus_scan.diagnostic(detail, False), detail)
+
 
 if __name__ == "__main__":
     unittest.main()
