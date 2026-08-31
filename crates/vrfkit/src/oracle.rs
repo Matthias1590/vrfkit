@@ -33,9 +33,9 @@
 //! decoded block; unsupported attribution with a recoverable raw payload is not
 //! treated as data loss.
 //!
-//! The current machine-local sweep on 2026-08-31 validates 445/445 replays at
-//! 100.000000%: 215 release-13.01, 204 release-13.02 and 26 release-13.04,
-//! covering 294,756,989 content blocks with zero malformed framing. This is a
+//! The current machine-local sweep on 2026-08-31 validates 527/527 replays at
+//! 100.000000%: 215 release-13.01, 204 release-13.02 and 108 release-13.04,
+//! covering 344,569,357 content blocks with zero malformed framing. This is a
 //! losslessness result, not a claim that every raw preservation row has a known
 //! property type.
 //!
