@@ -133,13 +133,13 @@ mod tests {
     }
 
     #[test]
-    fn only_12_11_adds_the_offset() {
+    fn known_add_offset_builds_are_registered() {
         let adding: Vec<&str> = build_table()
             .into_iter()
             .filter(|row| row.3)
             .map(|row| row.0)
             .collect();
-        assert_eq!(adding, vec![V12_11::BRANCH]);
+        assert_eq!(adding, vec![V12_11::BRANCH, V13_05::BRANCH]);
     }
 
     #[test]
