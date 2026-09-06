@@ -106,3 +106,26 @@ jobs:
         run: python -W error -m unittest discover -s tools/tests -p "test_*.py"
       - name: effect decoder
         run: python -W error tools/check_effect_decoder.py --check
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [rust, python-checks]
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.86.0
+      - name: build release binary
+        run: cargo +1.86.0 build --release -p vrfkit --features export --locked
+      - name: package Windows binary
+        shell: pwsh
+        run: Compress-Archive -Path target/release/vrfkit.exe -DestinationPath vrfkit-windows-x86_64.zip
+      - name: create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0-build.${{ github.run_number }}
+          name: vrfkit v0.1.0 build ${{ github.run_number }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          files: vrfkit-windows-x86_64.zip
