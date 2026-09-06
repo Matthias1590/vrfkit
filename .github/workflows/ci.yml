@@ -107,6 +107,7 @@ jobs:
       - name: effect decoder
         run: python -W error tools/check_effect_decoder.py --check
 
+  # Create binary release
   release:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     needs: [rust, python-checks]
