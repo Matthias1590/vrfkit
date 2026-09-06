@@ -48,7 +48,7 @@ impl SeededTransform for V13_05 {
 
     fn byte(mut v: u8, state: u32) -> u8 {
         let state_byte = state as u8;
-        let mix_a = state.wrapping_mul(0x1b08_29);
+        let mix_a = state.wrapping_mul(0x001b_0829);
 
         v = ((mix_a.wrapping_mul(0x79) as u8) ^ v).wrapping_sub(mix_a.wrapping_mul(0x0b) as u8);
         v = v.rotate_left((mix_a % 7) + 1);
