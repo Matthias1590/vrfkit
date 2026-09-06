@@ -11,7 +11,7 @@ external `oozextract` crate. Edition 2024, MSRV 1.86, MIT.
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)
 ![rust](https://img.shields.io/badge/rust-1.86%2B-orange.svg)
 ![edition](https://img.shields.io/badge/edition-2024-orange.svg)
-![builds](https://img.shields.io/badge/builds-12.10--13.04-green.svg)
+![builds](https://img.shields.io/badge/builds-12.10--13.05-green.svg)
 ![unsafe](https://img.shields.io/badge/unsafe-none-success.svg)
 
 Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantReplayParser)
@@ -43,6 +43,7 @@ understood.
 | Build | Branch | Status | Verified by |
 |---|---|---|---|
 | **13.04** | `release-13.04` | ✅ Supported | Upstream golden vectors + 108-replay full export/checkpoint sweep |
+| **13.05** | `release-13.05` | ✅ Supported | Upstream golden vectors |
 | **13.02** | `release-13.02` | ✅ Supported | Preserved replay + 204-replay oracle sweep |
 | **13.01** | `release-13.01` | ✅ Supported | 215-replay full corpus |
 | **13.00** | `release-13.00` | ✅ Supported | Preserved fixture + golden vectors |
