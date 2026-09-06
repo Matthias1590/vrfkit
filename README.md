@@ -299,7 +299,7 @@ it as one gives the year 3626.
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
 **594 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
-and `check_ascii` on 119 files. The Python suite in `tools/tests` has 553 tests.
+and `check_ascii` on 120 files. The Python suite in `tools/tests` has 553 tests.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
 from the table below on purpose -- they go stale, and re-measuring is one line.
