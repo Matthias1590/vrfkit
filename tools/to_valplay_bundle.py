@@ -48,6 +48,7 @@ import tempfile
 import time
 from bisect import bisect_right
 from collections import Counter, defaultdict
+from functools import lru_cache
 from itertools import islice
 from pathlib import Path
 from typing import NamedTuple
@@ -1245,9 +1246,21 @@ def _normalize_prop_field_name(field_name: str, is_bool: bool) -> str:
     return field_name
 
 
-def _parse_field_path(path: str, tally=None):
-    """Parse a dot-separated field path with optional array indices."""
+@lru_cache(maxsize=None)
+def _parse_field_path_cached(path: str):
+    """Parse one path. Returns `(parts, unparsable_segment_count)`.
+
+    Split out from `_parse_field_path` so the regex work can be memoised.
+    Field paths come from a dictionary-encoded Parquet column, so a replay's
+    ~520k parses cover only a few thousand distinct strings.
+
+    The tally is deliberately NOT bumped here. Doing so would make the counter
+    depend on cache hits: the first "Rounds[0][1]" would count and every later
+    one would not, silently under-reporting a fault the caller is meant to see.
+    The count is returned instead and the caller bumps on every call.
+    """
     parts = []
+    unparsable = 0
     for seg in path.split('.'):
         m = _PATH_RE.fullmatch(seg)
         if m:
@@ -1273,9 +1286,17 @@ def _parse_field_path(path: str, tally=None):
             # nothing, so the two levels of structure it describes are gone
             # with no other trace. A bracket is what tells the two apart.
             if '[' in seg or ']' in seg:
-                _bump(tally, "unparsable_path_segments")
+                unparsable += 1
             parts.append((seg, None))
-    return parts
+    return tuple(parts), unparsable
+
+
+def _parse_field_path(path: str, tally=None):
+    """Parse a dot-separated field path with optional array indices."""
+    parts, unparsable = _parse_field_path_cached(path)
+    if unparsable:
+        _bump(tally, "unparsable_path_segments", unparsable)
+    return list(parts)
 
 
 def _set_nested(root: dict, parts: list, value, tally=None):
@@ -1390,7 +1411,11 @@ def _get_value(row_i64, row_f64, row_bool, row_str, row_raw, row_bits,
     -- it travels alongside decoded values by design and is only consulted
     when every typed column is null.
     """
-    if sum(v is not None for v in (row_i64, row_f64, row_bool, row_str)) > 1:
+    # Summed as bools rather than `sum(v is not None for v in ...)`: this runs
+    # once per field row (1.4 M on a full replay) and the generator plus the
+    # `sum` call dominated the check itself. Same arithmetic, same counter.
+    if ((row_i64 is not None) + (row_f64 is not None)
+            + (row_bool is not None) + (row_str is not None)) > 1:
         _bump(tally, "multi_typed_rows")
     if row_i64 is not None:
         return row_i64, False
