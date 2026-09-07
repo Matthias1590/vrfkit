@@ -38,6 +38,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+import gc
 import json
 import math
 import os
@@ -3108,6 +3109,18 @@ def convert(export_dir: Path, output_dir: Path, *, verbose: bool = False):
 # Entry point
 # ---------------------------------------------------------------------------
 def main():
+    # One replay builds ~680k event dicts and holds them all until they are
+    # sorted and written, so the cyclic collector rescans an ever-growing set
+    # of container objects it will never find a cycle in. Measured on a 53 MB
+    # replay: 6.58s -> 5.43s wall, 17.5% faster, with peak RSS unchanged at
+    # 2.2 GB -- no cycles were being reclaimed, only looked for. Reference
+    # counting still frees everything acyclic, and the process is short-lived
+    # and exits after one conversion.
+    #
+    # Deliberately here and not at import time: the tools test suite imports
+    # this module, and a library import must not change the caller's GC.
+    gc.disable()
+
     parser = argparse.ArgumentParser(
         description="Convert vrfkit Parquet export to valplay NDJSON bundle"
     )
