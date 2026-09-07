@@ -437,7 +437,7 @@ Take only the layer you need. Every crate is `#![forbid(unsafe_code)]`, and
 | Layer | Crate | Feature flags |
 |---|---|---|
 | Bit reader / UE wire format | `vrf-bitio` | `alloc` (default; drop it for `no_std`) |
-| Payload transform (6 builds) | `vrf-transform` | none |
+| Payload transform (7 builds) | `vrf-transform` | none |
 | Container (info/header/chunk/event/checkpoint, Oodle) | `vrf-container` | `oodle` `event` `checkpoint` |
 | DemoFrame traversal | `vrf-frame` | none |
 | Dynamic schema + GUID cache + checkpoint tables | `vrf-schema` | `checkpoint` |
@@ -530,7 +530,7 @@ m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); print(len(m
 | `compare_rpc_params.py` | RPC parameter comparison |
 | `compare_with_csharp.py` | Diff against the C# parser |
 | `check_effect_decoder.py` | Effect decoder (12 cases) |
-| `check_ascii.py` | Rust source ASCII sweep (119 files) |
+| `check_ascii.py` | Rust source ASCII sweep (120 files) |
 | `check_docs.py` | This document itself (below) |
 | `atomic_io.py` | Internal containment, recursive-removal and atomic-replacement helpers shared by mutating tools |
 
@@ -684,10 +684,10 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 594 passing
+cargo +1.86.0 test --workspace --locked                              # 595 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
-python -W error tools/check_ascii.py --check                         # 119 files
+python -W error tools/check_ascii.py --check                         # 120 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
 python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 553 passing
 python -W error tools/check_docs.py --fast
@@ -782,6 +782,7 @@ silent change must be impossible.
 | 13.01 | 215-replay portion of the current multi-build sweep |
 | 13.02 | Preserved replay + 204-replay portion of the current sweep |
 | 13.04 | Upstream golden vectors + 108-replay export/checkpoint sweep |
+| 13.05 | Golden vectors + 51-replay oracle sweep |
 
 The current machine-local multi-build sweep (2026-08-31) reports:
 
@@ -789,6 +790,23 @@ The current machine-local multi-build sweep (2026-08-31) reports:
 527/527 oracle passes at 100%: 215 build 13.01 + 204 build 13.02 + 108 build 13.04
 13.04 export/checkpoints: 108/108 readable, decode/struct/checkpoint failures 0
 ```
+
+Build 13.05 landed later and was swept on its own (2026-09-07). Method:
+`vrfkit validate` run once per file over the 51 files in the same corpus whose
+branch header reads `++Ares-Core+release-13.05`, reading the `ORACLE PASS RATE`
+line; the comparison figures come from four-file samples of each older build
+validated the same day with the same binary.
+
+```
+13.05: 51/51 parsed, RepLayout oracle pass rate
+       min 99.929554% / mean 99.950249% / max 99.962170%
+same-day samples: 13.01 99.933-99.947%, 13.02 99.953-99.961%, 13.04 99.941-99.959%
+```
+
+The residual loss is not build-specific: it is the `AresAbilitySystemComponent`
+field stream that stops at `consumed=185` on every build, plus RPC handles with
+no known signature. 13.05 shows the same shapes in the same proportion, which is
+what a correct transform on a build with no new content looks like.
 
 Adding a new build takes one `SeededTransform` impl -- two constants and three
 word functions. See the README's
