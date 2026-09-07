@@ -11,14 +11,14 @@ external `oozextract` crate. Edition 2024, MSRV 1.86, MIT.
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)
 ![rust](https://img.shields.io/badge/rust-1.86%2B-orange.svg)
 ![edition](https://img.shields.io/badge/edition-2024-orange.svg)
-![builds](https://img.shields.io/badge/builds-12.10--13.04-green.svg)
+![builds](https://img.shields.io/badge/builds-12.10--13.05-green.svg)
 ![unsafe](https://img.shields.io/badge/unsafe-none-success.svg)
 
 Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantReplayParser)
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Current state:** `cargo +1.86.0 test --workspace --locked` **594 passing**,
+**Current state:** `cargo +1.86.0 test --workspace --locked` **595 passing**,
 `tools/tests` **553 passing** -- see [Status](#status) for the rest.
 
 - Run it: [`docs/USAGE.md`](docs/USAGE.md)
@@ -42,6 +42,7 @@ understood.
 
 | Build | Branch | Status | Verified by |
 |---|---|---|---|
+| **13.05** | `release-13.05` | ✅ Supported | Golden vectors + 51-replay oracle sweep |
 | **13.04** | `release-13.04` | ✅ Supported | Upstream golden vectors + 108-replay full export/checkpoint sweep |
 | **13.02** | `release-13.02` | ✅ Supported | Preserved replay + 204-replay oracle sweep |
 | **13.01** | `release-13.01` | ✅ Supported | 215-replay full corpus |
@@ -93,7 +94,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **594 tests** plus a layered validation suite (framing / bytes / decode
+- **595 tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -297,8 +298,8 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**594 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
-and `check_ascii` on 119 files. The Python suite in `tools/tests` has 553 tests.
+**595 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
+and `check_ascii` on 120 files. The Python suite in `tools/tests` has 553 tests.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
 from the table below on purpose -- they go stale, and re-measuring is one line.
@@ -306,7 +307,7 @@ from the table below on purpose -- they go stale, and re-measuring is one line.
 | Layer | Crate | Feature flags |
 |---|---|---|
 | Bit reader / UE wire format | `vrf-bitio` | `alloc` (default; drop it for `no_std`) |
-| Payload transform (6 builds) | `vrf-transform` | none (`ALL_VERSIONS` is a length-independent slice) |
+| Payload transform (7 builds) | `vrf-transform` | none (`ALL_VERSIONS` is a length-independent slice) |
 | Container (info/header/chunk/event/checkpoint, Oodle) | `vrf-container` | `oodle` `event` `checkpoint` |
 | DemoFrame traversal | `vrf-frame` | none (sections are byte ranges for cursor alignment) |
 | Replay dynamic schema + GUID cache + checkpoint tables | `vrf-schema` | `checkpoint` |
@@ -680,7 +681,7 @@ reads only `archive.BitsRemaining`. Before this fix, all 364 rows of
 ## Supported builds and the cost of a new build
 
 The payload transform changes per game build, but far more is **constant**
-across releases 12.10 through 13.04: the PRNG and its multipliers, the seed-mix
+across releases 12.10 through 13.05: the PRNG and its multipliers, the seed-mix
 skeleton, the 64 -> 32 -> 8 -> tail staging, the tail-XOR handling, and even
 the S-box table itself. What actually changes per build:
 
@@ -692,8 +693,9 @@ the S-box table itself. What actually changes per build:
 | release-13.01 | `0xe62fcd5c` | `0x24` | - | unused |
 | release-13.02 | `0x9e81a37c` | `0x04` | - | used |
 | release-13.04 | `0x076dc658` | `0x28` | - | unused |
+| release-13.05 | `0x48c26613` | `0x13` | **+** | unused |
 
-In all six builds the **tail-XOR byte equals the low byte of the seed
+In all seven builds the **tail-XOR byte equals the low byte of the seed
 addend.** It is a derived value, not an independent constant, and the
 relationship is pinned by a test in `versions/mod.rs` -- if a future build breaks
 the pattern, the test fails instead of the final byte silently corrupting.
@@ -761,7 +763,7 @@ resolution requires re-exporting from the original `.vrf`.
 ### 2. Minimal cost per build update
 
 See [Supported builds](#supported-builds-and-the-cost-of-a-new-build). Across
-six builds the only per-build variables are two constants (seed addend,
+seven builds the only per-build variables are two constants (seed addend,
 offset) and a sign, plus whether the S-box stage is enabled; the PRNG,
 staging, tail-XOR, and S-box table are shared. A new build is one
 `SeededTransform` impl.

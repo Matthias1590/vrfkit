@@ -52,7 +52,7 @@ import corpus_scan
 
 
 CLASS_NET_CACHE_SUFFIX = "_ClassNetCache"
-DEFAULT_BUILDS = ("13.02", "13.04")
+DEFAULT_BUILDS = ("13.02", "13.04", "13.05")
 BUILD_PATTERN = re.compile(r"(?:release-)(\d+\.\d+)")
 FIELD_COLUMNS = (
     "packet_id",
