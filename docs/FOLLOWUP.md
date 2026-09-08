@@ -1,5 +1,9 @@
 # September 2026 corpus follow-up
 
+**Header-order correction:** The partial missing-initial/rejection figures below
+are historical parser classifications. [The corrected header audit](PARTIAL_HEADER_CORRECTION.md)
+reassembles all 961,004 observed fragments; the source data was present.
+
 This is the earlier tail-preservation batch. The subsequent
 [schema expansion and full partial-cause audit](SCHEMA_EXPANSION.md) supersedes
 its typed-value percentages and four-file-only cause classification. The

@@ -9,9 +9,9 @@ with "lost"; check stream-loss counters separately.
 Legend: ✅ typed (value decoded) · ◐ raw or derivable · ❌ unavailable in the
 stated observation scope. Absence in a sample is not proof of format-wide absence.
 
-The latest 714-replay measurements, rejected partial preservation and scoped
-byte types are recorded in [TRANSPORT_PRESERVATION.md](TRANSPORT_PRESERVATION.md).
-Physical typed-value coverage is 69.9858% main and 53.2298% checkpoint; this is
+The latest 714-replay measurements and partial-header correction are recorded
+in [PARTIAL_HEADER_CORRECTION.md](PARTIAL_HEADER_CORRECTION.md).
+Physical typed-value coverage is 70.8088% main and 78.2028% checkpoint; this is
 not semantic completeness. Earlier crosshair/Tidal Wave additions are recorded
 in [SCHEMA_EXPANSION.md](SCHEMA_EXPANSION.md).
 

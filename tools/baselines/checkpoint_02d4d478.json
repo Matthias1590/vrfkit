@@ -3,55 +3,55 @@
     "chunks": 19,
     "packets": 530401,
     "export_groups": 475,
-    "content_blocks": 608020,
-    "rep_layout_blocks": 258892,
-    "class_net_cache_blocks": 349119,
-    "fields": 429637,
-    "rpcs": 342953,
+    "content_blocks": 608080,
+    "rep_layout_blocks": 258903,
+    "class_net_cache_blocks": 349168,
+    "fields": 429648,
+    "rpcs": 342990,
     "actor_opens": 2028,
     "actor_closes": 1799,
     "bunches": 530401,
     "malformed_packets": 0,
-    "skipped_bits": 19239874,
-    "movement_rows": 1839607,
+    "skipped_bits": 18217181,
+    "movement_rows": 1844147,
     "net_guid_rows": 16167,
     "event_rows": 195,
-    "partial_rows": 131,
-    "partial_bits": 1628083,
+    "partial_rows": 0,
+    "partial_bits": 0,
     "event_layout_mismatches": 0,
     "event_payloads_decoded": 195,
     "event_payload_unknown_groups": 0,
     "overlay_decoded_ok": 789624,
     "overlay_decode_errors": 0,
     "overlay_raw_skip": 31793,
-    "overlay_not_in_table": 165539,
-    "overlay_no_field_name": 2027,
-    "overlay_rows_offered": 988983,
-    "effect_blobs_decoded": 53908,
+    "overlay_not_in_table": 165544,
+    "overlay_no_field_name": 2034,
+    "overlay_rows_offered": 988995,
+    "effect_blobs_decoded": 61617,
     "struct_blobs_decoded": 207,
     "struct_blobs_failed": 0,
-    "cp_partial_rows": 970,
-    "cp_partial_bits": 12444310,
+    "cp_partial_rows": 0,
+    "cp_partial_bits": 0,
     "cp_chunks": 18,
     "cp_guid_entries": 74270,
     "cp_group_records": 8307,
     "cp_exported_fields": 49314,
     "cp_frames": 18,
     "cp_frame_packets": 3691,
-    "cp_field_rows": 78924,
-    "cp_struct_blobs_decoded": 35,
+    "cp_field_rows": 245211,
+    "cp_struct_blobs_decoded": 205,
     "cp_struct_blobs_failed": 0
   },
   "parquet": {
     "fields": {
-      "rows": 1277983,
-      "bytes": 16121031,
-      "sha256": "7ec308879016c1490db201b53e4146ed553a50d191a1845186910c760c0c5d76"
+      "rows": 1278050,
+      "bytes": 16267043,
+      "sha256": "eda84dda8b6d9bdbb9a9ebbca2acc8ff2aa4542ac374c7c10c1a4dbcfcfb8dae"
     },
     "movement": {
-      "rows": 1839607,
-      "bytes": 31835557,
-      "sha256": "106249a8e34348edc1d3ff2f180e1b324b2cbb49fe456411568000d53d3231d0"
+      "rows": 1844147,
+      "bytes": 31886449,
+      "sha256": "97004059bfdcc3cee3d95f208f08b7fa855c013816d4496c52bab7b1e9f1ccfd"
     },
     "actors": {
       "rows": 3827,
@@ -69,14 +69,14 @@
       "sha256": "e3879e2aabfc83ecae48be30ef8056fc8ec10ee1dab50c3882dc2b72d0f12af2"
     },
     "partials": {
-      "rows": 1101,
-      "bytes": 1755789,
-      "sha256": "a407833d3ca58eb735bf8109c633fc06a6056435bc709fd6bf74d70e591bcfbc"
+      "rows": 0,
+      "bytes": 2505,
+      "sha256": "8945eaca3d7e4f22c6fec2835b867f06e9023e14651d22874e1512fd11181d6d"
     },
     "checkpoint_fields": {
-      "rows": 78924,
-      "bytes": 237911,
-      "sha256": "5c9f2be08a1f1fab7f77089cbef0b19b0bb431346543c9a22abcc61be7a90eab"
+      "rows": 245211,
+      "bytes": 857914,
+      "sha256": "df535e0920eb9d7de2766e147006e2e7be8aa95c740e196d66810a5a3109af3f"
     }
   },
   "replay": "02d4d478-1dfb-4412-9a77-29ca29105a9d.vrf"

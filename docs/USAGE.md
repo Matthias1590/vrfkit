@@ -108,7 +108,8 @@ the verdict.
 The example is the preserved `02d4d478` replay after the September 2026
 tail-preservation change. All 714 current ReplayData block runs pass, and the
 separate checkpoint diagnostic reports no lost framed blocks. Main/checkpoint
-partial reassembly rejection totals remain 125,037 / 835,967. Unknown inner payloads still
+the later [header-order correction](PARTIAL_HEADER_CORRECTION.md) reassembles
+all 125,037 / 835,967 observed partial fragments with zero partial errors. Unknown inner payloads still
 exist: a pass means each measured block was decoded or explicitly preserved, not that
 all values have known types or meanings. `RPC unresolved/raw` includes whole
 unparsed tails as well as unresolved standalone RPC blocks. See
@@ -194,7 +195,7 @@ member and handle by name.
 ```
 
 (That figure is `02d4d478`'s, from `tools/baselines/export_02d4d478.json`:
-`overlay_decoded_ok / overlay_rows_offered` = 789,624 / 988,983. It moves as
+`overlay_decoded_ok / overlay_rows_offered` = 789,624 / 988,995. It moves as
 overlay entries are added -- re-measure before quoting it.)
 
 The denominator is **every row offered** to the overlay, and thanks to RPC
@@ -213,13 +214,13 @@ Measured on `02d4d478` (48,215,213 bytes):
 
 | File | Rows | Bytes | Notes |
 |---|---|---|---|
-| `fields.parquet` | 1,277,983 | 16,121,031 | |
-| `movement.parquet` | 1,839,607 | 31,835,557 | |
+| `fields.parquet` | 1,278,050 | 16,267,043 | |
+| `movement.parquet` | 1,844,147 | 31,886,449 | |
 | `actors.parquet` | 3,827 | 87,281 | |
 | `net_guids.parquet` | 16,167 | 153,606 | |
 | `events.parquet` | 195 | 13,411 | |
-| `partials.parquet` | 131 | 213,371 | main-only; with checkpoints: 1,101 rows, 1,755,789 bytes |
-| `checkpoint_fields.parquet` | 78,924 | 237,911 | requires `--checkpoints` |
+| `partials.parquet` | 0 | 2,505 | main-only; with checkpoints: 0 rows, 2,505 bytes |
+| `checkpoint_fields.parquet` | 245,211 | 857,914 | requires `--checkpoints` |
 | `manifest.json` | -- | ~660,030 | varies: it records `elapsed_ms` |
 
 Use [`bench_export.py`](#analysis-helpers) to measure runtime on your machine.
@@ -847,12 +848,12 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 632 passing
+cargo +1.86.0 test --workspace --locked                              # 633 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 124 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 639 passing
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 641 passing
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 185 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
@@ -948,9 +949,10 @@ silent change must be impossible.
 | 13.05 | Golden vectors + 187-file portion of the 714-file sweep |
 
 The current 714-file sweep passes ReplayData block validation and separately
-reports zero checkpoint block loss. Both exclude rejected partial bunches
-before block framing. Physical typed coverage is 69.98% main and 52.90%
-checkpoint; [FOLLOWUP.md](FOLLOWUP.md) gives exact denominators and limitations.
+reports zero checkpoint block loss. All 961,004 partial fragments now reassemble
+with zero partial errors. Physical typed coverage is 70.8088% main and 78.2028%
+checkpoint; [PARTIAL_HEADER_CORRECTION.md](PARTIAL_HEADER_CORRECTION.md) gives
+exact denominators, the corrected header interpretation and remaining limits.
 Historical measurements follow; their percentages are not current results. The 2026-09-07 full sweep exported all 714
 files but found field-stream loss in every `validate` run. The main weighted
 block preservation rate was 99.949053%; checkpoint was 99.589353%.

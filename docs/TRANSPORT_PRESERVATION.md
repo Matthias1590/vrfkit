@@ -1,5 +1,9 @@
 # September 8, 2026 partial preservation and unresolved-data audit
 
+**Header-order correction:** The partial missing-initial/rejection figures below
+are historical parser classifications. [The corrected header audit](PARTIAL_HEADER_CORRECTION.md)
+reassembles all 961,004 observed fragments; the source data was present.
+
 This batch was built from `f22e2de` plus the changes described below, with
 Rust 1.86.0. The frozen executable SHA-256 is
 `2e32b3a648a79ab784c9ee3f9a610245c9952178976282a8263798d327e01700`.

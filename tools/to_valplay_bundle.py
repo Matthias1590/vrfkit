@@ -754,9 +754,9 @@ def _decode_effect_elements(data: bytes, bit_count: int, spec: _EffectArraySpec,
     advanced by however much the partial read consumed. Both are relied on by
     the ``consumed``/``skip_bits`` resynchronisation below.
 
-    This is the ONLY decoder for the shot RPC's blobs -- the Rust twin in
-    crates/vrf-decode/src/effect.rs is deliberately not wired up for
-    `ReplayPlayContinuousEffectAtLocation` (see that module's doc comment).
+    This decodes the preserved raw shot blobs independently of the additive
+    JSON written by crates/vrf-decode/src/effect.rs. The adapter keeps the raw
+    source even when a typed value is present.
     Where the Rust decoder rejects a blob outright on a shape it names
     (`PayloadUnderread`, `PayloadOverread`, `ResidualBits`, ...), this port
     keeps going and returns what it already decoded -- correct for a shot
@@ -2554,8 +2554,16 @@ def _build_rpc_events(cols: _FieldColumns, rpc_groups: dict,
                 col_i64[ri], col_f64[ri], col_bool[ri], col_str[ri],
                 col_raw[ri], col_bits[ri], tally
             )
-            # Collect raw blobs for shot events
-            if name == "ReplayPlayContinuousEffectAtLocation" and is_raw and col_raw[ri] is not None:
+            # Shot arrays deliberately keep the preserved wire blob as their
+            # source. Rust may add a value_str JSON overlay in the future, but
+            # that must neither replace the Python shot decoder's raw input nor
+            # change rpc_received's established blob payload contract.
+            shot_effect_blob = (
+                name == "ReplayPlayContinuousEffectAtLocation"
+                and param in ("FloatValues", "ObjectValues", "VectorValues")
+                and col_raw[ri] is not None
+            )
+            if shot_effect_blob:
                 # bit_count travels with the bytes. Recomputing it downstream
                 # as len(data) * 8 would feed the last byte's padding bits to
                 # the decoder as data.
@@ -2566,6 +2574,15 @@ def _build_rpc_events(cols: _FieldColumns, rpc_groups: dict,
                     object_blob = captured
                 elif param == "VectorValues":
                     vector_blob = captured
+                # Keep the rpc_received wire-blob shape too. `_get_value`
+                # still ran above, so its malformed multi-typed counter stays
+                # visible; this narrowly chooses raw only for these shot-array
+                # consumers that require the exact payload window.
+                value = {
+                    "BitCount": col_bits[ri],
+                    "Data": base64.b64encode(col_raw[ri]).decode("ascii"),
+                }
+                is_raw = True
             if value is None and not is_raw:
                 continue
             # Map parameter names to match C# parser output

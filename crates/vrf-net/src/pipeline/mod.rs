@@ -1096,9 +1096,9 @@ mod tests {
             false, // bHasPackageMapExports
             false, // bHasMustBeMappedGUIDs
             true,  // bPartial
+            false, // VALORANT bit
             true,  // bPartialInitial
             false, // bPartialFinal
-            false, // VALORANT bit
             true,  // FName isHardcoded
         ]);
         write_int_packed(&mut bits, 1); // FName index
@@ -1117,9 +1117,9 @@ mod tests {
             false, // bHasPackageMapExports
             false, // bHasMustBeMappedGUIDs
             true,  // bPartial
+            false, // VALORANT bit
             false, // bPartialInitial
             true,  // bPartialFinal
-            false, // VALORANT bit
             true,  // FName isHardcoded
         ]);
         write_int_packed(&mut bits, 1); // FName index
@@ -1172,9 +1172,9 @@ mod tests {
             false, // bHasPackageMapExports
             false, // bHasMustBeMappedGUIDs
             true,  // bPartial
+            false, // VALORANT bit
             false, // bPartialInitial (no initial -> MissingInitial)
             true,  // bPartialFinal
-            false, // VALORANT bit
             true,  // FName isHardcoded
         ]);
         write_int_packed(&mut bits, 1); // FName index
@@ -1292,11 +1292,11 @@ mod tests {
         bits.push(spec.b_has_package_map_exports);
         bits.push(false); // bHasMustBeMappedGUIDs
         bits.push(spec.b_partial);
+        bits.push(false); // VALORANT bit
         if spec.b_partial {
             bits.push(spec.b_partial_initial);
             bits.push(spec.b_partial_final);
         }
-        bits.push(false); // VALORANT bit
         bits.push(true); // channel FName: isHardcoded
         write_int_packed(bits, 1); // FName index
         write_serialized_int(

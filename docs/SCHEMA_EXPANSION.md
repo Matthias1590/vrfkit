@@ -1,5 +1,9 @@
 # September 8, 2026 schema expansion and evidence audit
 
+**Header-order correction:** The partial missing-initial/rejection figures below
+are historical parser classifications. [The corrected header audit](PARTIAL_HEADER_CORRECTION.md)
+reassembles all 961,004 observed fragments; the source data was present.
+
 The subsequent [partial preservation and unresolved-data audit](TRANSPORT_PRESERVATION.md)
 adds raw transport exports and supersedes the current typed-value percentages.
 Figures below describe this earlier batch.

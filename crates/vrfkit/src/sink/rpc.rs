@@ -253,10 +253,9 @@ impl ExportSink<'_> {
                 && value_bool.is_none()
                 && value_str.is_none()
             {
-                if let (Some(kind), Some(raw)) = (
-                    effect_array_kind_for_param(func_name, param_name),
-                    raw_bits.as_deref(),
-                ) {
+                if let (Some(kind), Some(raw)) =
+                    (effect_array_kind_for_param(param_name), raw_bits.as_deref())
+                {
                     // `payload_bits`, not `raw.len() * 8`: the last byte is
                     // padded, and handing the padding to the decoder as data is
                     // the latent bug docs/archive/PROJECT_STATUS.md 12-D pins
@@ -504,24 +503,6 @@ pub(super) fn copy_raw_bits(reader: BitReader<'_>, bit_count: u32) -> Option<Sma
     Some(buf)
 }
 
-/// The one RPC whose effect blobs must keep reaching the downstream adapter as
-/// raw bits.
-///
-/// `tools/to_valplay_bundle.py` builds `valorant_shot_received` -- and with it
-/// the `weapons`, `shot_rays`, `spray_control` and `posture` metric sections --
-/// from this RPC's blobs, which it captures at line 1744 under a predicate it
-/// calls `is_raw`. That predicate is `_get_value` at line 1096, and it returns
-/// `is_raw = False` the moment `value_str` is non-null: the `row_str` test at
-/// lines 1104-1105 runs *before* the `row_raw` test at line 1110. So filling
-/// `value_str` on these rows would not merely change their shape, it would
-/// stop the adapter capturing them at all, silently, and the shot sections
-/// would go with them.
-///
-/// The exclusion is therefore a property of the consumer, not of the wire
-/// format -- which is why it lives here and not in `vrf_decode::effect`. It can
-/// go away once the adapter reads the decoded JSON instead of the bits.
-const EFFECT_BLOB_RPC_LEFT_RAW_FOR_ADAPTER: &str = "ReplayPlayContinuousEffectAtLocation";
-
 /// Which life-change schema an RPC parameter takes, if any.
 ///
 /// Keyed on the function as well as the parameter, because the local handles
@@ -579,13 +560,11 @@ fn life_change_member_type(path: &str) -> Option<FieldType> {
 /// `ObjectValues` or `VectorValues`, and all 61,617 of those payloads decode
 /// as this format and consume their window exactly. No other parameter name
 /// does, which is why the match is on the name and not on the function.
-fn effect_array_kind_for_param(
-    function_name: &str,
-    param_name: Option<&str>,
-) -> Option<EffectArrayKind> {
-    if function_name == EFFECT_BLOB_RPC_LEFT_RAW_FOR_ADAPTER {
-        return None;
-    }
+///
+/// Shot RPC arrays use the same additive path. The Python adapter takes its
+/// shot inputs and RPC wire payload from preserved raw_bits even when this
+/// pass adds JSON; typed values no longer suppress that capture.
+fn effect_array_kind_for_param(param_name: Option<&str>) -> Option<EffectArrayKind> {
     // A parameter whose name the group did not resolve is emitted as `_h{N}`,
     // and a handle does not identify the element type across functions.
     EffectArrayKind::from_param_name(param_name?)

@@ -18,12 +18,12 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Current state:** `cargo +1.86.0 test --workspace --locked` **632 passing**,
-`tools/tests` **639 passing** -- see [Status](#status) for the rest.
+**Current state:** `cargo +1.86.0 test --workspace --locked` **633 passing**,
+`tools/tests` **641 passing** -- see [Status](#status) for the rest.
 
 - Run it: [`docs/USAGE.md`](docs/USAGE.md)
 - What's extractable: [`docs/DATA.md`](docs/DATA.md)
-- Latest corpus results: [`docs/TRANSPORT_PRESERVATION.md`](docs/TRANSPORT_PRESERVATION.md)
+- Latest corpus results: [`docs/PARTIAL_HEADER_CORRECTION.md`](docs/PARTIAL_HEADER_CORRECTION.md)
 - Build it, test it, open a PR: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Working conventions (for an AI agent): [`CLAUDE.md`](CLAUDE.md)
 
@@ -94,7 +94,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **632 tests** plus a layered validation suite (framing / bytes / decode
+- **633 tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -148,18 +148,18 @@ produces eight files when checkpoints are included:
 
 | File | Rows | Bytes |
 |---|---|---|
-| `fields.parquet` | 1,277,983 | 16,121,031 |
-| `movement.parquet` | 1,839,607 | 31,835,557 |
+| `fields.parquet` | 1,278,050 | 16,267,043 |
+| `movement.parquet` | 1,844,147 | 31,886,449 |
 | `actors.parquet` | 3,827 | 87,281 |
 | `net_guids.parquet` | 16,167 | 153,606 |
 | `events.parquet` | 195 | 13,411 |
-| `partials.parquet` | 131 | 213,371 |
-| `checkpoint_fields.parquet` | 78,924 | 237,911 |
+| `partials.parquet` | 0 | 2,505 |
+| `checkpoint_fields.parquet` | 245,211 | 857,914 |
 | `manifest.json` |  | ~660,030 |
 
 `checkpoint_fields.parquet` requires `--checkpoints`. The partials row above
-shows the default main-only export; with checkpoints it contains 1,101 rows
-and occupies 1,755,789 bytes. The five original main tables remain
+shows the default main-only export; both modes currently contain zero
+rejected partial rows and occupy 2,505 bytes. The five original main tables remain
 byte-for-byte identical across the checkpoint flag.
 
 Two things about `movement.parquet` worth knowing up front: `timestamp` is the
@@ -316,8 +316,8 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**632 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
-and `check_ascii` on 124 files. The Python suite in `tools/tests` has 639 tests.
+**633 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
+and `check_ascii` on 124 files. The Python suite in `tools/tests` has 641 tests.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
 from the table below on purpose -- they go stale, and re-measuring is one line.
@@ -411,7 +411,7 @@ parser.
 
 **Movement -- effectively bit-identical.** Over a 50,000-row join (99.98%
 matched), the maximum position error is 0.0005 (float rounding); yaw, pitch,
-and velocity error is exactly 0. Row counts are 1,837,220 (C#) versus 1,839,607
+and velocity error is exactly 0. In that earlier comparison, row counts were 1,837,220 (C#) versus 1,839,607
 (ours) -- the gap is the C# limitation of "emit only the last move of each
 update"; we additionally recover 2,387 intermediate moves.
 
@@ -508,11 +508,13 @@ The September 2026 follow-up re-exported and retained all 714 replays
 ReplayData block validation passes on every file. Separate main/checkpoint
 diagnostics reduce block loss from 240,679 / 53,582 to zero by recovering or
 preserving post-RepLayout tails. Unknown payloads remain explicitly raw.
-This is not end-to-end losslessness: 125,037 main and 835,967 checkpoint partial
-reassembly rejections discard payloads before content-block framing and are
-excluded from that block score. Their successful-fragment counters are zero.
+The subsequent [partial-header correction](docs/PARTIAL_HEADER_CORRECTION.md)
+reassembles all 125,037 main and 835,967 checkpoint fragments into 293,720
+complete bunches. The earlier missing-initial conclusion was a header-order
+error; unknown inner payloads still remain explicitly preserved.
 
-Main physical typed coverage increases from 66.18% to **69.92%**; checkpoint
+In that earlier tail-preservation run, main physical typed coverage increased
+from 66.18% to **69.92%**; checkpoint
 from 41.24% to **41.30%**. These percentages count non-null value columns, not
 game facts understood. The time fields add 37,601,710 typed rows across the
 two streams. Three analysis helpers expose physical coverage, the observed
@@ -632,18 +634,18 @@ groups no replay has spawned yet. In the historical 215-replay release-13.01
 export sweep, it typed 6,048 further rows with decode errors still at zero.
 
 `02d4d478` (`02d4d478-1dfb-4412-9a77-29ca29105a9d.vrf`), as recorded by the
-committed export baseline `tools/baselines/export_02d4d478.json` (pinned in
-`ee34e9a`) -- not retyped from a console:
+committed export baseline `tools/baselines/export_02d4d478.json` after the
+partial-header and shot-array corrections:
 
 ```
 Decoded OK:   789,624      Decode errors:      0
-Raw/Skip:      31,793      Not in table: 165,539
-No field name:  2,027      Typed:          79.8%
-Effect blobs:  53,908
+Raw/Skip:      31,793      Not in table: 165,544
+No field name:  2,034      Typed:          79.8%
+Effect blobs:  61,617
 ```
 
-The four buckets partition `Rows offered` exactly (789,624 + 31,793 + 165,539 +
-2,027 = 988,983), and `Typed` is `Decoded OK / Rows offered`. The figures this
+The four buckets partition `Rows offered` exactly (789,624 + 31,793 + 165,544 +
+2,034 = 988,995), and `Typed` is `Decoded OK / Rows offered`. The figures this
 block held until 2026-08-30 partitioned the same 988,983 rows differently -- they
 were an older snapshot, taken before overlay entries that moved rows out of `Not
 in table`, and they contradicted the baseline this repo commits for the same
@@ -654,7 +656,7 @@ counters against that baseline so the same drift cannot go unreported again.
 buckets are settled before the effect pass, so rows that gained a value from an
 effect are still counted under `Not in table`; merging them into `Decoded OK`
 would double-count and move the baseline for unrelated reasons. `Effect blobs`
-is reported separately -- without it, 53,908 rows gain a value yet the summary
+is reported separately -- without it, 61,617 rows gain a value yet the summary
 prints identically. (The bucket counts themselves do move as overlay entries
 are added, which is exactly how the figures above went stale once; they are
 whatever `tools/baselines/export_02d4d478.json` currently records.)
@@ -663,10 +665,10 @@ Physical value coverage is the fraction of `fields.parquet` rows with at
 least one non-null `value_*` column. It cannot be computed by adding overlay,
 effect-blob or struct counters: these count different units and may describe
 parent/child expansions of the same input. The current reference baseline has
-888,169 typed rows out of 1,277,983 (69.50%), measured directly from its columns.
+895,896 typed rows out of 1,278,050 (70.10%), measured directly from its columns.
 That snapshot is not a fraction of all game information understood.
 
-The latest [714-replay schema expansion](docs/SCHEMA_EXPANSION.md) independently
+The earlier [714-replay schema expansion](docs/SCHEMA_EXPANSION.md) independently
 verified 6,805,323 additional typed values, with physical coverage of 69.98%
 main and 52.90% checkpoint. Raw field columns and non-field exports are unchanged.
 
