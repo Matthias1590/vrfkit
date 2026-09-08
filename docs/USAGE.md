@@ -195,11 +195,11 @@ member and handle by name.
 #### Reading the `Typed` ratio
 
 ```
-  Typed:            79.8% (properties + RPC parameters)
+  Typed:            80.4% (properties + RPC parameters)
 ```
 
 (That figure is `02d4d478`'s, from `tools/baselines/export_02d4d478.json`:
-`overlay_decoded_ok / overlay_rows_offered` = 789,624 / 988,995. It moves as
+`overlay_decoded_ok / overlay_rows_offered` = 794,910 / 988,995. It moves as
 overlay entries are added -- re-measure before quoting it.)
 
 The denominator is **every row offered** to the overlay, and thanks to RPC
@@ -218,13 +218,13 @@ Measured on `02d4d478` (48,215,213 bytes):
 
 | File | Rows | Bytes | Notes |
 |---|---|---|---|
-| `fields.parquet` | 1,296,660 | 16,441,472 | |
+| `fields.parquet` | 1,296,660 | 16,454,754 | |
 | `movement.parquet` | 1,844,147 | 31,886,449 | |
 | `actors.parquet` | 3,827 | 87,281 | |
 | `net_guids.parquet` | 16,167 | 153,606 | |
 | `events.parquet` | 195 | 13,411 | |
 | `partials.parquet` | 0 | 2,505 | main-only; with checkpoints: 0 rows, 2,505 bytes |
-| `checkpoint_fields.parquet` | 352,089 | 1,218,954 | requires `--checkpoints` |
+| `checkpoint_fields.parquet` | 352,089 | 1,219,312 | requires `--checkpoints` |
 | `checkpoint_actors.parquet` | 3,014 | 27,118 | requires `--checkpoints` |
 | `checkpoint_net_guids.parquet` | 74,270 | 277,718 | requires `--checkpoints` |
 | `checkpoint_blocks.parquet` | 22,247 | 175,103 | requires `--checkpoints` |
@@ -614,7 +614,7 @@ needs it.
 
 | Script | Produces |
 |---|---|
-| `extract_descriptors.py` | `crates/vrf-decode/src/table.rs` (overlay table 1,309 + 84 handles) |
+| `extract_descriptors.py` | `crates/vrf-decode/src/table.rs` (overlay table 1,310 + 84 handles) |
 | `apply_type_corrections.py` | Applies verified corrections/additions to that file and recomputes the two-line generation header |
 | `extract_checksum_types.py` | `crates/vrf-decode/src/checksum_table.rs` -- `compatible_checksum` -> `FieldType`, learned from the fields the overlay table already declares. Needs an export directory rather than the C# tree, since checksums come from the replay. Checksums whose donors disagree are dropped, which is the safety property. Repeat `--export` to widen the basis; the run **merges** into the committed table rather than replacing it, because a checksum this basis did not happen to see is still correct. `--check` asks whether the two agree *where they overlap* -- not whether they are byte-identical, which a content-addressed table cannot be across different sets of replays. |
 | `extract_sboxes.py` | `crates/vrf-transform/src/sbox.rs` |
@@ -628,15 +628,15 @@ the script does not trust its own apply count -- it **re-verifies the final
 state after applying** and fails if it disagrees.
 
 ```bash
-python tools/apply_type_corrections.py           # apply, then verify (185 corrections)
+python tools/apply_type_corrections.py           # apply, then verify (187 corrections)
 python tools/apply_type_corrections.py --check   # verify only
 ```
 
-Those 185 corrections are the whole live expectation set the script re-verifies; `ADDITIONS` is the
+Those 187 corrections are the whole live expectation set the script re-verifies; `ADDITIONS` is the
 subset absent from the currently pinned C# descriptor input.
 
 The `ADDITIONS` pass inserts items the pinned C# input is **silent on**. There are
-currently 124 of them, and every one is admitted on wire evidence written into the
+currently 125 of them, and every one is admitted on wire evidence written into the
 comment above the list -- bit width, value range, distribution -- and nothing else.
 The original three still show the bar: `BaseTeamState.LoadoutValue` /
 `AverageLoadoutValue` (26-I, where the reference declares the type of the same
@@ -676,7 +676,7 @@ m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); print(len(m
 | `compare_rpc_params.py` | RPC parameter comparison |
 | `compare_with_csharp.py` | Diff against the C# parser |
 | `check_effect_decoder.py` | Effect decoder (12 cases) |
-| `check_ascii.py` | Rust source ASCII sweep (125 files) |
+| `check_ascii.py` | Rust source ASCII sweep (126 files) |
 | `check_docs.py` | This document itself (below) |
 | `atomic_io.py` | Internal containment, recursive-removal and atomic-replacement helpers shared by mutating tools |
 
@@ -942,14 +942,14 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 685 passing
+cargo +1.86.0 test --workspace --locked                              # 689 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
-python -W error tools/check_ascii.py --check                         # 125 files
+python -W error tools/check_ascii.py --check                         # 126 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
 python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 678 tests
 python -W error tools/check_docs.py --fast
-python -W error tools/apply_type_corrections.py --check              # 185 corrections
+python -W error tools/apply_type_corrections.py --check              # 187 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
 python -W error tools/check_baseline_schemas.py
 ```
@@ -1093,7 +1093,7 @@ live in `%LOCALAPPDATA%\vrfkit\baseline-corpora`.
 
 ## 8. Known limits
 
-- **Untyped residual** -- the [`export`](#export) `Typed` is ~79.8% (denominator
+- **Untyped residual** -- the [`export`](#export) `Typed` is ~80.4% (denominator
   including RPC parameters). **Untyped != lost** (`raw_bits` preserved). Typing
   the rest needs the game binary or UE headers -- this is not a table-editing
   problem (archive/PROJECT_STATUS.md section 24).

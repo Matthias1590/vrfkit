@@ -21,9 +21,9 @@
     "event_layout_mismatches": 0,
     "event_payloads_decoded": 195,
     "event_payload_unknown_groups": 0,
-    "overlay_decoded_ok": 789624,
+    "overlay_decoded_ok": 794910,
     "overlay_decode_errors": 0,
-    "overlay_raw_skip": 31793,
+    "overlay_raw_skip": 26507,
     "overlay_not_in_table": 165544,
     "overlay_no_field_name": 2034,
     "overlay_rows_offered": 988995,
@@ -56,8 +56,8 @@
   "parquet": {
     "fields": {
       "rows": 1296660,
-      "bytes": 16441472,
-      "sha256": "57004e867e55cd98aee39ddfd2fe5b8448c32a2c625acb4da1a03a57d43669ce"
+      "bytes": 16454754,
+      "sha256": "9a8dc331d60b6c9ac83ef90c4781e3f770bfd7fff7f9464bf667759074b04cc5"
     },
     "movement": {
       "rows": 1844147,
@@ -86,8 +86,8 @@
     },
     "checkpoint_fields": {
       "rows": 352089,
-      "bytes": 1218954,
-      "sha256": "43f85885d8d1b06a7b7448acf9d8cf27d12e0c7915ce33e4df79ff49bc04b00d"
+      "bytes": 1219312,
+      "sha256": "ef4acb32d24aa4dda8ef61462749d6a84d786d043d4f22fd53408d339beca081"
     },
     "checkpoint_actors": {
       "rows": 3014,

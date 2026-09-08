@@ -88,6 +88,8 @@ EXPECTED += [
      "FieldType::VectorNetQuantize { scale: 1 }"),
     ("MulticastNotifyDamage_Point", "DamageDirection", "FieldType::VectorNetQuantizeNormal"),
     ("MulticastNotifyDamage_Point", "DamageImpactNormal", "FieldType::VectorNetQuantizeNormal"),
+    ("/Script/ShooterGame.EquippableStateMachineComponent", "TransitionContext",
+     "FieldType::ObjectNetGuid"),
 ]
 
 #: Entries the WIRE carries that the C# descriptors cannot declare, because the
@@ -670,6 +672,12 @@ ADDITIONS = [
      "AffectedPlayer_2_BAF988E34EAAE6B7A1D4758455186559", "FieldType::ObjectNetGuid"),
     ("/Game/Characters/_Core/Comp_AbilityStatisticsReplicator.Comp_AbilityStatisticsReplicator_C",
      "Value_5_203891704B7EF064EDB5528BFECC4807", "FieldType::Float"),
+    # HawkFlash PostControlVelocity is exactly three finite LE f64 values in
+    # every measured 192-bit window. The exact group prevents this from
+    # generalizing to other velocity-named fields or gameplay behavior.
+    ("/Game/Characters/Guide/S0/Ability_E/Projectile_Guide_E_HawkFlash."
+     "Projectile_Guide_E_HawkFlash_C",
+     "PostControlVelocity", "FieldType::VectorDouble"),
 ]
 EXPECTED += [(g, f, t) for g, f, t in ADDITIONS]
 
@@ -1201,6 +1209,27 @@ def main():
             continue
         if "FieldType::EnumByte" in block:
             blocks[i] = block.replace("FieldType::EnumByte", "FieldType::Raw")
+            count += 1
+    content = "    OverlayEntry {".join(blocks)
+
+    # Fix: Raw -> ObjectNetGuid for TransitionContext. The pinned C#
+    # descriptor declares RawPayload("UTransitionContext"), so it does not
+    # establish the wire reader. Corpus evidence establishes exact IntPacked
+    # consumption; resolved non-null IDs name transition-context object groups
+    # and null remains zero. This does not claim every ID resolves, nor does
+    # this group/name overlay impose the measured build, handle, or checksum
+    # gates that the scalar overlay cannot represent.
+    blocks = content.split("    OverlayEntry {")
+    for i, block in enumerate(blocks):
+        if i == 0:
+            continue
+        if ('group_path: "/Script/ShooterGame.EquippableStateMachineComponent"'
+                not in block):
+            continue
+        if 'field_name: "TransitionContext"' not in block:
+            continue
+        if "FieldType::Raw" in block:
+            blocks[i] = block.replace("FieldType::Raw", "FieldType::ObjectNetGuid")
             count += 1
     content = "    OverlayEntry {".join(blocks)
 

@@ -337,6 +337,35 @@ fn equippable_used_is_an_object_net_guid() {
 }
 
 #[test]
+fn transition_context_is_an_object_net_guid() {
+    let table = OverlayTable::new(&OVERLAY_TABLE);
+    assert_eq!(
+        table.lookup(
+            "/Script/ShooterGame.EquippableStateMachineComponent",
+            "TransitionContext"
+        ),
+        Some(FieldType::ObjectNetGuid)
+    );
+}
+
+#[test]
+fn hawk_flash_post_control_velocity_is_vector_double_only_on_its_exact_group() {
+    let table = OverlayTable::new(&OVERLAY_TABLE);
+    let group = "/Game/Characters/Guide/S0/Ability_E/Projectile_Guide_E_HawkFlash.Projectile_Guide_E_HawkFlash_C";
+    assert_eq!(
+        table.lookup(group, "PostControlVelocity"),
+        Some(FieldType::VectorDouble)
+    );
+    assert_ne!(
+        table.lookup(
+            "/Script/ShooterGame.EquippableStateMachineComponent",
+            "PostControlVelocity"
+        ),
+        Some(FieldType::VectorDouble)
+    );
+}
+
+#[test]
 fn damage_geometry_fields_are_quantized_vectors() {
     // Same trap as EquippableUsed: DamageParameters attaches
     // ValorantPayloadDecoders.VectorNetQuantize* to these four, so

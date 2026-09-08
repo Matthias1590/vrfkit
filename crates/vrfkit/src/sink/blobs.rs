@@ -292,6 +292,22 @@ fn verified_reward_leaf_type(
         .then_some(wanted)
 }
 
+/// RequestedIgnoreActors is an exact array route, but its child reference has
+/// no descriptor overlay. Admit only the measured declaration and only while
+/// resolution is absent or agrees; explicit Raw, Skip, and conflicts stay raw.
+fn verified_requested_ignore_actor_leaf(
+    handle: u32,
+    declared_name: Option<&str>,
+    declared_checksum: Option<u32>,
+    resolved: Option<FieldType>,
+) -> Option<FieldType> {
+    (handle == 5
+        && declared_name == Some("RequestedIgnoreActors")
+        && declared_checksum == Some(3_344_674_359)
+        && matches!(resolved, None | Some(FieldType::ObjectNetGuid)))
+    .then_some(FieldType::ObjectNetGuid)
+}
+
 /// This descriptor is deliberately Raw in the generated table. The full FText
 /// reader is admitted only for this measured parent leaf; Skip, a conflict, or
 /// any future declared type change remains raw.
@@ -757,6 +773,16 @@ impl ExportSink<'_> {
                         verified_reward_leaf_type(f.handle, name, declared_checksum, resolved)
                             .map(VerifiedArrayLeaf::Field)
                     }
+                } else if measured && parent_name == "RequestedIgnoreActors" {
+                    let declared_checksum =
+                        declared_checksums.get(f.handle as usize).copied().flatten();
+                    verified_requested_ignore_actor_leaf(
+                        f.handle,
+                        name,
+                        declared_checksum,
+                        declared_resolved,
+                    )
+                    .map(VerifiedArrayLeaf::Field)
                 } else if measured && parent_name == "SelectedV2" {
                     let declared_checksum =
                         declared_checksums.get(f.handle as usize).copied().flatten();
@@ -2458,13 +2484,13 @@ mod tests {
         let mut payload = Vec::new();
         packed(&mut payload, 700);
         let bits = one_leaf(5, &payload);
-        let (records, _) = export_array(
+        let (records, _) = export_array_with_child_checksum(
             (
                 "/Script/ShooterGame.FiniteSpeedMovementComponent",
                 "RequestedIgnoreActors",
                 1_063_739_204,
             ),
-            (5, "IgnoredActor"),
+            (5, "RequestedIgnoreActors", 3_344_674_359),
             &bits,
             Some(MEASURED_BUILD),
         );
@@ -2478,7 +2504,7 @@ mod tests {
                 child.value_bool,
                 child.value_str.as_deref()
             ),
-            (None, None, None, None)
+            (Some(700), None, None, None)
         );
     }
 
@@ -2563,6 +2589,74 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn requested_ignore_actor_requires_exact_child_identity_and_non_raw_resolution() {
+        assert_eq!(
+            verified_requested_ignore_actor_leaf(
+                5,
+                Some("RequestedIgnoreActors"),
+                Some(3_344_674_359),
+                None,
+            ),
+            Some(FieldType::ObjectNetGuid)
+        );
+        for (handle, name, checksum, resolved) in [
+            (
+                5,
+                Some("RequestedIgnoreActors"),
+                Some(3_344_674_359),
+                Some(FieldType::Raw),
+            ),
+            (
+                5,
+                Some("RequestedIgnoreActors"),
+                Some(3_344_674_359),
+                Some(FieldType::Skip),
+            ),
+            (
+                5,
+                Some("RequestedIgnoreActors"),
+                Some(3_344_674_359),
+                Some(FieldType::Int32),
+            ),
+            (5, Some("Other"), Some(3_344_674_359), None),
+            (5, Some("RequestedIgnoreActors"), Some(0), None),
+            (4, Some("RequestedIgnoreActors"), Some(3_344_674_359), None),
+        ] {
+            assert_eq!(
+                verified_requested_ignore_actor_leaf(handle, name, checksum, resolved),
+                None
+            );
+        }
+    }
+
+    #[test]
+    fn requested_ignore_actor_bad_packed_child_keeps_raw_rows_and_counts_error() {
+        // 0xff is an unterminated IntPacked value: its continuation bit is
+        // set, but the exact leaf window ends before another packed byte.
+        let bits = one_leaf(5, &[true; 8]);
+        let (records, stats) = export_array_with_child_checksum(
+            (
+                "/Script/ShooterGame.FiniteSpeedMovementComponent",
+                "RequestedIgnoreActors",
+                1_063_739_204,
+            ),
+            (5, "RequestedIgnoreActors", 3_344_674_359),
+            &bits,
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields.len(), 2);
+        let child = &records.fields[0];
+        assert_eq!(child.raw_bits.as_deref(), Some([0xff].as_slice()));
+        assert_eq!(child.value_i64, None);
+        assert_eq!(child.value_f64, None);
+        assert_eq!(child.value_bool, None);
+        assert_eq!(child.value_str, None);
+        let parent = &records.fields[1];
+        assert_eq!(parent.raw_bits.as_deref(), Some(bytes(&bits).as_slice()));
+        assert_eq!(stats.array_leaf_decode_errors, 1);
     }
 
     #[test]
