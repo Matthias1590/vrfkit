@@ -147,13 +147,28 @@ pub struct CheckpointTables {
     pub exported_fields: u32,
     /// Byte offset where the DemoFrame begins.
     pub frame_offset: usize,
-    /// Entries whose path arrived as a hardcoded name-table index rather than
-    /// a string. 24.3% of the corpus table; see [`read_checkpoint_tables`].
+    /// Entries whose path arrived as a GUID-path name-table index rather than
+    /// a string. The historical field name is retained for API compatibility;
+    /// these indices are not hardcoded Unreal EName values.
     pub hardcoded_paths: u32,
+    /// Literal GUID-path entries read, in either mode.
+    pub literal_paths: u32,
+    /// Wire indices resolved through preceding literal paths.
+    pub resolved_path_indices: u32,
     /// Export-group collisions. Always zero on success: a collision makes the
     /// checkpoint cache untrusted and returns
     /// [`SchemaError::CheckpointGroupCollision`] before frame decode.
     pub group_collisions: u32,
+}
+
+/// Interpretation of checkpoint GUID path indices.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CheckpointPathMode {
+    /// Retain the former decimal rendering for callers comparing legacy output.
+    LegacyDecimal,
+    /// Resolve zero-based indices into preceding literal GUID paths in this
+    /// checkpoint. This is the default, measured over builds 13.01 through 13.05.
+    LiteralPathTable,
 }
 
 /// Read a checkpoint archive's guid cache and export-group map into `cache`,
@@ -164,13 +179,18 @@ pub struct CheckpointTables {
 /// checkpoint restates the whole schema, and merging it into the live
 /// ReplayData cache would combine independent schema snapshots.
 ///
-/// # Hardcoded paths
+/// # GUID path indices
 ///
-/// A quarter of guid entries carry a name-table index instead of a path
-/// string. The lookup scope and table for that index have not been established.
-/// The index is therefore registered as its decimal rendering for compatibility
-/// with hardcoded field names, rather than silently dropping the outer-GUID
-/// chain.
+/// An indexed path selects a preceding literal path in this checkpoint, using
+/// zero-based order. References do not append to the table, and the table resets
+/// for every call. This rule resolved all 14,403,610 indexed entries in 714
+/// measured replays from builds 13.01, 13.02, 13.04 and 13.05 (2026-09-08).
+/// The exact current engine serializer is not available as an independent
+/// specification. Raw indices remain available to [`CheckpointTableSink`].
+///
+/// An index outside the preceding literals is rejected before decoding the
+/// frame. Call [`read_checkpoint_tables_with_sink_mode`] with
+/// [`CheckpointPathMode::LegacyDecimal`] only when reproducing legacy paths.
 ///
 /// # Errors
 ///
@@ -248,6 +268,16 @@ pub fn read_checkpoint_tables_with_sink<S: CheckpointTableSink>(
     cache: &mut NetGuidCache,
     sink: &mut S,
 ) -> core::result::Result<CheckpointTables, CheckpointReadError<S::Error>> {
+    read_checkpoint_tables_with_sink_mode(data, cache, sink, CheckpointPathMode::LiteralPathTable)
+}
+
+/// Read checkpoint tables with an explicit path interpretation.
+pub fn read_checkpoint_tables_with_sink_mode<S: CheckpointTableSink>(
+    data: &[u8],
+    cache: &mut NetGuidCache,
+    sink: &mut S,
+    mode: CheckpointPathMode,
+) -> core::result::Result<CheckpointTables, CheckpointReadError<S::Error>> {
     let mut reader = BitReader::new(data);
 
     // -- Prologue ----------------------------------------------------------
@@ -270,16 +300,41 @@ pub fn read_checkpoint_tables_with_sink<S: CheckpointTableSink>(
 
     // -- GUID cache --------------------------------------------------------
     let mut hardcoded_paths = 0u32;
+    let mut literal_paths = Vec::new();
+    let mut literal_count = 0u32;
+    let mut resolved_path_indices = 0u32;
     for entry in 0..guid_count {
         let net_guid = reader.read_int_packed()?;
         let outer_guid = reader.read_int_packed()?;
         let path_kind = reader.read_u8()?;
         let (path_is_string, path, name_index) = match path_kind {
-            1 => (true, reader.read_fstring(MAX_FSTRING_BYTES)?, None),
+            1 => {
+                let path = reader.read_fstring(MAX_FSTRING_BYTES)?;
+                literal_count += 1;
+                if mode == CheckpointPathMode::LiteralPathTable {
+                    literal_paths.push(path.clone());
+                }
+                (true, path, None)
+            }
             0 => {
                 hardcoded_paths += 1;
                 let index = reader.read_int_packed()?;
-                (false, index.to_string(), Some(index))
+                let path = match mode {
+                    CheckpointPathMode::LegacyDecimal => index.to_string(),
+                    CheckpointPathMode::LiteralPathTable => {
+                        let Some(path) = literal_paths.get(index as usize) else {
+                            return Err(SchemaError::CheckpointPathIndexOutOfBounds {
+                                entry,
+                                index,
+                                literals: literal_paths.len() as u32,
+                            }
+                            .into());
+                        };
+                        resolved_path_indices += 1;
+                        path.clone()
+                    }
+                };
+                (false, path, Some(index))
             }
             byte => return Err(SchemaError::CheckpointBadPathKind { entry, byte }.into()),
         };
@@ -406,6 +461,8 @@ pub fn read_checkpoint_tables_with_sink<S: CheckpointTableSink>(
         exported_fields,
         frame_offset: map_end,
         hardcoded_paths,
+        literal_paths: literal_count,
+        resolved_path_indices,
         group_collisions: 0,
     })
 }
@@ -626,7 +683,7 @@ mod tests {
     #[test]
     fn observer_reports_raw_variants_before_cache_storage() {
         let archive = build(
-            &[(7, 0, Some("/Game/X"), 0), (8, 7, None, 216)],
+            &[(7, 0, Some("/Game/X"), 0), (8, 7, None, 0)],
             &[("/Script/G.Thing", 2, &[(1, "Value")])],
             &[],
         );
@@ -636,7 +693,7 @@ mod tests {
 
         assert_eq!(tables.exported_fields, 1);
         assert_eq!(sink.guids[0], (0, true, Some("/Game/X".into()), None, 3));
-        assert_eq!(sink.guids[1], (1, false, None, Some(216), 3));
+        assert_eq!(sink.guids[1], (1, false, None, Some(0), 3));
         assert_eq!(sink.groups, vec![(0, 7, "/Script/G.Thing".into(), 2)]);
         assert_eq!(
             sink.fields,
@@ -771,13 +828,183 @@ mod tests {
         );
     }
 
+    const RESOLVED: CheckpointPathMode = CheckpointPathMode::LiteralPathTable;
+
+    #[test]
+    fn resolved_default_preserves_raw_observers_and_explicit_legacy_mode() {
+        let archive = build(
+            &[
+                (7, 0, Some("/First"), 0),
+                (8, 7, Some("123"), 0),
+                (9, 7, None, 0),
+                (10, 8, None, 1),
+            ],
+            &[("/Script/G.Thing", 2, &[(1, "Value")])],
+            &[0xa5],
+        );
+        let mut legacy_cache = NetGuidCache::new();
+        let mut legacy_sink = RecordingSink::default();
+        let legacy = read_checkpoint_tables_with_sink_mode(
+            &archive,
+            &mut legacy_cache,
+            &mut legacy_sink,
+            CheckpointPathMode::LegacyDecimal,
+        )
+        .unwrap();
+        let mut cache = NetGuidCache::new();
+        let mut sink = RecordingSink::default();
+        let measured = read_checkpoint_tables_with_sink(&archive, &mut cache, &mut sink).unwrap();
+        assert_eq!(sink.guids, legacy_sink.guids);
+        assert_eq!(sink.groups, legacy_sink.groups);
+        assert_eq!(sink.fields, legacy_sink.fields);
+        assert_eq!(measured.frame_offset, archive.len() - 1);
+        assert_eq!(measured.frame_offset, legacy.frame_offset);
+        assert_eq!(measured.guid_count, legacy.guid_count);
+        assert_eq!(measured.exported_fields, legacy.exported_fields);
+        assert_eq!(measured.hardcoded_paths, 2);
+        assert_eq!(measured.literal_paths, 2);
+        assert_eq!(legacy.literal_paths, 2);
+        assert_eq!(measured.resolved_path_indices, 2);
+        assert_eq!(legacy.resolved_path_indices, 0);
+        assert_eq!(legacy_cache.get_path_by_guid(9), Some("0"));
+        assert_eq!(legacy_cache.get_path_by_guid(10), Some("1"));
+        assert_eq!(cache.get_path_by_guid(9), Some("/First"));
+        assert_eq!(cache.get_path_by_guid(10), Some("123"));
+        assert_eq!(cache.get_outer_guid(10), Some(NetworkGuid(8)));
+    }
+
+    #[test]
+    fn resolved_references_do_not_append_to_the_literal_table() {
+        let archive = build(
+            &[
+                (7, 0, Some("A"), 0),
+                (8, 0, None, 0),
+                (9, 0, Some("B"), 0),
+                (10, 0, None, 1),
+            ],
+            &[],
+            &[],
+        );
+        let mut cache = NetGuidCache::new();
+        let measured = read_checkpoint_tables_with_sink_mode(
+            &archive,
+            &mut cache,
+            &mut NoopCheckpointTableSink,
+            RESOLVED,
+        )
+        .unwrap();
+        assert_eq!(cache.get_path_by_guid(10), Some("B"));
+        assert_eq!(
+            (measured.literal_paths, measured.resolved_path_indices),
+            (2, 2)
+        );
+    }
+
+    #[test]
+    fn resolved_duplicate_literal_occurrences_each_append() {
+        // No corpus duplicate was observed; this defines only the hypothesis.
+        let archive = build(
+            &[
+                (7, 0, Some("A"), 0),
+                (8, 0, Some("A"), 0),
+                (9, 0, Some("B"), 0),
+                (10, 0, None, 2),
+            ],
+            &[],
+            &[],
+        );
+        let mut cache = NetGuidCache::new();
+        let measured = read_checkpoint_tables_with_sink_mode(
+            &archive,
+            &mut cache,
+            &mut NoopCheckpointTableSink,
+            RESOLVED,
+        )
+        .unwrap();
+        assert_eq!(cache.get_path_by_guid(10), Some("B"));
+        assert_eq!(measured.literal_paths, 3);
+    }
+
+    #[test]
+    fn resolved_table_resets_between_checkpoint_reads() {
+        let first = build(&[(7, 0, Some("A"), 0)], &[], &[]);
+        let second = build(&[(8, 0, None, 0)], &[], &[]);
+        let mut cache = NetGuidCache::new();
+        read_checkpoint_tables_with_sink_mode(
+            &first,
+            &mut cache,
+            &mut NoopCheckpointTableSink,
+            RESOLVED,
+        )
+        .unwrap();
+        let error = read_checkpoint_tables_with_sink_mode(
+            &second,
+            &mut cache,
+            &mut NoopCheckpointTableSink,
+            RESOLVED,
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            CheckpointReadError::Schema(SchemaError::CheckpointPathIndexOutOfBounds {
+                entry: 0,
+                index: 0,
+                literals: 0
+            })
+        ));
+        assert!(cache.get_path_by_guid(8).is_none());
+    }
+
+    #[test]
+    fn resolved_forward_and_upper_bound_indices_are_rejected() {
+        for (guids, entry, index, literals) in [
+            (vec![(7, 0, None, 0), (8, 0, Some("Later"), 0)], 0, 0, 0),
+            (vec![(7, 0, Some("A"), 0), (8, 0, None, 1)], 1, 1, 1),
+            (
+                vec![(7, 0, Some("A"), 0), (8, 0, None, u32::MAX)],
+                1,
+                u32::MAX,
+                1,
+            ),
+        ] {
+            let archive = build(&guids, &[], &[]);
+            let error = read_checkpoint_tables_with_sink_mode(
+                &archive,
+                &mut NetGuidCache::new(),
+                &mut NoopCheckpointTableSink,
+                RESOLVED,
+            )
+            .unwrap_err();
+            assert!(matches!(error, CheckpointReadError::Schema(
+                SchemaError::CheckpointPathIndexOutOfBounds {
+                    entry: e, index: i, literals: l
+                }) if (e, i, l) == (entry, index, literals)));
+        }
+    }
+
+    #[test]
+    fn resolved_sink_error_stops_before_cache_mutation() {
+        let archive = build(
+            &[(7, 0, Some("A"), 0), (8, 0, None, 0)],
+            &[("/Script/G", 0, &[])],
+            &[],
+        );
+        let mut cache = NetGuidCache::new();
+        let mut sink = StopAfterFirstGuid(0);
+        let error =
+            read_checkpoint_tables_with_sink_mode(&archive, &mut cache, &mut sink, RESOLVED)
+                .unwrap_err();
+        assert!(matches!(error, CheckpointReadError::Sink("stop")));
+        assert_eq!(sink.0, 1);
+        assert!(cache.get_path_by_guid(7).is_none());
+        assert!(cache.get_path_by_guid(8).is_none());
+        assert_eq!(cache.group_count(), 0);
+    }
+
     #[test]
     fn reads_both_tables_and_lands_on_the_frame() {
         let archive = build(
-            &[
-                (7, 0, Some("/Game/Maps/Ascent/Ascent"), 0),
-                (5, 7, None, 216),
-            ],
+            &[(7, 0, Some("/Game/Maps/Ascent/Ascent"), 0), (5, 7, None, 0)],
             &[(
                 "/Script/ShooterGame.Thing",
                 4,
@@ -794,8 +1021,8 @@ mod tests {
         assert_eq!(t.hardcoded_paths, 1);
         assert_eq!(t.frame_offset, archive.len() - 32);
         assert_eq!(cache.get_path_by_guid(7), Some("/Game/Maps/Ascent/Ascent"));
-        // A hardcoded path is registered as its decimal index, not dropped.
-        assert_eq!(cache.get_path_by_guid(5), Some("216"));
+        // The non-observer wrapper also uses the checkpoint-local path table.
+        assert_eq!(cache.get_path_by_guid(5), Some("/Game/Maps/Ascent/Ascent"));
         assert_eq!(cache.get_outer_guid(5), Some(NetworkGuid(7)));
         let g = cache
             .get_group_by_path("/Script/ShooterGame.Thing")

@@ -224,10 +224,10 @@ Measured on `02d4d478` (48,215,213 bytes):
 | `net_guids.parquet` | 16,167 | 153,606 | |
 | `events.parquet` | 195 | 13,411 | |
 | `partials.parquet` | 0 | 2,505 | main-only; with checkpoints: 0 rows, 2,505 bytes |
-| `checkpoint_fields.parquet` | 250,503 | 858,087 | requires `--checkpoints` |
+| `checkpoint_fields.parquet` | 258,682 | 932,036 | requires `--checkpoints` |
 | `checkpoint_actors.parquet` | 3,014 | 27,118 | requires `--checkpoints` |
-| `checkpoint_net_guids.parquet` | 74,270 | 307,362 | requires `--checkpoints` |
-| `checkpoint_blocks.parquet` | 22,247 | 182,371 | requires `--checkpoints` |
+| `checkpoint_net_guids.parquet` | 74,270 | 277,718 | requires `--checkpoints` |
+| `checkpoint_blocks.parquet` | 22,247 | 170,290 | requires `--checkpoints` |
 | `checkpoint_guid_entries.parquet` | 74,270 | 928,714 | requires `--checkpoints` |
 | `checkpoint_export_groups.parquet` | 8,307 | 27,041 | requires `--checkpoints` |
 | `checkpoint_export_fields.parquet` | 49,314 | 287,130 | requires `--checkpoints` |
@@ -461,6 +461,9 @@ two identity columns followed by the columns of their main-stream counterparts.
 Actor opens are snapshot observations, not new spawns on the main timeline.
 The GUID table records the cache after that checkpoint's frame walk. Wire IDs
 may repeat; the chunk index keeps those snapshots distinct within one replay.
+Initial name-index path entries resolve through the zero-based table of literal
+paths that appeared earlier in the same checkpoint. The cache is reset for each
+checkpoint; do not carry paths across repeated checkpoint IDs.
 
 ### `checkpoint_blocks.parquet`
 
@@ -499,7 +502,12 @@ in the cache. `checkpoint_net_guids.parquet` continues to describe the cache
 after the frame. A literal numeric string and a name index remain distinct:
 `path_is_string` selects exactly one of `literal_path` and `name_index`.
 `flags` retains the raw byte; its bit meanings and the name-index lookup scope
-have not been established.
+are separate questions. The lookup scope is established: `name_index = n`
+selects literal entry `n` among earlier literal GUID entries in the same
+checkpoint. Indexed entries do not append to that literal table. The public
+reader uses `CheckpointPathMode::LiteralPathTable` by default;
+`CheckpointPathMode::LegacyDecimal` retains the earlier decimal rendering for
+callers that explicitly request it.
 
 Group ordinals retain declaration order, including groups with no populated
 fields. `declared_slots` and the populated field slots preserve sparse holes.
@@ -513,6 +521,8 @@ components needed to distinguish forms that render alike.
 These are schema and registry observations, not additional gameplay values or
 proof of a numeric group's class. The parser's declaration counts and the
 writer's row counts are independently checked against the three Parquet files.
+See [Checkpoint path resolution](CHECKPOINT_PATH_RESOLUTION.md) for the exact
+algorithm, counters, corpus validation, and remaining provenance limit.
 
 ### `manifest.json`
 
@@ -930,12 +940,12 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 651 passing
+cargo +1.86.0 test --workspace --locked                              # 657 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 125 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 657 passing
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 661 passing
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 185 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check

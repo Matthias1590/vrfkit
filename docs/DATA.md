@@ -1,7 +1,7 @@
 # Extractable data
 
 What you can get out of a VALORANT replay with vrfkit. With checkpoints the
-export is nine Parquet tables plus `manifest.json`. Unknown property payloads and unresolved
+export is thirteen Parquet tables plus `manifest.json`. Unknown property payloads and unresolved
 whole RPCs retain raw bytes, but successfully decoded movement and synthesized
 child rows may not duplicate their input bytes. "Untyped" is not synonymous
 with "lost"; check stream-loss counters separately.
@@ -9,15 +9,19 @@ with "lost"; check stream-loss counters separately.
 Legend: ✅ typed (value decoded) · ◐ raw or derivable · ❌ unavailable in the
 stated observation scope. Absence in a sample is not proof of format-wide absence.
 
-The latest 714-replay measurements and partial-header correction are recorded
-in [PARTIAL_HEADER_CORRECTION.md](PARTIAL_HEADER_CORRECTION.md).
-Physical typed-value coverage is 70.8088% main and 78.2028% checkpoint; this is
-not semantic completeness. Earlier crosshair/Tidal Wave additions are recorded
-in [SCHEMA_EXPANSION.md](SCHEMA_EXPANSION.md).
+The latest 714-replay field measurements are recorded in
+[CHECKPOINT_PATH_RESOLUTION.md](CHECKPOINT_PATH_RESOLUTION.md).
+Physical typed-value presence is 70.6364% main, 81.3258% checkpoint, and
+72.4914% combined; these physical row ratios are not semantic completeness.
+The earlier partial-header correction is recorded in
+[PARTIAL_HEADER_CORRECTION.md](PARTIAL_HEADER_CORRECTION.md), and crosshair/Tidal
+Wave additions in [SCHEMA_EXPANSION.md](SCHEMA_EXPANSION.md).
 
 Checkpoint-scoped actor/GUID output, reviewed CombatReport participant identity,
 and reload observation boundaries are described in
 [SEMANTIC_CONTEXT_EXPANSION.md](SEMANTIC_CONTEXT_EXPANSION.md).
+Checkpoint-local GUID path reconstruction and its evidence boundary are
+described in [CHECKPOINT_PATH_RESOLUTION.md](CHECKPOINT_PATH_RESOLUTION.md).
 
 ---
 

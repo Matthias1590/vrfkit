@@ -502,6 +502,30 @@ fn quality_json(quality: &ManifestQuality<'_>) -> String {
             out.push_str("    \"checkpoints\": {\n");
             wkv(
                 &mut out,
+                "checkpoint_path_resolution_mode",
+                &json_str("preceding_literal_zero_based"),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_literal_paths",
+                &checkpoints.literal_paths.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_indexed_paths",
+                &checkpoints.indexed_paths.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_resolved_path_indices",
+                &checkpoints.resolved_path_indices.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
                 "checkpoint_chunks",
                 &checkpoints.chunks.to_string(),
                 3,
@@ -979,6 +1003,10 @@ mod tests {
             "event_payloads_decoded",
             "event_payload_unknown_groups",
             "checkpoint_chunks",
+            "checkpoint_path_resolution_mode",
+            "checkpoint_literal_paths",
+            "checkpoint_indexed_paths",
+            "checkpoint_resolved_path_indices",
             "checkpoint_guid_entries",
             "checkpoint_group_records",
             "checkpoint_exported_fields",
@@ -1072,7 +1100,7 @@ mod tests {
     }
 
     #[test]
-    fn rep_layout_tail_counters_publish_main_and_checkpoint_values() {
+    fn tail_and_guid_path_counters_publish_measured_values() {
         let net = NetStats::default();
         let sink = SinkTotals {
             rep_layout_cnc_tails_decoded: 2,
@@ -1082,6 +1110,9 @@ mod tests {
         let mut checkpoints = CheckpointStats::default();
         checkpoints.sink.rep_layout_cnc_tails_decoded = 5;
         checkpoints.sink.rep_layout_cnc_tails_preserved = 7;
+        checkpoints.literal_paths = 17;
+        checkpoints.indexed_paths = 11;
+        checkpoints.resolved_path_indices = 11;
         let errors = OverlayErrorReport::default();
         let json = quality_json(&ManifestQuality {
             chunks_processed: 0,
@@ -1108,6 +1139,10 @@ mod tests {
             "\"rep_layout_cnc_tails_preserved\": 3",
             "\"rep_layout_cnc_tails_decoded\": 5",
             "\"rep_layout_cnc_tails_preserved\": 7",
+            "\"checkpoint_path_resolution_mode\": \"preceding_literal_zero_based\"",
+            "\"checkpoint_literal_paths\": 17",
+            "\"checkpoint_indexed_paths\": 11",
+            "\"checkpoint_resolved_path_indices\": 11",
         ] {
             assert!(json.contains(expected), "missing {expected}: {json}");
         }

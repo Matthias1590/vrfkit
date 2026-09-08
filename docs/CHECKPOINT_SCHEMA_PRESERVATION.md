@@ -35,18 +35,27 @@ Both reader counts and writer counts are checked against the output row counts.
 See [the column and join rules](USAGE.md#checkpoint-schema-declarations).
 
 These 104,598,208 added records are registry and schema evidence. They are not
-new gameplay field values and do not increase the measured 71.8781% typed-field
-ratio. A numeric fallback path matching an export-map index does not prove that
+new gameplay field values. In the preservation-only batch at `740688d`, the
+typed-field ratio stayed at 71.8781%; the later path-resolution batch changes
+gameplay field output and has separate measurements below. A numeric fallback
+path matching an export-map index does not prove that
 the two indices share a namespace. A named owning actor also does not identify
 an unresolved subobject class.
 
-The next investigation uses original GUID-entry order to distinguish possible
-name-index tables. Four-build observations are compatible with a zero-based
-table of preceding literal paths, but archive bounds and repeated GUID matches
-alone do not establish the serialization rule. No inferred path mapping is
-applied by this preservation change.
+Path resolution now uses the preserved order: a name index selects the
+zero-based literal-path entry among earlier GUID entries in the same
+checkpoint. Indexed entries do not extend that table, and every checkpoint
+starts with an empty table. The raw discriminator, literal, index, outer GUID,
+flags, and order remain unchanged in this table even though
+`checkpoint_net_guids` and block path columns now contain resolved strings.
+See [Checkpoint path resolution](CHECKPOINT_PATH_RESOLUTION.md) for the
+independent whole-corpus validation and the remaining provenance limit.
 
-## Validation
+## Initial preservation-only validation (`740688d`)
+
+The following comparison and test counts describe that initial preservation
+batch, before path resolution changed three of the existing checkpoint tables.
+For the current comparison, see [Checkpoint path resolution](CHECKPOINT_PATH_RESOLUTION.md).
 
 All 714 replays exported successfully with 12 workers in 191.14 seconds; all
 9,282 Parquet outputs were retained. An independent Python parser compared the

@@ -46,6 +46,9 @@ pub(crate) struct CheckpointStats {
     /// pass.
     pub trailing_bytes: u64,
     pub guid_entries: u64,
+    pub literal_paths: u64,
+    pub indexed_paths: u64,
+    pub resolved_path_indices: u64,
     pub group_records: u64,
     pub exported_fields: u64,
     /// DemoFrames walked, as `iter_demo_frames` actually counted them -- not
@@ -367,6 +370,9 @@ pub(super) fn process_chunk<W: Write + Send, P: Write + Send>(
 
     stats.chunks += 1;
     stats.guid_entries += u64::from(tables.guid_count);
+    stats.literal_paths += u64::from(tables.literal_paths);
+    stats.indexed_paths += u64::from(tables.hardcoded_paths);
+    stats.resolved_path_indices += u64::from(tables.resolved_path_indices);
     stats.group_records += u64::from(tables.group_count);
     stats.exported_fields += u64::from(tables.exported_fields);
     // The actual DemoFrame count `iter_demo_frames` walked, not an assumed

@@ -40,6 +40,7 @@ def measurement(**overrides):
 def checkpoint_measurement(**overrides):
     current = measurement()
     current["counters"].update({key: 1 for key in guard.CHECKPOINT_COUNTERS})
+    current["counters"]["cp_literal_paths"] = 0
     current["parquet"].update({
         name: {"rows": 1, "bytes": 100, "sha256": "a" * 64}
         for name in guard.CHECKPOINT_PARQUET_FILES
@@ -120,6 +121,9 @@ class CrossCheckTests(unittest.TestCase):
                 self.assertEqual(len(problems), 1, problems)
                 self.assertIn("parsed", problems[0])
                 current["counters"][parsed] = 0
+                if parsed == "cp_guid_entries":
+                    current["counters"]["cp_indexed_paths"] = 0
+                    current["counters"]["cp_resolved_path_indices"] = 0
                 self.assertEqual(guard.cross_checks(current["counters"], current["parquet"]), [])
                 current["counters"][written] = None
                 self.assertIn("did not print", " ".join(guard.cross_checks(
@@ -131,6 +135,27 @@ class CrossCheckTests(unittest.TestCase):
         summary += "  GUID entries: 43\n"
         self.assertEqual(re.search(guard.CHECKPOINT_COUNTERS["cp_guid_entries"], summary).group(1), "43")
 
+    def test_guid_path_counter_regexes_are_exactly_anchored(self):
+        summary = "  Checkpoint GUID paths: 1 literals / 2 indices / 2 resolved\n"
+        for key in ("cp_literal_paths", "cp_indexed_paths", "cp_resolved_path_indices"):
+            self.assertIsNone(re.search(guard.CHECKPOINT_COUNTERS[key], summary))
+        summary = "  GUID paths: 1 literals / 2 indices / 2 resolved\n"
+        self.assertEqual(re.search(guard.CHECKPOINT_COUNTERS["cp_literal_paths"], summary).group(1), "1")
+        self.assertEqual(re.search(guard.CHECKPOINT_COUNTERS["cp_indexed_paths"], summary).group(1), "2")
+        self.assertEqual(re.search(guard.CHECKPOINT_COUNTERS["cp_resolved_path_indices"], summary).group(1), "2")
+
+    def test_guid_path_counters_reject_omission_and_arithmetic_mismatch(self):
+        current = checkpoint_measurement(actor_closes=0, cp_partial_rows=0)
+        self.assertEqual(guard.cross_checks(current["counters"], current["parquet"]), [])
+        current["counters"]["cp_literal_paths"] = None
+        self.assertIn("did not print", " ".join(guard.cross_checks(current["counters"], current["parquet"])))
+        current = checkpoint_measurement(actor_closes=0, cp_partial_rows=0,
+                                         cp_guid_entries=4, cp_literal_paths=2,
+                                         cp_indexed_paths=1, cp_resolved_path_indices=0)
+        problems = guard.cross_checks(current["counters"], current["parquet"])
+        self.assertTrue(any("literals + indices" in problem for problem in problems), problems)
+        self.assertTrue(any("resolved indices" in problem for problem in problems), problems)
+
     def test_checkpoint_measurement_requires_every_new_table_and_zero_dropped_actors(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -139,15 +164,63 @@ class CrossCheckTests(unittest.TestCase):
             for name in (*guard.PARQUET_FILES, "checkpoint_fields", "checkpoint_net_guids"):
                 pq.write_table(pa.table({"value": [1]}), out / f"{name}.parquet")
             (out / "manifest.json").write_text(json.dumps({"quality": {"checkpoints": {
-                "checkpoint_actor_rows_dropped": 0}}}), encoding="utf-8")
+                "checkpoint_actor_rows_dropped": 0,
+                "checkpoint_path_resolution_mode": "preceding_literal_zero_based",
+                "checkpoint_literal_paths": 1,
+                "checkpoint_indexed_paths": 0,
+                "checkpoint_resolved_path_indices": 0,
+                "checkpoint_guid_entries": 1}}}), encoding="utf-8")
             with patch.object(guard.subprocess, "run", return_value=SimpleNamespace(
                     returncode=0, stdout="", stderr="")):
                 with self.assertRaisesRegex(SystemExit, "checkpoint_actors.parquet"):
                     guard.measure(Path("fake.exe"), root / "sample.vrf", out, checkpoints=True)
 
             (out / "manifest.json").write_text(json.dumps({"quality": {"checkpoints": {
-                "checkpoint_actor_rows_dropped": 1}}}), encoding="utf-8")
+                "checkpoint_actor_rows_dropped": 1,
+                "checkpoint_path_resolution_mode": "preceding_literal_zero_based",
+                "checkpoint_literal_paths": 1,
+                "checkpoint_indexed_paths": 0,
+                "checkpoint_resolved_path_indices": 0,
+                "checkpoint_guid_entries": 1}}}), encoding="utf-8")
             self.assertIn("expected 0", " ".join(guard.checkpoint_manifest_errors(out)))
+
+    def test_checkpoint_manifest_rejects_missing_and_mismatched_path_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            manifest = Path(temp) / "manifest.json"
+            manifest.write_text(json.dumps({"quality": {"checkpoints": {
+                "checkpoint_actor_rows_dropped": 0}}}), encoding="utf-8")
+            self.assertIn("omits required", " ".join(guard.checkpoint_manifest_errors(Path(temp))))
+            manifest.write_text(json.dumps({"quality": {"checkpoints": {
+                "checkpoint_actor_rows_dropped": 0,
+                "checkpoint_path_resolution_mode": "legacy_decimal",
+                "checkpoint_literal_paths": 2,
+                "checkpoint_indexed_paths": 1,
+                "checkpoint_resolved_path_indices": 0,
+                "checkpoint_guid_entries": 4}}}), encoding="utf-8")
+            problems = guard.checkpoint_manifest_errors(Path(temp))
+            self.assertTrue(any("mode" in problem for problem in problems), problems)
+            self.assertTrue(any("literals + indices" in problem for problem in problems), problems)
+            self.assertTrue(any("resolved indices" in problem for problem in problems), problems)
+
+    def test_manifest_path_counts_must_match_summary_and_have_integer_types(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            manifest = root / "manifest.json"
+            cp = {"checkpoint_actor_rows_dropped": 0,
+                  "checkpoint_path_resolution_mode": "preceding_literal_zero_based",
+                  "checkpoint_literal_paths": 2, "checkpoint_indexed_paths": 1,
+                  "checkpoint_resolved_path_indices": 1, "checkpoint_guid_entries": 3}
+            counters = {"cp_literal_paths": 2, "cp_indexed_paths": 1,
+                        "cp_resolved_path_indices": 1, "cp_guid_entries": 3}
+            manifest.write_text(json.dumps({"quality": {"checkpoints": cp}}), encoding="utf-8")
+            self.assertEqual(guard.checkpoint_manifest_errors(root, counters), [])
+            self.assertIn("disagrees", " ".join(guard.checkpoint_manifest_errors(
+                root, dict(counters, cp_literal_paths=3, cp_guid_entries=4))))
+            for value in (None, True, "2", 2.0, -1):
+                with self.subTest(value=value):
+                    changed = dict(cp, checkpoint_literal_paths=value)
+                    manifest.write_text(json.dumps({"quality": {"checkpoints": changed}}), encoding="utf-8")
+                    self.assertIn("nonnegative integers", " ".join(guard.checkpoint_manifest_errors(root)))
 
 
 class ContentIdentityTests(unittest.TestCase):

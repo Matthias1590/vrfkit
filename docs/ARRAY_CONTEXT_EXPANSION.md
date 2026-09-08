@@ -1,5 +1,10 @@
 # Measured arrays and checkpoint block context
 
+This report describes the array/context batch at `217bf39`, before checkpoint
+GUID path reconstruction. Its counts are historical; see
+[Checkpoint path resolution](CHECKPOINT_PATH_RESOLUTION.md) for the subsequent
+field expansion and current typed-value measurements.
+
 The 2026-09-08 corpus contains 714 replays: 13.01 (215), 13.02 (204),
 13.04 (108), and 13.05 (187). The candidate was exported with checkpoints,
 using 12 workers, in 164.23 seconds. All 714 exports succeeded. Every raw

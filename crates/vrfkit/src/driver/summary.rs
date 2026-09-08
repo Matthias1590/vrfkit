@@ -279,6 +279,10 @@ fn print_checkpoints(cp: &CheckpointStats) {
     );
     eprintln!("  Trailing bytes:   {}", cp.trailing_bytes);
     eprintln!("  GUID entries:     {}", cp.guid_entries);
+    eprintln!(
+        "  GUID paths: {} literals / {} indices / {} resolved",
+        cp.literal_paths, cp.indexed_paths, cp.resolved_path_indices
+    );
     eprintln!("  Group records:    {}", cp.group_records);
     eprintln!("  Exported fields:  {}", cp.exported_fields);
     eprintln!("  Frames:           {}", cp.frames);

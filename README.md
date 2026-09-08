@@ -18,8 +18,8 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Current state:** `cargo +1.86.0 test --workspace --locked` **651 passing**,
-`tools/tests` **657 passing** -- see [Status](#status) for the rest.
+**Current state:** `cargo +1.86.0 test --workspace --locked` **657 passing**,
+`tools/tests` **661 passing** -- see [Status](#status) for the rest.
 
 - Run it: [`docs/USAGE.md`](docs/USAGE.md)
 - What's extractable: [`docs/DATA.md`](docs/DATA.md)
@@ -94,7 +94,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **651 tests** plus a layered validation suite (framing / bytes / decode
+- **657 tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -143,8 +143,8 @@ A binary built without `export` **refuses the subcommand rather than failing
 silently** -- a subcommand that printed nothing and exited 0 would be
 indistinguishable from one that wrote the files.
 
-On `02d4d478` (48,215,213 bytes, build 13.01), `export` produces eleven
-files when checkpoints are included:
+On `02d4d478` (48,215,213 bytes, build 13.01), `export` produces thirteen
+Parquet files plus a manifest when checkpoints are included:
 
 | File | Rows | Bytes |
 |---|---|---|
@@ -154,10 +154,10 @@ files when checkpoints are included:
 | `net_guids.parquet` | 16,167 | 153,606 |
 | `events.parquet` | 195 | 13,411 |
 | `partials.parquet` | 0 | 2,505 |
-| `checkpoint_fields.parquet` | 250,503 | 858,087 |
+| `checkpoint_fields.parquet` | 258,682 | 932,036 |
 | `checkpoint_actors.parquet` | 3,014 | 27,118 |
-| `checkpoint_net_guids.parquet` | 74,270 | 307,362 |
-| `checkpoint_blocks.parquet` | 22,247 | 182,371 |
+| `checkpoint_net_guids.parquet` | 74,270 | 277,718 |
+| `checkpoint_blocks.parquet` | 22,247 | 170,290 |
 | `checkpoint_guid_entries.parquet` | 74,270 | 928,714 |
 | `checkpoint_export_groups.parquet` | 8,307 | 27,041 |
 | `checkpoint_export_fields.parquet` | 49,314 | 287,130 |
@@ -288,10 +288,15 @@ the main stream. A snapshot actor open is not a new timeline spawn.
 preserve the checkpoint's schema declarations, sparse field slots, checksums,
 and raw FName components. `checkpoint_guid_entries.parquet` preserves the
 initial GUID entries, their order, path representation, and raw flags.
-The existing GUID table remains the cache after the frame walk. See
+Name indices in that initial stream resolve against the zero-based table of
+literal paths that precede them in the same checkpoint. The existing GUID
+table remains the resolved cache after the frame walk. The manifest records
+the mode and literal/index/resolved counts. See
 [declaration columns and join rules](docs/USAGE.md#checkpoint-schema-declarations).
 The [schema preservation report](docs/CHECKPOINT_SCHEMA_PRESERVATION.md)
-separates the added registry evidence from gameplay interpretation.
+separates the added registry evidence from gameplay interpretation, and the
+[path-resolution report](docs/CHECKPOINT_PATH_RESOLUTION.md) gives the rule and
+its validation boundary.
 
 See [checkpoint output](docs/USAGE.md#checkpoint_fieldsparquet) and
 [current semantic evidence](docs/SEMANTIC_CONTEXT_EXPANSION.md). Older comparisons
@@ -333,8 +338,8 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**651 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
-and `check_ascii` on 125 files. The Python suite in `tools/tests` has 657 tests.
+**657 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
+and `check_ascii` on 125 files. The Python suite in `tools/tests` has 661 tests.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
 from the table below on purpose -- they go stale, and re-measuring is one line.

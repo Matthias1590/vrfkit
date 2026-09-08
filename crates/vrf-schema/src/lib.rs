@@ -80,6 +80,7 @@ pub use reader::{read_export_guids, read_net_field_exports};
 
 #[cfg(feature = "checkpoint")]
 pub use checkpoint::{
-    CheckpointReadError, CheckpointTableSink, CheckpointTables, read_checkpoint_tables,
-    read_checkpoint_tables_with_sink,
+    CheckpointPathMode, CheckpointReadError, CheckpointTableSink, CheckpointTables,
+    read_checkpoint_tables, read_checkpoint_tables_with_sink,
+    read_checkpoint_tables_with_sink_mode,
 };

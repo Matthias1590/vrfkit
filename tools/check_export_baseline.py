@@ -136,6 +136,9 @@ CHECKPOINT_COUNTERS = {
     "cp_guid_entry_rows_written": r"Checkpoint GUID entries:\s*(\d+) rows",
     "cp_export_group_rows_written": r"Checkpoint export groups:\s*(\d+) rows",
     "cp_export_field_rows_written": r"Checkpoint export fields:\s*(\d+) rows",
+    "cp_literal_paths": r"(?m)^\s*GUID paths:\s+(\d+) literals / \d+ indices / \d+ resolved\s*$",
+    "cp_indexed_paths": r"(?m)^\s*GUID paths:\s+\d+ literals / (\d+) indices / \d+ resolved\s*$",
+    "cp_resolved_path_indices": r"(?m)^\s*GUID paths:\s+\d+ literals / \d+ indices / (\d+) resolved\s*$",
     # Deliberately a different label from the main block's "Struct blobs", so
     # these regexes cannot match each other's line.
     "cp_struct_blobs_decoded": r"Checkpoint blobs:\s+(\d+) decoded",
@@ -224,6 +227,16 @@ def cross_checks(counters: dict, parquet: dict) -> list[str]:
             out.append(f"{label}: the export summary did not print it")
         elif printed != actual:
             out.append(f"{label}: summary says {printed}, Parquet holds {actual}")
+    if "cp_guid_entries" in counters:
+        required = ("cp_guid_entries", "cp_literal_paths", "cp_indexed_paths",
+                    "cp_resolved_path_indices")
+        missing = [key for key in required if counters.get(key) is None]
+        out.extend(f"{key}: the export summary did not print it" for key in missing)
+        if not missing:
+            if counters["cp_literal_paths"] + counters["cp_indexed_paths"] != counters["cp_guid_entries"]:
+                out.append("Checkpoint GUID paths: literals + indices do not equal GUID entries")
+            if counters["cp_resolved_path_indices"] != counters["cp_indexed_paths"]:
+                out.append("Checkpoint GUID paths: resolved indices do not equal indexed paths")
     return out
 
 
@@ -243,16 +256,37 @@ def unpinnable(current: dict) -> list[str]:
             if current["counters"][key] is None]
 
 
-def checkpoint_manifest_errors(out_dir: Path) -> list[str]:
+def checkpoint_manifest_errors(out_dir: Path, counters: dict | None = None) -> list[str]:
     """Checkpoint actor rows must be written, never silently dropped."""
     try:
         manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
-        dropped = manifest["quality"]["checkpoints"]["checkpoint_actor_rows_dropped"]
+        checkpoints = manifest["quality"]["checkpoints"]
+        dropped = checkpoints["checkpoint_actor_rows_dropped"]
+        mode = checkpoints["checkpoint_path_resolution_mode"]
+        literals = checkpoints["checkpoint_literal_paths"]
+        indices = checkpoints["checkpoint_indexed_paths"]
+        resolved = checkpoints["checkpoint_resolved_path_indices"]
+        guid_entries = checkpoints["checkpoint_guid_entries"]
     except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
-        return [f"checkpoint manifest does not expose checkpoint_actor_rows_dropped: {exc}"]
+        return [f"checkpoint manifest omits required checkpoint quality data: {exc}"]
     if dropped != 0:
         return [f"checkpoint manifest says checkpoint_actor_rows_dropped={dropped}, expected 0"]
-    return []
+    errors = []
+    values = {"cp_literal_paths": literals, "cp_indexed_paths": indices,
+              "cp_resolved_path_indices": resolved, "cp_guid_entries": guid_entries}
+    if any(type(value) is not int or value < 0 for value in values.values()):
+        return ["checkpoint manifest GUID path counts must be nonnegative integers"]
+    if mode != "preceding_literal_zero_based":
+        errors.append(f"checkpoint manifest path resolution mode is {mode!r}")
+    if literals + indices != guid_entries:
+        errors.append("checkpoint manifest GUID paths: literals + indices do not equal GUID entries")
+    if resolved != indices:
+        errors.append("checkpoint manifest GUID paths: resolved indices do not equal indexed paths")
+    if counters is not None:
+        for key, value in values.items():
+            if counters.get(key) != value:
+                errors.append(f"checkpoint manifest {key}={value} disagrees with summary {counters.get(key)}")
+    return errors
 
 
 def measure(exe: Path, replay: Path, out_dir: Path, checkpoints: bool = False) -> dict:
@@ -303,7 +337,7 @@ def measure(exe: Path, replay: Path, out_dir: Path, checkpoints: bool = False) -
         }
 
     if checkpoints:
-        manifest_errors = checkpoint_manifest_errors(out_dir)
+        manifest_errors = checkpoint_manifest_errors(out_dir, counters)
         if manifest_errors:
             raise SystemExit("; ".join(manifest_errors))
 

@@ -38,13 +38,16 @@
     "cp_exported_fields": 49314,
     "cp_frames": 18,
     "cp_frame_packets": 3691,
-    "cp_field_rows": 250503,
+    "cp_field_rows": 258682,
     "cp_actor_rows_written": 3014,
     "cp_net_guid_rows_written": 74270,
     "cp_block_rows_written": 22247,
     "cp_guid_entry_rows_written": 74270,
     "cp_export_group_rows_written": 8307,
     "cp_export_field_rows_written": 49314,
+    "cp_literal_paths": 55744,
+    "cp_indexed_paths": 18526,
+    "cp_resolved_path_indices": 18526,
     "cp_struct_blobs_decoded": 205,
     "cp_struct_blobs_failed": 0
   },
@@ -80,9 +83,9 @@
       "sha256": "8945eaca3d7e4f22c6fec2835b867f06e9023e14651d22874e1512fd11181d6d"
     },
     "checkpoint_fields": {
-      "rows": 250503,
-      "bytes": 858087,
-      "sha256": "3a3e8e97b7204c6555d236c820b237bca80969e6d7ccfc779c599e68349711c6"
+      "rows": 258682,
+      "bytes": 932036,
+      "sha256": "6212a4f0db49cfdc47d72d82675644c7bf6153b7b6d350b19a2f369469bbd8db"
     },
     "checkpoint_actors": {
       "rows": 3014,
@@ -91,13 +94,13 @@
     },
     "checkpoint_net_guids": {
       "rows": 74270,
-      "bytes": 307362,
-      "sha256": "935fa3f5ed0be8524f671b5c642069bc753526bd0ec8ee25be50d797d780836a"
+      "bytes": 277718,
+      "sha256": "45574e270bee63d03e05974d7532a68915b1dbb7f050a0e6c2281190fff196d7"
     },
     "checkpoint_blocks": {
       "rows": 22247,
-      "bytes": 182371,
-      "sha256": "333bbc47831e24d4cff71b08a220b689bc5b9a07e3292c7d220152494d4f1eed"
+      "bytes": 170290,
+      "sha256": "15409a090e7974f59bde43c1b720c14605f71974f8f561690f33be9e19a21b4e"
     },
     "checkpoint_guid_entries": {
       "rows": 74270,
