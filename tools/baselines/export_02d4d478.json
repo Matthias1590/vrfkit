@@ -35,8 +35,8 @@
   "parquet": {
     "fields": {
       "rows": 1296066,
-      "bytes": 16416927,
-      "sha256": "cebd9f9bf824939194411b8d0ae882dcb33cd8342c43998316ebfe37f7140b0b"
+      "bytes": 16425445,
+      "sha256": "67d6e95eb2100d561a4c5070ec4c905bf48a38f8aa5b50a6d7df35f2a1712751"
     },
     "movement": {
       "rows": 1844147,

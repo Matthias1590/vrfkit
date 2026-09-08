@@ -18,13 +18,13 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Verified state:** Rust and Python each have **666 passing** tests. The full
+**Verified state:** Rust has **672 passing** tests; Python has **666 passing** tests. The full
 714-file comparison and corpus guards passed; see
-[structured-array evidence](docs/STRUCTURED_ARRAY_EXPANSION.md).
+[array leaf value evidence](docs/ARRAY_LEAF_TYPES.md).
 
 - Run it: [`docs/USAGE.md`](docs/USAGE.md)
 - What's extractable: [`docs/DATA.md`](docs/DATA.md)
-- Latest corpus results: [`docs/PARTIAL_HEADER_CORRECTION.md`](docs/PARTIAL_HEADER_CORRECTION.md)
+- Latest corpus results: [`docs/ARRAY_LEAF_TYPES.md`](docs/ARRAY_LEAF_TYPES.md)
 - Build it, test it, open a PR: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Working conventions (for an AI agent): [`CLAUDE.md`](CLAUDE.md)
 
@@ -95,7 +95,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **666 Rust tests** plus a layered validation suite (framing / bytes / decode
+- **672 Rust tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -149,13 +149,13 @@ Parquet files plus a manifest when checkpoints are included:
 
 | File | Rows | Bytes |
 |---|---|---|
-| `fields.parquet` | 1,296,066 | 16,416,927 |
+| `fields.parquet` | 1,296,066 | 16,425,445 |
 | `movement.parquet` | 1,844,147 | 31,886,449 |
 | `actors.parquet` | 3,827 | 87,281 |
 | `net_guids.parquet` | 16,167 | 153,606 |
 | `events.parquet` | 195 | 13,411 |
 | `partials.parquet` | 0 | 2,505 |
-| `checkpoint_fields.parquet` | 341,704 | 1,160,575 |
+| `checkpoint_fields.parquet` | 341,704 | 1,209,470 |
 | `checkpoint_actors.parquet` | 3,014 | 27,118 |
 | `checkpoint_net_guids.parquet` | 74,270 | 277,718 |
 | `checkpoint_blocks.parquet` | 22,247 | 175,032 |
@@ -339,7 +339,7 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**666 passing**; the full Python suite also has **666 passing** tests. The
+**672 passing**; the full Python suite also has **666 passing** tests. The
 all-corpus guards, all-file comparison, and full documentation check pass.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted

@@ -56,8 +56,8 @@
   "parquet": {
     "fields": {
       "rows": 1296066,
-      "bytes": 16416927,
-      "sha256": "cebd9f9bf824939194411b8d0ae882dcb33cd8342c43998316ebfe37f7140b0b"
+      "bytes": 16425445,
+      "sha256": "67d6e95eb2100d561a4c5070ec4c905bf48a38f8aa5b50a6d7df35f2a1712751"
     },
     "movement": {
       "rows": 1844147,
@@ -86,8 +86,8 @@
     },
     "checkpoint_fields": {
       "rows": 341704,
-      "bytes": 1160575,
-      "sha256": "257d5745f19672971cb3356790f24b850471cfbeeca0f75f83dbf41376e8bb38"
+      "bytes": 1209470,
+      "sha256": "01617392221e963798ba94c1c7b8887993e28ad2ad7ed3365a9c0fe8317597ba"
     },
     "checkpoint_actors": {
       "rows": 3014,

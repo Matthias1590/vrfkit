@@ -24,6 +24,12 @@ use super::{ExportSink, FieldValues, TABLE};
 /// rather than a union.
 type DecodedColumns = (Option<i64>, Option<f64>, Option<bool>, Option<String>);
 
+#[derive(Clone, Copy)]
+enum VerifiedArrayLeaf {
+    Field(FieldType),
+    KillWeaponTheme,
+}
+
 /// New structural-array routes may type only leaf windows independently
 /// validated across the corpus. Everything else remains an exact raw child.
 fn verified_array_leaf_type(
@@ -73,6 +79,149 @@ fn verified_reward_leaf_type(
     };
     (declared_name == Some(name) && declared_checksum == Some(checksum) && resolved == Some(wanted))
         .then_some(wanted)
+}
+
+/// `SelectedV2` has six observed, declaration-qualified IntPacked NetGUID
+/// leaves. The overlay has no entry for these members today, which is allowed
+/// only here; an overlay that later names one as a different type is a refusal,
+/// not a reason to silently prefer this measured route.
+fn verified_selected_v2_leaf_type(
+    handle: u32,
+    declared_name: Option<&str>,
+    declared_checksum: Option<u32>,
+    resolved: Option<FieldType>,
+) -> Option<FieldType> {
+    let (name, checksum) = match handle {
+        3 => ("EquippableDataAsset", 1_793_937_854),
+        4 => ("EquippableSkinDataAsset", 3_765_038_216),
+        5 => ("EquippableSkinLevelDataAsset", 603_923_741),
+        6 => ("EquippableSkinChromaDataAsset", 3_166_589_204),
+        7 => ("EquippableCharmDataAsset", 3_345_806_642),
+        8 => ("EquippableCharmLevelDataAsset", 1_087_985_310),
+        _ => return None,
+    };
+    (declared_name == Some(name)
+        && declared_checksum == Some(checksum)
+        && matches!(resolved, None | Some(FieldType::ObjectNetGuid)))
+    .then_some(FieldType::ObjectNetGuid)
+}
+
+/// KillData primitive windows were measured over 714 replays. This establishes
+/// their wire types, not the gameplay meaning or units of the numeric values.
+/// Every admission remains scoped to the exact parent route and to the replay's
+/// declared handle, name, and checksum. An explicit overlay disagreement,
+/// including Raw or Skip, refuses the measured type.
+fn verified_kill_data_leaf(
+    handle: u32,
+    declared_name: Option<&str>,
+    declared_checksum: Option<u32>,
+    resolved: Option<FieldType>,
+) -> Option<VerifiedArrayLeaf> {
+    let (name, checksum, kind) = match handle {
+        3 => (
+            "Victim",
+            3_990_035_472,
+            VerifiedArrayLeaf::Field(FieldType::ObjectNetGuid),
+        ),
+        4 => (
+            "KillingEquippableClass",
+            2_071_131_011,
+            VerifiedArrayLeaf::Field(FieldType::ObjectNetGuid),
+        ),
+        5 => (
+            "WeaponTheme",
+            1_839_952_321,
+            VerifiedArrayLeaf::KillWeaponTheme,
+        ),
+        9 => (
+            "DamageType",
+            2_992_423_760,
+            VerifiedArrayLeaf::Field(FieldType::ObjectNetGuid),
+        ),
+        10 => (
+            "DamageTaken",
+            2_001_471_495,
+            VerifiedArrayLeaf::Field(FieldType::Float),
+        ),
+        11 => (
+            "DamageRegion",
+            3_229_265_809,
+            // Preserve the observed byte code; no enum-label meaning is claimed.
+            VerifiedArrayLeaf::Field(FieldType::Byte),
+        ),
+        12 => (
+            "GameTimeElapsed",
+            3_684_431_363,
+            VerifiedArrayLeaf::Field(FieldType::Float),
+        ),
+        13 => (
+            "RoundTimestamp",
+            2_328_473_242,
+            VerifiedArrayLeaf::Field(FieldType::Float),
+        ),
+        14 => (
+            "RoundNumber",
+            843_024_485,
+            VerifiedArrayLeaf::Field(FieldType::Int32),
+        ),
+        15 => (
+            "bDidKillTriggerFinisher",
+            2_795_684_046,
+            VerifiedArrayLeaf::Field(FieldType::Bool),
+        ),
+        _ => return None,
+    };
+    if declared_name != Some(name) || declared_checksum != Some(checksum) {
+        return None;
+    }
+    match kind {
+        VerifiedArrayLeaf::Field(wanted) if resolved.is_none() || resolved == Some(wanted) => {
+            Some(kind)
+        }
+        VerifiedArrayLeaf::KillWeaponTheme if resolved.is_none() => Some(kind),
+        _ => None,
+    }
+}
+
+fn decode_kill_weapon_theme(raw: &[u8], bit_count: u32, failures: &mut u64) -> DecodedColumns {
+    let decoded = (|| {
+        let mut reader = BitReader::with_bit_len(raw, u64::from(bit_count)).map_err(|_| ())?;
+        if !reader.read_bit().map_err(|_| ())? {
+            return Err(());
+        }
+        // The generic FString reader tolerates a missing null terminator.
+        // This measured shape requires one for every nonzero length. Check it
+        // explicitly, including valid UTF characters in the terminator slot,
+        // before allocating or decoding the text.
+        let mut framing = reader.clone();
+        let length = framing.read_i32().map_err(|_| ())?;
+        let units = i64::from(length).unsigned_abs();
+        let unit_bits = if length < 0 { 16 } else { 8 };
+        if units * (unit_bits / 8) > 64 * 1024 {
+            return Err(());
+        }
+        if units != 0 {
+            framing.skip_bits((units - 1) * unit_bits).map_err(|_| ())?;
+            if framing.read_bits(unit_bits as u32).map_err(|_| ())? != 0 {
+                return Err(());
+            }
+        }
+        if framing.bits_remaining() != 0 {
+            return Err(());
+        }
+        let value = reader.read_fstring(64 * 1024).map_err(|_| ())?;
+        if reader.bits_remaining() != 0 {
+            return Err(());
+        }
+        Ok(value)
+    })();
+    match decoded {
+        Ok(value) => (None, None, None, Some(value)),
+        Err(()) => {
+            *failures = failures.saturating_add(1);
+            (None, None, None, None)
+        }
+    }
 }
 
 fn measured_array_route(group: &str, parent: &str, checksum: Option<u32>) -> bool {
@@ -337,7 +486,7 @@ impl ExportSink<'_> {
         // The hardcoded match stays as the fallback: it covers handles whose
         // declared name has no table entry, and dropping it would trade one gap
         // for another.
-        let leaf_types: Vec<Option<FieldType>> = flattened
+        let leaf_types: Vec<Option<VerifiedArrayLeaf>> = flattened
             .iter()
             .map(|f| {
                 // The FULL resolution order, not a bare name lookup. An
@@ -346,21 +495,38 @@ impl ExportSink<'_> {
                 // leaf was getting only the first, so the same property could
                 // be typed outside an array and untyped inside one.
                 let name = declared.get(f.handle as usize).copied().flatten();
-                let resolved = vrf_decode::resolve_field_type(
+                let declared_resolved = vrf_decode::resolve_field_type(
                     &TABLE,
                     &self.current_group_path,
                     name,
                     Some(f.handle),
-                )
-                .filter(|ft| !matches!(ft, FieldType::Raw | FieldType::Skip));
+                );
+                let resolved =
+                    declared_resolved.filter(|ft| !matches!(ft, FieldType::Raw | FieldType::Skip));
                 if measured && parent_name == "TrackedRewards" {
                     let declared_checksum =
                         declared_checksums.get(f.handle as usize).copied().flatten();
                     verified_reward_leaf_type(f.handle, name, declared_checksum, resolved)
+                        .map(VerifiedArrayLeaf::Field)
+                } else if measured && parent_name == "SelectedV2" {
+                    let declared_checksum =
+                        declared_checksums.get(f.handle as usize).copied().flatten();
+                    verified_selected_v2_leaf_type(
+                        f.handle,
+                        name,
+                        declared_checksum,
+                        declared_resolved,
+                    )
+                    .map(VerifiedArrayLeaf::Field)
+                } else if measured && parent_name == "KillData" {
+                    let declared_checksum =
+                        declared_checksums.get(f.handle as usize).copied().flatten();
+                    verified_kill_data_leaf(f.handle, name, declared_checksum, declared_resolved)
                 } else if measured {
                     verified_array_leaf_type(parent_name, checksum, f.handle, resolved, name)
+                        .map(VerifiedArrayLeaf::Field)
                 } else {
-                    resolved
+                    resolved.map(VerifiedArrayLeaf::Field)
                 }
             })
             .collect();
@@ -374,8 +540,13 @@ impl ExportSink<'_> {
             });
 
             let (vi, vf, vb, vs) = match declared_type {
-                Some(ft) => decode_leaf_with_stats(
+                Some(VerifiedArrayLeaf::Field(ft)) => decode_leaf_with_stats(
                     ft,
+                    &f.raw_bits,
+                    f.bit_count,
+                    &mut self.stats.array_leaf_decode_errors,
+                ),
+                Some(VerifiedArrayLeaf::KillWeaponTheme) => decode_kill_weapon_theme(
                     &f.raw_bits,
                     f.bit_count,
                     &mut self.stats.array_leaf_decode_errors,
@@ -800,6 +971,24 @@ mod tests {
         bits
     }
 
+    fn kill_weapon_theme_payload(value: &str, utf16: bool) -> Vec<bool> {
+        let mut bits = vec![true];
+        let (length, body) = if value.is_empty() && !utf16 {
+            (0, Vec::new())
+        } else if utf16 {
+            let units: Vec<u16> = value.encode_utf16().chain([0]).collect();
+            let body = units.iter().flat_map(|v| v.to_le_bytes()).collect();
+            (-(units.len() as i32), body)
+        } else {
+            let mut body = value.as_bytes().to_vec();
+            body.push(0);
+            (body.len() as i32, body)
+        };
+        bits.extend(bits_from_bytes(&length.to_le_bytes()));
+        bits.extend(bits_from_bytes(&body));
+        bits
+    }
+
     fn export_array(
         identity: (&str, &str, u32),
         leaf: (u32, &str),
@@ -1106,6 +1295,302 @@ mod tests {
             );
             assert_eq!(stats.array.fields_emitted, 1);
         }
+    }
+
+    #[test]
+    fn selected_v2_types_only_the_six_qualified_object_net_guid_leaves() {
+        let mut multi_byte = Vec::new();
+        packed(&mut multi_byte, 128);
+        let (records, _) = export_array_with_child_checksum(
+            (SELECTED_GROUP, SELECTED_PARENT, SELECTED_CHECKSUM),
+            (3, "EquippableDataAsset", 1_793_937_854),
+            &one_leaf(3, &multi_byte),
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields[0].value_i64, Some(128));
+        assert_eq!(
+            records.fields[0].raw_bits.as_deref(),
+            Some([1, 2].as_slice())
+        );
+
+        let zero = vec![false; 8];
+        let (records, _) = export_array_with_child_checksum(
+            (SELECTED_GROUP, SELECTED_PARENT, SELECTED_CHECKSUM),
+            (8, "EquippableCharmLevelDataAsset", 1_087_985_310),
+            &one_leaf(8, &zero),
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields[0].value_i64, Some(0));
+
+        for (name, checksum) in [("Other", 1_793_937_854), ("EquippableDataAsset", 0)] {
+            let (records, _) = export_array_with_child_checksum(
+                (SELECTED_GROUP, SELECTED_PARENT, SELECTED_CHECKSUM),
+                (3, name, checksum),
+                &one_leaf(3, &multi_byte),
+                Some(MEASURED_BUILD),
+            );
+            assert_eq!(records.fields[0].value_i64, None, "{name}/{checksum}");
+        }
+        for (handle, name, checksum) in [
+            (9, "A", 3_055_317_389),
+            (13, "EquippableAttachments", 3_137_596_882),
+            (14, "SocketAsset", 3_666_994_016),
+            (15, "AttachmentAsset", 856_446_005),
+        ] {
+            let (records, _) = export_array_with_child_checksum(
+                (SELECTED_GROUP, SELECTED_PARENT, SELECTED_CHECKSUM),
+                (handle, name, checksum),
+                &one_leaf(handle, &multi_byte),
+                Some(MEASURED_BUILD),
+            );
+            assert_eq!(records.fields[0].value_i64, None, "{name} remains raw");
+        }
+        assert_eq!(
+            verified_selected_v2_leaf_type(
+                3,
+                Some("EquippableDataAsset"),
+                Some(1_793_937_854),
+                Some(FieldType::Float),
+            ),
+            None,
+            "a contradictory overlay must leave the leaf raw"
+        );
+        for blocked in [FieldType::Raw, FieldType::Skip] {
+            assert_eq!(
+                verified_selected_v2_leaf_type(
+                    3,
+                    Some("EquippableDataAsset"),
+                    Some(1_793_937_854),
+                    Some(blocked),
+                ),
+                None,
+                "an explicit raw/skip declaration is not an absent overlay"
+            );
+        }
+    }
+
+    #[test]
+    fn selected_v2_bad_object_net_guid_windows_stay_raw_and_count_errors() {
+        for payload in [bits_from_bytes(&[1]), bits_from_bytes(&[1, 1, 1, 1, 0x20])] {
+            let (records, stats) = export_array_with_child_checksum(
+                (SELECTED_GROUP, SELECTED_PARENT, SELECTED_CHECKSUM),
+                (3, "EquippableDataAsset", 1_793_937_854),
+                &one_leaf(3, &payload),
+                Some(MEASURED_BUILD),
+            );
+            assert_eq!(records.fields[0].value_i64, None);
+            assert_eq!(stats.array_leaf_decode_errors, 1);
+            assert_eq!(
+                records.fields[0].raw_bits.as_deref(),
+                Some(bytes(&payload).as_slice())
+            );
+        }
+    }
+
+    #[test]
+    fn kill_data_types_only_qualified_primitive_leaves() {
+        let mut object = Vec::new();
+        packed(&mut object, 128);
+        let float = bits_from_bytes(&(-1.5f32).to_le_bytes());
+        let int = bits_from_bytes(&(-2i32).to_le_bytes());
+        for (handle, name, checksum, payload, vi, vf, vb) in [
+            (
+                3,
+                "Victim",
+                3_990_035_472,
+                object.clone(),
+                Some(128),
+                None,
+                None,
+            ),
+            (
+                4,
+                "KillingEquippableClass",
+                2_071_131_011,
+                vec![false; 8],
+                Some(0),
+                None,
+                None,
+            ),
+            (
+                9,
+                "DamageType",
+                2_992_423_760,
+                object.clone(),
+                Some(128),
+                None,
+                None,
+            ),
+            (
+                10,
+                "DamageTaken",
+                2_001_471_495,
+                float.clone(),
+                None,
+                Some(-1.5),
+                None,
+            ),
+            (
+                11,
+                "DamageRegion",
+                3_229_265_809,
+                vec![true, false, true],
+                Some(5),
+                None,
+                None,
+            ),
+            (
+                12,
+                "GameTimeElapsed",
+                3_684_431_363,
+                float.clone(),
+                None,
+                Some(-1.5),
+                None,
+            ),
+            (
+                13,
+                "RoundTimestamp",
+                2_328_473_242,
+                float,
+                None,
+                Some(-1.5),
+                None,
+            ),
+            (14, "RoundNumber", 843_024_485, int, Some(-2), None, None),
+            (
+                15,
+                "bDidKillTriggerFinisher",
+                2_795_684_046,
+                vec![false],
+                None,
+                None,
+                Some(false),
+            ),
+        ] {
+            let (records, _) = export_array_with_child_checksum(
+                (KILL_GROUP, KILL_PARENT, KILL_CHECKSUM),
+                (handle, name, checksum),
+                &one_leaf(handle, &payload),
+                Some(MEASURED_BUILD),
+            );
+            let child = &records.fields[0];
+            assert_eq!(child.value_i64, vi, "{name}");
+            assert_eq!(child.value_f64, vf, "{name}");
+            assert_eq!(child.value_bool, vb, "{name}");
+            assert_eq!(child.raw_bits.as_deref(), Some(bytes(&payload).as_slice()));
+        }
+    }
+
+    #[test]
+    fn kill_data_weapon_theme_decodes_exact_prefixed_fstrings() {
+        for (value, utf16) in [
+            ("/Game/Themes/Standard", false),
+            ("\u{d14c}\u{b9c8}", true),
+            ("", false),
+        ] {
+            let payload = kill_weapon_theme_payload(value, utf16);
+            let (records, stats) = export_array_with_child_checksum(
+                (KILL_GROUP, KILL_PARENT, KILL_CHECKSUM),
+                (5, "WeaponTheme", 1_839_952_321),
+                &one_leaf(5, &payload),
+                Some(MEASURED_BUILD),
+            );
+            assert_eq!(records.fields[0].value_str.as_deref(), Some(value));
+            assert_eq!(
+                records.fields[0].raw_bits.as_deref(),
+                Some(bytes(&payload).as_slice())
+            );
+            assert_eq!(stats.array_leaf_decode_errors, 0);
+        }
+    }
+
+    #[test]
+    fn kill_data_weapon_theme_rejects_bad_flag_terminator_and_residual() {
+        let mut bad_flag = kill_weapon_theme_payload("x", false);
+        bad_flag[0] = false;
+        let mut bad_terminator = kill_weapon_theme_payload("x", false);
+        // Use a valid UTF-8 byte so rejection cannot come from UTF decoding.
+        let last = bad_terminator.len() - 8;
+        bad_terminator[last] = true;
+        let mut bad_wide_terminator = kill_weapon_theme_payload("x", true);
+        let last_wide = bad_wide_terminator.len() - 16;
+        bad_wide_terminator[last_wide] = true;
+        let mut residual = kill_weapon_theme_payload("x", false);
+        residual.push(false);
+        let mut invalid_utf8 = vec![true];
+        invalid_utf8.extend(bits_from_bytes(&2i32.to_le_bytes()));
+        invalid_utf8.extend(bits_from_bytes(&[0xff, 0]));
+        for payload in [
+            bad_flag,
+            bad_terminator,
+            bad_wide_terminator,
+            residual,
+            invalid_utf8,
+        ] {
+            let (records, stats) = export_array_with_child_checksum(
+                (KILL_GROUP, KILL_PARENT, KILL_CHECKSUM),
+                (5, "WeaponTheme", 1_839_952_321),
+                &one_leaf(5, &payload),
+                Some(MEASURED_BUILD),
+            );
+            assert_eq!(records.fields[0].value_str, None);
+            assert_eq!(
+                records.fields[0].raw_bits.as_deref(),
+                Some(bytes(&payload).as_slice())
+            );
+            assert_eq!(stats.array_leaf_decode_errors, 1);
+        }
+    }
+
+    #[test]
+    fn kill_data_refuses_wrong_child_identity_and_any_overlay_disagreement() {
+        assert!(
+            verified_kill_data_leaf(10, Some("DamageTaken"), Some(2_001_471_495), None).is_some()
+        );
+        for (name, checksum) in [("Other", 2_001_471_495), ("DamageTaken", 0)] {
+            assert!(verified_kill_data_leaf(10, Some(name), Some(checksum), None).is_none());
+            let payload = bits_from_bytes(&1.5f32.to_le_bytes());
+            let (records, _) = export_array_with_child_checksum(
+                (KILL_GROUP, KILL_PARENT, KILL_CHECKSUM),
+                (10, name, checksum),
+                &one_leaf(10, &payload),
+                Some(MEASURED_BUILD),
+            );
+            assert_eq!(records.fields[0].value_f64, None);
+            assert_eq!(
+                records.fields[0].raw_bits.as_deref(),
+                Some(bytes(&payload).as_slice())
+            );
+        }
+        let payload = kill_weapon_theme_payload("theme", false);
+        let (records, _) = export_array_with_child_checksum(
+            (KILL_GROUP, KILL_PARENT, KILL_CHECKSUM),
+            (5, "Other", 1_839_952_321),
+            &one_leaf(5, &payload),
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields[0].value_str, None);
+        for blocked in [FieldType::Int32, FieldType::Raw, FieldType::Skip] {
+            assert!(
+                verified_kill_data_leaf(
+                    10,
+                    Some("DamageTaken"),
+                    Some(2_001_471_495),
+                    Some(blocked)
+                )
+                .is_none()
+            );
+        }
+        assert!(
+            verified_kill_data_leaf(
+                5,
+                Some("WeaponTheme"),
+                Some(1_839_952_321),
+                Some(FieldType::FString)
+            )
+            .is_none()
+        );
     }
 
     #[test]
