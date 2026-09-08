@@ -1,8 +1,9 @@
 # Structured array expansion
 
 This report records the structural expansion before the later value typing.
-Its 68.5562% combined ratio is historical. Current values and coverage are in
-[`ARRAY_LEAF_TYPES.md`](ARRAY_LEAF_TYPES.md).
+Its 68.5562% combined ratio is historical. Subsequent leaf typing is recorded in
+[`ARRAY_LEAF_TYPES.md`](ARRAY_LEAF_TYPES.md); the latest accepted corpus counts
+and available observations are in [`CURRENT_STATUS.md`](CURRENT_STATUS.md).
 
 This document records the candidate structured-array expansion evaluated on the September 2026, 714-replay corpus (builds 13.01, 13.02, 13.04, and 13.05). It is a data-preservation and framing result, not a semantic event model.
 

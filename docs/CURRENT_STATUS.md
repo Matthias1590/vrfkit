@@ -1,7 +1,6 @@
 # Current status
 
-Status at vrfkit `14e58e52e8f412927c6bde1909abd89e38f5d2b6`, validated
-2026-09-09. Start with [DATA.md](DATA.md) for the current exported schema and
+Validated 2026-09-09. Start with [DATA.md](DATA.md) for the current exported schema and
 [USAGE.md](USAGE.md) for commands and validation procedures.
 
 ## Current measured field inventory
@@ -42,11 +41,18 @@ each catalog key is one distinct field meaning.
 
 The subsequent [GAS and PatchVolume wire investigation](GAS_AND_PATCHVOLUME_INVESTIGATION.md)
 recovers numeric FastArray structure from all 2,882,152 AbilitiesAndBuffs inner
-windows in those exports. The separate observation output preserves the
-original bits; the accepted Parquet counts and typed-presence ratio above
-remain unchanged. Numeric field boundaries do not establish gameplay meanings.
-The same investigation fully consumes 26,303 preserved PatchVolume windows;
-their property names and value meanings still require an item schema.
+windows in those exports. The public
+`tools/extract_fastarray_observations.py` command writes a separate GAS
+observation stream containing numeric headers, item IDs, and raw property
+boundaries while preserving the original bits. It does not add typed values to
+`fields.parquet` or `checkpoint_fields.parquet`, so the accepted Parquet counts
+and typed-presence ratio above remain unchanged.
+
+The investigation also records private structural evidence that the same
+generic walk fully consumes 26,303 selected PatchVolume windows. PatchVolume
+does not yet have a public extraction route or an established item/property
+schema. In both populations, numeric boundaries do not establish gameplay
+meanings.
 
 ## Completed evidence phases
 
@@ -70,7 +76,6 @@ its own evidence boundary; derived section and kill views do not prove game HP,
 healing attribution, damage attribution, causality, or player credit.
 
 The parser acceptance commit for the physical field counts was `fc50bfe`.
-Later derived-view commits through `14e58e5` do not change those counts. The
-dated validation at `14e58e5` passed 692 Rust tests and 786 Python tests. Test
-counts describe that validation run and are not a permanent compatibility
-guarantee.
+Later derived-view commits do not change those counts. The current validation
+passes 699 Rust tests and 796 Python tests. Test counts describe this dated
+validation run and are not a permanent compatibility guarantee.

@@ -82,7 +82,7 @@ neither the fraction of file bytes decoded nor the fraction of gameplay
 meaning understood; an earlier semantic classification has not been
 reapplied to all expanded output. These coverage figures predate the later
 structured-array candidate; see [STRUCTURED_ARRAY_EXPANSION.md](STRUCTURED_ARRAY_EXPANSION.md)
-for its measured physical ratios and still-running final comparison.
+for its measured physical ratios and completed 714-file comparison.
 
 Of 198,461,491 previous raw checkpoint field rows, 198,344,356 retained the
 same handle, bit count and raw bytes within the same block. The remaining

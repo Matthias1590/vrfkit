@@ -18,9 +18,9 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Verified state:** Rust has **699 passing** tests; Python has **796 passing** tests. The full
-714-file comparison and corpus guards passed; see
-[targeting and heal evidence](docs/TARGETING_AND_HEAL_VALUES.md).
+**Verified state:** Rust has **699 passing** tests; Python has **796 passing**
+tests. The full 714-file comparison and corpus guards passed; see
+[current status](docs/CURRENT_STATUS.md) for the current evidence boundary.
 
 - Run it: [`docs/USAGE.md`](docs/USAGE.md)
 - What's extractable: [`docs/DATA.md`](docs/DATA.md)
@@ -30,6 +30,7 @@ by, or approved by Riot Games.
 - Damage, healing, decay and reset observations: [`docs/SECTION_OBSERVATIONS.md`](docs/SECTION_OBSERVATIONS.md)
 - Observed section timelines and explicit continuity gaps: [`docs/SECTION_TIMELINE.md`](docs/SECTION_TIMELINE.md)
 - Packet-ordered section comparisons: [`docs/SECTION_PACKET_TIMELINE.md`](docs/SECTION_PACKET_TIMELINE.md)
+- Numeric FastArray observations and remaining item semantics: [`docs/GAS_AND_PATCHVOLUME_INVESTIGATION.md`](docs/GAS_AND_PATCHVOLUME_INVESTIGATION.md)
 - Build it, test it, open a PR: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Working conventions (for an AI agent): [`CLAUDE.md`](CLAUDE.md)
 
@@ -71,9 +72,9 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
   column helps distinguish untyped fields from fields lacking a descriptor.
 - **Self-describing stream** — field names come from the replay itself
   (`NetFieldExportGroup`); no hardcoded agent or map names in the parser.
-- **Six Parquet tables + manifest** — `fields`, `movement`, `actors`,
-  `net_guids`, `events`, `checkpoint_fields`, ready for polars / pandas /
-  DuckDB.
+- **Main and checkpoint Parquet output** — six main tables are always written;
+  `--checkpoints` adds seven checkpoint tables. All are ready for polars,
+  pandas, or DuckDB.
 - **Spike state** — plant site A/B (`PlantedAtSite` + position), defuser
   (`CurrentDefuser`), timer, and the canonical detonation signal.
 - **Combat & abilities** — per-player economy, magazine and reserve ammo,
@@ -82,6 +83,11 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Ability observations** — cast time/location and replicated ability
   statistics can be joined to actors and rounds. Repeated snapshots require
   deduplication; unresolved ownership and incomplete effect pairs remain gaps.
+- **Numeric FastArray observations** — the standalone GAS extractor retains
+  replication keys, deleted/changed item IDs and raw property boundaries.
+  All 2,882,152 measured inner windows close exactly; property names and
+  gameplay meanings remain unverified. This output is separate from Parquet
+  typed-value coverage.
 - **Status-effect observations** — nearsight, slow, detain and suppress can
   arrive on affected actors. Matched start/stop records support intervals;
   unmatched records must not be assigned an invented duration.
@@ -184,8 +190,9 @@ timeline; and posture detail lives in `bCrouchHeld`, not in `movement_state`.
 
 ## Output
 
-Six Parquet tables plus `manifest.json`. String columns are dictionary-encoded
-with ZSTD.
+The main export writes six Parquet tables plus `manifest.json`.
+`--checkpoints` adds seven checkpoint tables, for thirteen Parquet files in
+total. String columns are dictionary-encoded with ZSTD.
 
 ### `fields.parquet` -- replicated properties and RPC parameters
 

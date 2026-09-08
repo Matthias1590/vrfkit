@@ -6,13 +6,15 @@ Parquet field counts. See [current status](CURRENT_STATUS.md) for the completed
 work and [DATA](DATA.md) for the available values.
 
 Follow-up: [numeric FastArray extraction](GAS_AND_PATCHVOLUME_INVESTIGATION.md)
-now fully consumes all 2,882,152 AbilitiesAndBuffs inner windows and retains
-their deletion/change records and raw property boundaries separately. The
-Parquet inventory below remains the measured starting point; the remaining
-GAS task is item-schema/value interpretation, rather than an unexplained
-inner byte stream.
-All 26,303 selected PatchVolume whole/tail windows also have an independently
-validated numeric FastArray walk. Their class/item schema remains unresolved.
+now fully consumes all 2,882,152 AbilitiesAndBuffs inner windows. The public
+standalone extractor retains numeric headers, deletion/change IDs, raw property
+boundaries, and the original bits. This output is separate from Parquet typed
+values, so the inventory below remains the measured starting point. The
+remaining GAS task is item-schema and value interpretation.
+
+Private evidence also validates a numeric FastArray walk over all 26,303
+selected PatchVolume whole/tail windows. PatchVolume still lacks a public
+extraction route and an established class/item/property schema.
 
 ## What the inventory counts
 
@@ -62,19 +64,17 @@ content or expected semantic gain.
 
 | Group / field | Physical rows | Preserved bits | Next question |
 |---|---:|---:|---|
-| `AbilitiesAndBuffsComponent` / unresolved CNC payload | 2,882,152 | 7,469,704,527 | Which inner values have independently supported roles? |
+| `AbilitiesAndBuffsComponent` / unresolved CNC payload | 2,882,152 | 7,469,704,527 | Which item/property schema can be independently established? |
 | Same group / `_cnc_h1` | 2,882,152 | 7,406,284,351 | Inner window of the previous population; do not count twice |
 | BaseReplayController / `InputEventData` RPC parameter | 42,545,425 | 1,888,237,280 | What source establishes tag/action meanings? |
-| `PatchVolume` / unresolved CNC payload | 19,140 | 304,471,076 | Can checkpoint-local declarations establish a valid framing route? |
-| `PatchVolume` / unparsed RepLayout tail | 7,163 | 236,962,614 | Does a measured post-terminator grammar explain these windows? |
+| `PatchVolume` / unresolved CNC payload | 19,140 | 304,471,076 | Which class/item schema explains the validated numeric entries? |
+| `PatchVolume` / unparsed RepLayout tail | 7,163 | 236,962,614 | Which property schema explains the validated numeric entries? |
 
-The AbilitiesAndBuffs outer RPC framing is already available. Its inner
-flag/u32/residual decomposition accepts arbitrary nonempty bit streams; that
-decomposition alone cannot validate a prediction key, cast, buff or effect.
-The next useful experiment must test a specific interpretation against
-independent references or state transitions, preserve counterexamples, and
-separate actor/channel lifetimes. Another anonymous word-list export adds no
-new meaning.
+The AbilitiesAndBuffs numeric framing is established, but replication keys,
+item IDs, and raw property windows do not identify abilities, casts, buffs,
+effects, or player actions. Any interpretation must be tested against
+independent references or state transitions while preserving counterexamples
+and actor/channel lifetime boundaries.
 
 The seven InputEventData tags and their lengths in DATA are a historical
 53,605-row measurement. This new inventory measures the current row/bit
@@ -82,10 +82,10 @@ population; it has not independently revalidated tag frequencies or the
 historical grammar on all 42,545,425 rows. Historical upstream C# byte-array
 storage does not establish the wire grammar or action labels.
 
-PatchVolume is a structural investigation candidate, not an approved decoder.
-Start with a build-stratified sample and exact original bit windows. Reject
-candidate framing that needs ignored trailing bits or a guessed class remap;
-preserve both full payloads and separately observed tail records.
+PatchVolume framing has private full-population structural evidence, but no
+public extraction route or approved class/item/property schema. Any public
+decoder must retain exact original windows and must not infer property meanings
+from structural closure alone.
 
 ## Existing containers are not new decoder opportunities
 
@@ -101,7 +101,7 @@ bits. Their size is not evidence that combat-report decoding is absent.
 
 ## Follow-on work and admission criteria
 
-1. Investigate AbilitiesAndBuffs inner roles and PatchVolume framing against
+1. Establish AbilitiesAndBuffs and PatchVolume item/property schemas against
    independent evidence before adding types. A successful bit walk alone is
    insufficient.
 2. Associate existing healing, ability and GAS OwnerActor/AvatarActor
