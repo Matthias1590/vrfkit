@@ -37,20 +37,21 @@ The local reader checks the terminator explicitly because the generic FString
 reader permits legacy unterminated strings. Malformed windows remain raw and
 increment `array_leaf_decode_errors`.
 
-## Remaining raw data
+## Remaining interpretation limits
 
 `SelectedV2.A` through `.D` are 32-bit zero windows in this corpus; that alone
-does not identify their type or purpose. `EquippableAttachments` remains nested
-raw data. Declared `SocketAsset` and `AttachmentAsset` leaves were not observed
-as direct emitted children, so no type is enabled for them. `KillData`'s nested
-`AssistingPlayers` body is also still raw.
+does not identify their type or purpose. `EquippableAttachments` and
+`AssistingPlayers` retain their raw bodies and now expose qualified nested
+references; see [NESTED_ARRAY_REFERENCES.md](NESTED_ARRAY_REFERENCES.md).
+`SocketAsset` and `AttachmentAsset` are enabled only inside that verified
+nesting, not as unrelated direct children.
 
 No direct C# descriptor for these two parent groups exists in the consulted
 local reference checkout. This is measured wire interpretation, with explicit
 remaining semantic uncertainty. Repeated array updates and checkpoint snapshots
 are not independent kills or a deduplicated inventory ledger.
 
-## Validation
+## Historical validation of this value-only batch
 
 The frozen candidate exported all 714 files successfully in 219.50 seconds.
 The independent full comparison passed 714/714 in 200.813 seconds: every prior
@@ -74,5 +75,7 @@ previously all-null targets, with every other value and row count independently
 verified unchanged. The ratio is physical typed-value presence, not semantic
 completeness, unique game facts, or a percentage of replay bytes.
 
-The prior structural-only coverage measurement is historical:
+The current measurement includes additional nested reference rows and is
+recorded in [NESTED_ARRAY_REFERENCES.md](NESTED_ARRAY_REFERENCES.md).
+The prior structural-only coverage measurement is also historical:
 [`STRUCTURED_ARRAY_EXPANSION.md`](STRUCTURED_ARRAY_EXPANSION.md).

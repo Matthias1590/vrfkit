@@ -10,10 +10,11 @@ Legend: ✅ typed (value decoded) · ◐ raw or derivable · ❌ unavailable in 
 stated observation scope. Absence in a sample is not proof of format-wide absence.
 
 The current 714-replay field measurement is recorded in
-[ARRAY_LEAF_TYPES.md](ARRAY_LEAF_TYPES.md): physical
-typed-value presence is 70.3613% main, 76.3263% checkpoint, and 71.6363%
-combined. These physical row ratios are not semantic completeness. Both corpus
-guards and the independent all-file comparison pass on all 714 inputs.
+[NESTED_ARRAY_REFERENCES.md](NESTED_ARRAY_REFERENCES.md): physical
+typed-value presence is 70.3740% main, 76.9972% checkpoint, and 71.8215%
+combined, counted directly from all four value columns. These physical row
+ratios are not semantic completeness. Both corpus guards and the independent
+all-file comparison pass on all 714 inputs.
 The earlier partial-header correction is recorded in
 [PARTIAL_HEADER_CORRECTION.md](PARTIAL_HEADER_CORRECTION.md), and crosshair/Tidal
 Wave additions in [SCHEMA_EXPANSION.md](SCHEMA_EXPANSION.md).

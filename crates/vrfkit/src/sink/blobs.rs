@@ -30,6 +30,216 @@ enum VerifiedArrayLeaf {
     KillWeaponTheme,
 }
 
+struct VerifiedNestedLeaf {
+    path: String,
+    handle: u32,
+    bit_count: u32,
+    raw_bits: Vec<u8>,
+    value_i64: i64,
+}
+
+/// These identities were measured with exact consumption on all 714 replays.
+/// They qualify wire windows only, without assigning gameplay ownership or
+/// ordering semantics to the references.
+fn verified_nested_container(
+    parent: &str,
+    handle: u32,
+    name: Option<&str>,
+    checksum: Option<u32>,
+    resolved: Option<FieldType>,
+) -> bool {
+    let expected = match parent {
+        "SelectedV2" => (13, "EquippableAttachments", 3_137_596_882),
+        "KillData" => (6, "AssistingPlayers", 1_689_463_717),
+        _ => return false,
+    };
+    (handle, name, checksum) == (expected.0, Some(expected.1), Some(expected.2))
+        && resolved.is_none()
+}
+
+fn verified_nested_member(
+    parent: &str,
+    handle: u32,
+    name: Option<&str>,
+    checksum: Option<u32>,
+    resolved: Option<FieldType>,
+) -> bool {
+    let expected = match (parent, handle) {
+        ("SelectedV2", 14) => ("SocketAsset", 3_666_994_016),
+        ("SelectedV2", 15) => ("AttachmentAsset", 856_446_005),
+        ("KillData", 7) => ("AssistingPlayers", 1_417_448_159),
+        _ => return false,
+    };
+    name == Some(expected.0)
+        && checksum == Some(expected.1)
+        && (resolved.is_none() || resolved == Some(FieldType::ObjectNetGuid))
+}
+
+fn strict_nested_array_preflight(raw: &[u8], bit_count: u32, allowed: &[u32]) -> bool {
+    // The generic walker tolerates EOF terminators and skips zero-width fields
+    // for older routes. These new measured routes require explicit terminators
+    // and inspect every handle before a zero-width member could disappear.
+    if bit_count == 0 {
+        return false;
+    }
+    let Ok(mut reader) = BitReader::with_bit_len(raw, u64::from(bit_count)) else {
+        return false;
+    };
+    let Ok(capacity) = reader.read_int_packed() else {
+        return false;
+    };
+    if capacity > vrf_decode::MAX_ELEMENTS {
+        return false;
+    }
+    let mut elements = 0;
+    loop {
+        if reader.at_end() {
+            return false;
+        }
+        let Ok(encoded_index) = reader.read_int_packed() else {
+            return false;
+        };
+        if encoded_index == 0 {
+            return reader.at_end();
+        }
+        if encoded_index > capacity || elements == vrf_decode::MAX_ELEMENTS {
+            return false;
+        }
+        elements += 1;
+        let mut fields = 0;
+        loop {
+            if reader.at_end() {
+                return false;
+            }
+            let Ok(encoded_handle) = reader.read_int_packed() else {
+                return false;
+            };
+            if encoded_handle == 0 {
+                break;
+            }
+            if fields == vrf_decode::MAX_FIELDS_PER_ELEMENT {
+                return false;
+            }
+            fields += 1;
+            let handle = encoded_handle - 1;
+            if !allowed.contains(&handle) {
+                return false;
+            }
+            let Ok(payload_bits) = reader.read_int_packed() else {
+                return false;
+            };
+            if payload_bits == 0 || u64::from(payload_bits) > reader.bits_remaining() {
+                return false;
+            }
+            if reader.sub_reader(u64::from(payload_bits)).is_err() {
+                return false;
+            }
+        }
+    }
+}
+
+fn decode_verified_nested_array(
+    parent: &str,
+    container: &vrf_decode::FlattenedField,
+    declared_names: &[Option<&str>],
+    declared_checksums: &[Option<u32>],
+    group_path: &str,
+) -> (
+    Option<Vec<VerifiedNestedLeaf>>,
+    vrf_decode::ArrayDecodeStats,
+    u64,
+) {
+    let declared_name = declared_names
+        .get(container.handle as usize)
+        .copied()
+        .flatten();
+    let declared_checksum = declared_checksums
+        .get(container.handle as usize)
+        .copied()
+        .flatten();
+    let resolved =
+        vrf_decode::resolve_field_type(&TABLE, group_path, declared_name, Some(container.handle));
+    if !verified_nested_container(
+        parent,
+        container.handle,
+        declared_name,
+        declared_checksum,
+        resolved,
+    ) {
+        return (None, vrf_decode::ArrayDecodeStats::default(), 0);
+    }
+
+    let allowed: &[u32] = if parent == "SelectedV2" {
+        &[14, 15]
+    } else {
+        &[7]
+    };
+    if !strict_nested_array_preflight(&container.raw_bits, container.bit_count, allowed) {
+        let stats = vrf_decode::ArrayDecodeStats {
+            errors: 1,
+            ..Default::default()
+        };
+        return (None, stats, 0);
+    }
+
+    let mut stats = vrf_decode::ArrayDecodeStats::default();
+    let flattened = vrf_decode::decode_struct_array_exact(
+        &container.raw_bits,
+        container.bit_count,
+        declared_names,
+        &mut stats,
+    );
+    let complete = stats.truncations == 0
+        && stats.errors == 0
+        && stats.implicit_terminations == 0
+        && stats.unconsumed_nested_bits == 0
+        && stats.unconsumed_root_bits == 0;
+    if !complete {
+        return (None, stats, 0);
+    }
+
+    let mut decoded = Vec::with_capacity(flattened.len());
+    for leaf in flattened {
+        let declared_name = declared_names.get(leaf.handle as usize).copied().flatten();
+        let declared_checksum = declared_checksums
+            .get(leaf.handle as usize)
+            .copied()
+            .flatten();
+        let resolved =
+            vrf_decode::resolve_field_type(&TABLE, group_path, declared_name, Some(leaf.handle));
+        if !verified_nested_member(
+            parent,
+            leaf.handle,
+            declared_name,
+            declared_checksum,
+            resolved,
+        ) {
+            return (None, stats, 1);
+        }
+        let mut failures = 0;
+        let (value_i64, value_f64, value_bool, value_str) = decode_leaf_with_stats(
+            FieldType::ObjectNetGuid,
+            &leaf.raw_bits,
+            leaf.bit_count,
+            &mut failures,
+        );
+        let Some(value_i64) = value_i64 else {
+            return (None, stats, failures.max(1));
+        };
+        if value_f64.is_some() || value_bool.is_some() || value_str.is_some() {
+            return (None, stats, failures.max(1));
+        }
+        decoded.push(VerifiedNestedLeaf {
+            path: leaf.path,
+            handle: leaf.handle,
+            bit_count: leaf.bit_count,
+            raw_bits: leaf.raw_bits,
+            value_i64,
+        });
+    }
+    (Some(decoded), stats, 0)
+}
+
 /// New structural-array routes may type only leaf windows independently
 /// validated across the corpus. Everything else remains an exact raw child.
 fn verified_array_leaf_type(
@@ -531,7 +741,39 @@ impl ExportSink<'_> {
             })
             .collect();
 
-        for (f, declared_type) in flattened.iter().zip(leaf_types) {
+        let nested_results: Vec<_> = flattened
+            .iter()
+            .map(|f| {
+                if measured
+                    && matches!(parent_name, "SelectedV2" | "KillData")
+                    && matches!(
+                        (parent_name, f.handle),
+                        ("SelectedV2", 13) | ("KillData", 6)
+                    )
+                {
+                    decode_verified_nested_array(
+                        parent_name,
+                        f,
+                        &declared,
+                        &declared_checksums,
+                        &self.current_group_path,
+                    )
+                } else {
+                    (None, vrf_decode::ArrayDecodeStats::default(), 0)
+                }
+            })
+            .collect();
+        for (_, nested_stats, nested_failures) in &nested_results {
+            merge_array_stats(&mut self.stats.array, nested_stats);
+            self.stats.array_leaf_decode_errors = self
+                .stats
+                .array_leaf_decode_errors
+                .saturating_add(*nested_failures);
+        }
+
+        for ((f, declared_type), (nested, _, _)) in
+            flattened.iter().zip(leaf_types).zip(nested_results)
+        {
             // Build full field name: "Rounds[0].RoundNumber" etc. `f.path`
             // already carries its own leading separator.
             let full_name = self.channel_state.names.intern_fmt(|out| {
@@ -579,6 +821,29 @@ impl ExportSink<'_> {
                 value_str: vs,
             });
             self.stats.fields_emitted += 1;
+
+            // Nested rows follow their preserved raw container row immediately.
+            // The entire nested window was validated and decoded before the
+            // container was emitted, so a malformed member cannot leak a prefix.
+            if let Some(nested) = nested {
+                for leaf in nested {
+                    let field_name = self.channel_state.names.intern_fmt(|out| {
+                        out.push_str(parent_name);
+                        out.push_str(&f.path);
+                        out.push_str(&leaf.path);
+                    });
+                    self.push_field(FieldValues {
+                        handle: leaf.handle,
+                        field_name: Some(field_name),
+                        compatible_checksum: None,
+                        bit_count: leaf.bit_count,
+                        raw_bits: Some(SmallVec::from_slice(&leaf.raw_bits)),
+                        value_i64: Some(leaf.value_i64),
+                        ..FieldValues::default()
+                    });
+                    self.stats.fields_emitted += 1;
+                }
+            }
         }
     }
 
@@ -971,6 +1236,20 @@ mod tests {
         bits
     }
 
+    fn one_element(fields: &[(u32, Vec<bool>)]) -> Vec<bool> {
+        let mut bits = Vec::new();
+        packed(&mut bits, 1);
+        packed(&mut bits, 1);
+        for (handle, payload) in fields {
+            packed(&mut bits, handle + 1);
+            packed(&mut bits, payload.len() as u32);
+            bits.extend_from_slice(payload);
+        }
+        packed(&mut bits, 0);
+        packed(&mut bits, 0);
+        bits
+    }
+
     fn kill_weapon_theme_payload(value: &str, utf16: bool) -> Vec<bool> {
         let mut bits = vec![true];
         let (length, body) = if value.is_empty() && !utf16 {
@@ -1004,12 +1283,22 @@ mod tests {
         bits: &[bool],
         branch: Option<&str>,
     ) -> (RecordBuffers, ExportStats) {
+        export_array_with_declarations(identity, &[leaf], bits, branch)
+    }
+
+    fn export_array_with_declarations(
+        identity: (&str, &str, u32),
+        leaves: &[(u32, &str, u32)],
+        bits: &[bool],
+        branch: Option<&str>,
+    ) -> (RecordBuffers, ExportStats) {
         let (group, parent, checksum) = identity;
         let mut cache = NetGuidCache::new();
         cache
             .add_export_group(vrf_schema::NetFieldExportGroup::new(group.into(), 7, 128))
             .unwrap();
-        for (handle, name, compatible_checksum) in [(0, parent, checksum), (leaf.0, leaf.1, leaf.2)]
+        for (handle, name, compatible_checksum) in
+            std::iter::once((0, parent, checksum)).chain(leaves.iter().copied())
         {
             assert!(cache.set_field_on_group(
                 7,
@@ -1591,6 +1880,253 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    #[test]
+    fn measured_nested_arrays_emit_after_their_preserved_raw_containers() {
+        let mut first = Vec::new();
+        packed(&mut first, 128);
+        let mut second = Vec::new();
+        packed(&mut second, 9);
+        let selected_nested = one_element(&[(14, first.clone()), (15, second.clone())]);
+        let (records, stats) = export_array_with_declarations(
+            (SELECTED_GROUP, SELECTED_PARENT, SELECTED_CHECKSUM),
+            &[
+                (13, "EquippableAttachments", 3_137_596_882),
+                (14, "SocketAsset", 3_666_994_016),
+                (15, "AttachmentAsset", 856_446_005),
+            ],
+            &one_leaf(13, &selected_nested),
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields.len(), 4);
+        assert_eq!(
+            records.fields[0].field_name.as_deref(),
+            Some("SelectedV2[0].EquippableAttachments")
+        );
+        assert_eq!(
+            records.fields[0].raw_bits.as_deref(),
+            Some(bytes(&selected_nested).as_slice())
+        );
+        assert_eq!(
+            records.fields[1].field_name.as_deref(),
+            Some("SelectedV2[0].EquippableAttachments[0].SocketAsset")
+        );
+        assert_eq!(records.fields[1].value_i64, Some(128));
+        assert_eq!(
+            records.fields[1].raw_bits.as_deref(),
+            Some(bytes(&first).as_slice())
+        );
+        assert_eq!(
+            records.fields[2].field_name.as_deref(),
+            Some("SelectedV2[0].EquippableAttachments[0].AttachmentAsset")
+        );
+        assert_eq!(records.fields[2].value_i64, Some(9));
+        assert_eq!(
+            records.fields[3].field_name.as_deref(),
+            Some(SELECTED_PARENT)
+        );
+        assert_eq!(stats.array.fields_emitted, 3);
+
+        let kill_nested = one_element(&[(7, first.clone())]);
+        let (records, stats) = export_array_with_declarations(
+            (KILL_GROUP, KILL_PARENT, KILL_CHECKSUM),
+            &[
+                (6, "AssistingPlayers", 1_689_463_717),
+                (7, "AssistingPlayers", 1_417_448_159),
+            ],
+            &one_leaf(6, &kill_nested),
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields.len(), 3);
+        assert_eq!(
+            records.fields[0].field_name.as_deref(),
+            Some("KillData[0].AssistingPlayers")
+        );
+        assert_eq!(
+            records.fields[1].field_name.as_deref(),
+            Some("KillData[0].AssistingPlayers[0].AssistingPlayers")
+        );
+        assert_eq!(records.fields[1].value_i64, Some(128));
+        assert_eq!(records.fields[2].field_name.as_deref(), Some(KILL_PARENT));
+        assert_eq!(stats.array.fields_emitted, 2);
+    }
+
+    #[test]
+    fn nested_array_preflight_requires_bounds_nonzero_windows_and_terminators() {
+        let valid = one_element(&[(7, bits_from_bytes(&[2]))]);
+        assert!(strict_nested_array_preflight(
+            &bytes(&valid),
+            valid.len() as u32,
+            &[7]
+        ));
+        assert!(!strict_nested_array_preflight(&[], 0, &[7]));
+        assert!(!strict_nested_array_preflight(
+            &bytes(&valid[..valid.len() - 8]),
+            (valid.len() - 8) as u32,
+            &[7]
+        ));
+        let mut suffix = valid.clone();
+        suffix.extend([false; 8]);
+        assert!(!strict_nested_array_preflight(
+            &bytes(&suffix),
+            suffix.len() as u32,
+            &[7]
+        ));
+        let zero_width = one_element(&[(7, Vec::new())]);
+        assert!(!strict_nested_array_preflight(
+            &bytes(&zero_width),
+            zero_width.len() as u32,
+            &[7]
+        ));
+        let unexpected = one_element(&[(8, bits_from_bytes(&[2]))]);
+        assert!(!strict_nested_array_preflight(
+            &bytes(&unexpected),
+            unexpected.len() as u32,
+            &[7]
+        ));
+        let mut capacity_limit = Vec::new();
+        packed(&mut capacity_limit, vrf_decode::MAX_ELEMENTS + 1);
+        packed(&mut capacity_limit, 0);
+        assert!(!strict_nested_array_preflight(
+            &bytes(&capacity_limit),
+            capacity_limit.len() as u32,
+            &[7]
+        ));
+        let mut index_range = Vec::new();
+        packed(&mut index_range, 1);
+        packed(&mut index_range, 2);
+        assert!(!strict_nested_array_preflight(
+            &bytes(&index_range),
+            index_range.len() as u32,
+            &[7]
+        ));
+        let fields = (0..=vrf_decode::MAX_FIELDS_PER_ELEMENT)
+            .map(|_| (7, bits_from_bytes(&[0])))
+            .collect::<Vec<_>>();
+        let field_limit = one_element(&fields);
+        assert!(!strict_nested_array_preflight(
+            &bytes(&field_limit),
+            field_limit.len() as u32,
+            &[7]
+        ));
+    }
+
+    #[test]
+    fn nested_array_identity_and_overlay_disagreements_are_refused() {
+        assert!(verified_nested_container(
+            "KillData",
+            6,
+            Some("AssistingPlayers"),
+            Some(1_689_463_717),
+            None
+        ));
+        assert!(!verified_nested_container(
+            "KillData",
+            6,
+            Some("Other"),
+            Some(1_689_463_717),
+            None
+        ));
+        assert!(!verified_nested_container(
+            "KillData",
+            6,
+            Some("AssistingPlayers"),
+            Some(0),
+            None
+        ));
+        for blocked in [FieldType::ObjectNetGuid, FieldType::Raw, FieldType::Skip] {
+            assert!(!verified_nested_container(
+                "KillData",
+                6,
+                Some("AssistingPlayers"),
+                Some(1_689_463_717),
+                Some(blocked)
+            ));
+        }
+        for blocked in [FieldType::Float, FieldType::Raw, FieldType::Skip] {
+            assert!(!verified_nested_member(
+                "SelectedV2",
+                14,
+                Some("SocketAsset"),
+                Some(3_666_994_016),
+                Some(blocked)
+            ));
+        }
+    }
+
+    #[test]
+    fn malformed_nested_value_is_transactional_and_keeps_outer_raw() {
+        let malformed = one_element(&[(7, bits_from_bytes(&[2])), (7, bits_from_bytes(&[1]))]);
+        let (records, stats) = export_array_with_declarations(
+            (KILL_GROUP, KILL_PARENT, KILL_CHECKSUM),
+            &[
+                (6, "AssistingPlayers", 1_689_463_717),
+                (7, "AssistingPlayers", 1_417_448_159),
+            ],
+            &one_leaf(6, &malformed),
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields.len(), 2);
+        assert_eq!(
+            records.fields[0].raw_bits.as_deref(),
+            Some(bytes(&malformed).as_slice())
+        );
+        assert_eq!(records.fields[1].field_name.as_deref(), Some(KILL_PARENT));
+        assert_eq!(stats.array_leaf_decode_errors, 1);
+        assert_eq!(
+            stats.array.fields_emitted, 3,
+            "walker count includes attempted leaves, while no row prefix leaks"
+        );
+
+        let valid = one_element(&[(14, bits_from_bytes(&[2])), (15, bits_from_bytes(&[4]))]);
+        let (records, stats) = export_array_with_declarations(
+            (SELECTED_GROUP, SELECTED_PARENT, SELECTED_CHECKSUM),
+            &[
+                (13, "EquippableAttachments", 3_137_596_882),
+                (14, "SocketAsset", 3_666_994_016),
+                (15, "AttachmentAsset", 0),
+            ],
+            &one_leaf(13, &valid),
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(
+            records.fields.len(),
+            2,
+            "wrong nested checksum emits no prefix"
+        );
+        assert_eq!(
+            records.fields[0].raw_bits.as_deref(),
+            Some(bytes(&valid).as_slice())
+        );
+        assert_eq!(stats.array_leaf_decode_errors, 1);
+    }
+
+    #[test]
+    fn nested_fixture_is_not_enabled_outside_the_exact_parent_gate() {
+        let nested = one_element(&[(7, bits_from_bytes(&[2]))]);
+        for (group, checksum, branch) in [
+            (
+                "/Script/ShooterGame.Other",
+                KILL_CHECKSUM,
+                Some(MEASURED_BUILD),
+            ),
+            (KILL_GROUP, KILL_CHECKSUM + 1, Some(MEASURED_BUILD)),
+            (KILL_GROUP, KILL_CHECKSUM, None),
+        ] {
+            let (records, stats) = export_array_with_declarations(
+                (group, KILL_PARENT, checksum),
+                &[
+                    (6, "AssistingPlayers", 1_689_463_717),
+                    (7, "AssistingPlayers", 1_417_448_159),
+                ],
+                &one_leaf(6, &nested),
+                branch,
+            );
+            assert_eq!(records.fields.len(), 1, "{group}/{checksum}/{branch:?}");
+            assert_eq!(records.fields[0].field_name.as_deref(), Some(KILL_PARENT));
+            assert_eq!(stats.array.fields_emitted, 0);
+        }
     }
 
     #[test]

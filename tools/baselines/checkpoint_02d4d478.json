@@ -39,7 +39,7 @@
     "cp_exported_fields": 49314,
     "cp_frames": 18,
     "cp_frame_packets": 3691,
-    "cp_field_rows": 341704,
+    "cp_field_rows": 352089,
     "cp_actor_rows_written": 3014,
     "cp_net_guid_rows_written": 74270,
     "cp_block_rows_written": 22247,
@@ -55,9 +55,9 @@
   },
   "parquet": {
     "fields": {
-      "rows": 1296066,
-      "bytes": 16425445,
-      "sha256": "67d6e95eb2100d561a4c5070ec4c905bf48a38f8aa5b50a6d7df35f2a1712751"
+      "rows": 1296660,
+      "bytes": 16436211,
+      "sha256": "ba8bd8774289aeb35f0f21dd09b08a574ad7be6e403bedd3df53c6bddcd279ca"
     },
     "movement": {
       "rows": 1844147,
@@ -85,9 +85,9 @@
       "sha256": "8945eaca3d7e4f22c6fec2835b867f06e9023e14651d22874e1512fd11181d6d"
     },
     "checkpoint_fields": {
-      "rows": 341704,
-      "bytes": 1209470,
-      "sha256": "01617392221e963798ba94c1c7b8887993e28ad2ad7ed3365a9c0fe8317597ba"
+      "rows": 352089,
+      "bytes": 1217020,
+      "sha256": "8fbb3b494bf08820d4bf3b99cdfa0ff4509b2c3db65859c7d2acaff9a1b842a8"
     },
     "checkpoint_actors": {
       "rows": 3014,
@@ -101,8 +101,8 @@
     },
     "checkpoint_blocks": {
       "rows": 22247,
-      "bytes": 175032,
-      "sha256": "bc0a9b5e9f53e230b6c2263566057ee96a66f8cdd6f11695d4fc3cd4dabc4216"
+      "bytes": 175103,
+      "sha256": "d9ae7c2e92d469b485bfe7a42d4407f9606b22353b5cfb68deb17dda90ea9b12"
     },
     "checkpoint_guid_entries": {
       "rows": 74270,
