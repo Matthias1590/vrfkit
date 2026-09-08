@@ -880,6 +880,7 @@ semantic evidence.
 | `extract_kill_observations.py` | Exports main and checkpoint KillData element snapshots with physical parent-row identity, independently checked raw values, nullable missing members and scoped reference status. Keeps all clocks separately; updates are not deduplicated kills. See [KILL_OBSERVATIONS.md](KILL_OBSERVATIONS.md). |
 | `extract_kill_ledger.py` | Retains character-death events, projects component-local KillData state and links mutually unique same-round PlayerState identities. Preserves unmatched events and observations. See [KILL_LEDGER.md](KILL_LEDGER.md). |
 | `extract_healing_observations.py` | Retains serialized heal amounts, section state, raw source rows and separate identity corroboration. Amount sums do not establish effective HP restored or player healing credit. See [HEALING_OBSERVATIONS.md](HEALING_OBSERVATIONS.md) for validation status. |
+| `extract_section_observations.py` | Retains damage, healing, overheal-decay and reset section observations with raw parent/child checks. Distinguishes parentless records, known non-health sections and unresolved references. See [SECTION_OBSERVATIONS.md](SECTION_OBSERVATIONS.md). |
 | `kill_state.py` | Validates complete KillData bases and finisher revisions; compares checkpoint snapshots without counting them as new kills. Python module used by the ledger command. |
 | `extract_match_observations.py` | Exports evidence-labelled ammo changes, equip/reload intervals, round balances, team loadouts, defuse observations and economic state. Money decreases and transaction snapshots remain separate; temporal association is not a verified purchase ledger. |
 | `extract_ability_lifecycle.py` | Emits ability-path actor candidates with observed open/close/dormant events and explicit Owner/Instigator references. Player links are identity evidence, not proof of casts. Missing closes remain censored; no nearest-player attribution or fixed duration is used. |
@@ -895,6 +896,7 @@ python tools/extract_match_observations.py --export <export-directory> --out obs
 python tools/extract_kill_observations.py --export <export-directory> --out kill-observations.json
 python tools/extract_kill_ledger.py --export <export-directory> --out kill-ledger.json
 python tools/extract_healing_observations.py --export <export-directory> --out healing.json
+python tools/extract_section_observations.py --export <export-directory> --out sections.json
 python tools/extract_ability_lifecycle.py --export <export-directory> --out ability-lifecycle.json
 ```
 
@@ -961,7 +963,7 @@ cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D war
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 126 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 725 tests
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 744 tests
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 187 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check

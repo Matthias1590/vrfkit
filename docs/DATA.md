@@ -127,9 +127,11 @@ export` emits one row per member beside the parent blob row, named
 `<Function>.LifeChangeEvents[i].LifeResult` and so on. The figures below were
 originally taken with an ad-hoc walker that is not in the repo, so they carry
 their own provenance -- but the same joins now run against the exported
-columns, and they reproduce: on one replay `sum(DeltaLife)` equals the RPC's
-own scalar total on 3,389 of 3,389 calls and `ChangedComponent` resolves
-through `net_guids` on 6,232 of 6,232.
+columns. The historical one-replay report recorded scalar agreement on 3,389
+of 3,389 observations and resolved `ChangedComponent` references on 6,232 of
+6,232. Its original wording omitted the route-dependent sign: damage compares
+the negative delta sum, while healing and decay compare the positive sum.
+Neither count establishes independently identified gameplay calls.
 
 Two things to know before joining on them. The local handles differ per RPC --
 the same four members sit at 10-13, 1-4 or 2-5 depending on which function
@@ -142,21 +144,30 @@ It keeps serialized amounts, section state and identity corroboration separate;
 see [HEALING_OBSERVATIONS.md](HEALING_OBSERVATIONS.md) for its measured coverage
 and the distinction between serialized amounts and effective HP restored.
 
+For all five routes, use `tools/extract_section_observations.py`; see
+[SECTION_OBSERVATIONS.md](SECTION_OBSERVATIONS.md). It preserves raw evidence,
+parentless amounts, unresolved section references and separate checkpoint rows.
+The historical measurements below do not replace its current raw validation
+or establish player attribution and continuous health timelines.
+
 Verified over 69 replays on build 13.02: 377,487 elements, zero parse errors,
-zero residual bits, and every element carrying exactly four members (these RPC
-parameters never send partial elements). Corroborated against separate decode
-paths -- `sum(DeltaLife)` equals the RPC's own `DamageTaken`/`HealTaken`/
-`DecayApplied` on 230,855 of 230,855, and `bAliveAfterChange` agrees with
-`bAliveAfterDamage` on 61,045 of 61,045.
+zero residual bits, and every observed element carrying exactly four members
+in that measurement. Corroborated against separate decode
+paths -- the historical report recorded scalar agreement on 230,855 of 230,855
+and alive-flag agreement on 61,045 of 61,045. The scalar relation requires the
+damage sign correction above. It also requires an explicit accumulation rule:
+f64 accumulation rounded once and iterative f32 addition can disagree. These
+historical totals are not a fresh whole-corpus transition verification.
 
-Three conventions a consumer has to get right, each found by a check failing:
+Three observations from that historical 69-replay comparison:
 
-- **Death is `bAliveAfterChange == False`, not `LifeResult == 0`.** Deduplicated
-  per `(victim, RespawnNumber)` the first matches `events.characterDeath`
-  9,362/9,362 across all 69 replays; the second misses on two, because a
+- **The alive flag needs separate death-event corroboration.** Deduplicated
+  per `(victim, RespawnNumber)`, a false flag matched `events.characterDeath`
+  9,362/9,362 across all 69 replays; a zero-value rule missed on two, because a
   character really can sit at exactly 0 health and be alive (65 cases, all
   KAY-O). The flag is also re-reported after death, hence the RespawnNumber
-  dedup.
+  dedup. This historical join does not authorize substituting RPC
+  `RespawnNumber` for `VictimRespawnNumber`; the two differ in current data.
 - **Armour is `AttachedDamageSection`, not `ShieldDamageSection`.** The latter
   is an empty shell -- 67,316 elements, every `LifeResult` 0. The real armour
   section's outer is a `HeavyArmorItem_C` / `LightArmorItem_C` /
@@ -168,11 +179,13 @@ Three conventions a consumer has to get right, each found by a check failing:
   chain only closes if the sign is flipped. `life += DeltaLife` runs overheal
   backwards.
 
-Round starts anchor at 100: `LifeResult - DeltaLife == 100` on the first health
+The historical round-start comparison found `LifeResult - DeltaLife == 100` on the first health
 event of 10,981 of 10,996 lives. The 15 exceptions all read 200 and are all
 Phoenix -- Run It Back, not a decode fault. On the reset broadcast
 (`MulticastSectionLifeChange`) the `LifeResult` is trustworthy and the
-`DeltaLife` is not an edge delta; ignore it there.
+`DeltaLife` is not an established edge delta. Preserve both reported values,
+but do not use reset DeltaLife as an accumulated change or fill unknown starts
+with 100.
 
 ## Abilities
 
