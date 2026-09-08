@@ -6,23 +6,28 @@ use arrow_array::builder::StringDictionaryBuilder;
 use arrow_array::types::Int32Type;
 use arrow_array::{
     ArrayRef, BinaryArray, BooleanArray, Float32Array, Float64Array, Int64Array, RecordBatch,
-    StringArray, UInt32Array,
+    StringArray, UInt8Array, UInt32Array, UInt64Array,
 };
 use arrow_schema::Schema;
 
 use crate::ExportError;
-use crate::record::{CheckpointActorRecord, CheckpointFieldRecord, CheckpointNetGuidRecord};
+use crate::record::{
+    CheckpointActorRecord, CheckpointBlockRecord, CheckpointFieldRecord, CheckpointNetGuidRecord,
+};
 use crate::schema::{
-    checkpoint_actors_schema_ref, checkpoint_fields_schema_ref, checkpoint_net_guids_schema_ref,
+    checkpoint_actors_schema_ref, checkpoint_blocks_schema_ref, checkpoint_fields_schema_ref,
+    checkpoint_net_guids_schema_ref,
 };
 use crate::writer::{Table, TableWriter};
 
 pub struct CheckpointFieldsTable;
 pub struct CheckpointActorsTable;
 pub struct CheckpointNetGuidsTable;
+pub struct CheckpointBlocksTable;
 pub type CheckpointFieldWriter<W> = TableWriter<CheckpointFieldsTable, W>;
 pub type CheckpointActorWriter<W> = TableWriter<CheckpointActorsTable, W>;
 pub type CheckpointNetGuidWriter<W> = TableWriter<CheckpointNetGuidsTable, W>;
+pub type CheckpointBlockWriter<W> = TableWriter<CheckpointBlocksTable, W>;
 
 fn identity_arrays<'a>(
     identities: impl Iterator<Item = &'a crate::record::CheckpointIdentity> + Clone,
@@ -35,6 +40,85 @@ fn identity_arrays<'a>(
             identities.map(|i| i.checkpoint_id.as_ref()),
         )),
     ]
+}
+
+impl Table for CheckpointBlocksTable {
+    type Row = CheckpointBlockRecord;
+    const DEFAULT_ROW_GROUP_SIZE: usize = 131_072;
+    const DICTIONARY_COLUMNS: &'static [&'static str] = &[
+        "resolved_group_path",
+        "group_resolution_source",
+        "function_count_source",
+        "actor_archetype_path",
+        "actor_archetype_outer_path",
+        "actor_guid_path",
+        "class_guid_path",
+        "object_guid_path",
+        "object_outer_path",
+    ];
+    fn schema() -> Arc<Schema> {
+        checkpoint_blocks_schema_ref()
+    }
+    fn build_batch(rows: &[Self::Row]) -> Result<RecordBatch, ExportError> {
+        let mut c = identity_arrays(rows.iter().map(|r| &r.checkpoint)).to_vec();
+        macro_rules! values {
+            ($ty:ty, $field:ident) => {
+                Arc::new(<$ty>::from_iter_values(rows.iter().map(|r| r.$field))) as ArrayRef
+            };
+        }
+        macro_rules! optional {
+            ($ty:ty, $field:ident) => {
+                Arc::new(<$ty>::from_iter(rows.iter().map(|r| r.$field))) as ArrayRef
+            };
+        }
+        macro_rules! booleans {
+            ($field:ident) => {
+                Arc::new(BooleanArray::from_iter(rows.iter().map(|r| Some(r.$field)))) as ArrayRef
+            };
+        }
+        c.extend([
+            values!(UInt32Array, block_index),
+            values!(UInt32Array, time_ms),
+            values!(UInt32Array, packet_id),
+            values!(UInt32Array, channel_index),
+            values!(UInt32Array, actor_net_guid),
+            optional!(UInt32Array, object_net_guid),
+            optional!(UInt32Array, class_net_guid),
+            optional!(UInt32Array, outer_net_guid),
+            booleans!(has_rep_layout),
+            booleans!(is_actor),
+            booleans!(is_deleted),
+            booleans!(is_stably_named),
+            values!(UInt8Array, delete_flags),
+        ]);
+        c.push(Arc::new(StringArray::from_iter_values(
+            rows.iter().map(|r| r.resolved_group_path.as_ref()),
+        )));
+        c.push(Arc::new(StringArray::from_iter_values(
+            rows.iter().map(|r| r.group_resolution_source),
+        )));
+        c.push(booleans!(group_declared));
+        c.push(booleans!(resolution_memo_hit));
+        c.push(values!(UInt32Array, function_count));
+        c.push(Arc::new(StringArray::from_iter_values(
+            rows.iter().map(|r| r.function_count_source),
+        )));
+        for select in 0..6 {
+            c.push(Arc::new(StringArray::from_iter(rows.iter().map(
+                |r| match select {
+                    0 => r.actor_archetype_path.as_deref(),
+                    1 => r.actor_archetype_outer_path.as_deref(),
+                    2 => r.actor_guid_path.as_deref(),
+                    3 => r.class_guid_path.as_deref(),
+                    4 => r.object_guid_path.as_deref(),
+                    _ => r.object_outer_path.as_deref(),
+                },
+            ))));
+        }
+        c.push(values!(UInt64Array, field_row_start));
+        c.push(values!(UInt32Array, field_row_count));
+        RecordBatch::try_new(Self::schema(), c).map_err(|e| ExportError::Parquet(e.into()))
+    }
 }
 
 impl Table for CheckpointFieldsTable {
@@ -350,6 +434,66 @@ mod tests {
                 .unwrap()
                 .values(),
             &[9, 9]
+        );
+
+        let [a, b] = identities();
+        let block = |checkpoint| CheckpointBlockRecord {
+            checkpoint,
+            block_index: 0,
+            time_ms: 7,
+            packet_id: 0,
+            channel_index: 2,
+            actor_net_guid: 9,
+            object_net_guid: Some(0),
+            class_net_guid: Some(0),
+            outer_net_guid: Some(9),
+            has_rep_layout: true,
+            is_actor: false,
+            is_deleted: false,
+            is_stably_named: false,
+            delete_flags: 0,
+            resolved_group_path: Arc::from("group"),
+            group_resolution_source: "replay_declared_group",
+            group_declared: true,
+            resolution_memo_hit: false,
+            function_count: 0,
+            function_count_source: "rep_layout_not_applicable",
+            actor_archetype_path: None,
+            actor_archetype_outer_path: None,
+            actor_guid_path: None,
+            class_guid_path: None,
+            object_guid_path: Some("object".into()),
+            object_outer_path: None,
+            field_row_start: 12,
+            field_row_count: 2,
+        };
+        let blocks = CheckpointBlocksTable::build_batch(&[block(a), block(b)]).unwrap();
+        assert_eq!(
+            blocks
+                .column(0)
+                .as_any()
+                .downcast_ref::<UInt32Array>()
+                .unwrap()
+                .values(),
+            &[3, 4]
+        );
+        assert_eq!(
+            blocks
+                .column(8)
+                .as_any()
+                .downcast_ref::<UInt32Array>()
+                .unwrap()
+                .values(),
+            &[0, 0]
+        );
+        assert_eq!(
+            blocks
+                .column(27)
+                .as_any()
+                .downcast_ref::<UInt64Array>()
+                .unwrap()
+                .values(),
+            &[12, 12]
         );
     }
 }

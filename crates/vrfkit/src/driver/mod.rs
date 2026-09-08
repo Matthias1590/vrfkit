@@ -34,9 +34,9 @@ use vrf_container::{
 use vrf_container::{EventPayload, parse_event_payload};
 use vrf_decode::OverlayErrorReport;
 use vrf_export::{
-    ActorWriter, CheckpointActorWriter, CheckpointFieldWriter, CheckpointNetGuidWriter,
-    EventRecord, EventWriter, FieldRecord, FieldWriter, MovementRecord, MovementWriter,
-    NetGuidRecord, NetGuidWriter,
+    ActorWriter, CheckpointActorWriter, CheckpointBlockWriter, CheckpointFieldWriter,
+    CheckpointNetGuidWriter, EventRecord, EventWriter, FieldRecord, FieldWriter, MovementRecord,
+    MovementWriter, NetGuidRecord, NetGuidWriter,
 };
 use vrf_frame::iter_demo_frames;
 use vrf_net::pipeline::ReplicationReader;
@@ -121,6 +121,7 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
             fields: CheckpointFieldWriter::new(create("checkpoint_fields.parquet")?)?,
             actors: CheckpointActorWriter::new(create("checkpoint_actors.parquet")?)?,
             net_guids: CheckpointNetGuidWriter::new(create("checkpoint_net_guids.parquet")?)?,
+            blocks: CheckpointBlockWriter::new(create("checkpoint_blocks.parquet")?)?,
         })
     } else {
         None
@@ -281,6 +282,7 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
             // drained. The buffers outlive the sink; that is the point.
             {
                 let mut sink = ExportSink::new(packet_cache, &mut channel_state, &mut buffers);
+                sink.enable_measured_array_routes(ctx.branch);
                 sink.time_ms = pkt.time_ms;
                 sink.packet_id = pkt_id;
 
@@ -337,6 +339,7 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
     // EOF can turn still-active reassemblies into preservation rows.
     {
         let mut sink = ExportSink::new(&mut cache, &mut channel_state, &mut buffers);
+        sink.enable_measured_array_routes(ctx.branch);
         repl_reader.finish_with_sink(&mut sink);
     }
     for mut record in buffers.partials.drain(..) {

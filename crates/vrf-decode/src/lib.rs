@@ -120,6 +120,7 @@ pub use array::{
     COMBAT_ROUNDS_SCHEMA, FlattenedField, LIFE_CHANGE_BY_SECTION_SCHEMA, LIFE_CHANGE_DAMAGE_SCHEMA,
     LIFE_CHANGE_SECTION_SCHEMA, MAX_ELEMENTS, MAX_FIELDS_PER_ELEMENT, MAX_RECURSION_DEPTH,
     decode_object_ref_array, decode_object_ref_array_with_stats, decode_struct_array,
+    decode_struct_array_exact,
 };
 #[cfg(feature = "overlay")]
 pub use checksum_table::CHECKSUM_TYPES;

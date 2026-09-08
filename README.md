@@ -18,7 +18,7 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Current state:** `cargo +1.86.0 test --workspace --locked` **634 passing**,
+**Current state:** `cargo +1.86.0 test --workspace --locked` **645 passing**,
 `tools/tests` **655 passing** -- see [Status](#status) for the rest.
 
 - Run it: [`docs/USAGE.md`](docs/USAGE.md)
@@ -94,7 +94,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **634 tests** plus a layered validation suite (framing / bytes / decode
+- **645 tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -143,20 +143,21 @@ A binary built without `export` **refuses the subcommand rather than failing
 silently** -- a subcommand that printed nothing and exited 0 would be
 indistinguishable from one that wrote the files.
 
-On `02d4d478` (48,215,213 bytes, build 13.01), `export` takes ~0.79 s and
-produces ten files when checkpoints are included:
+On `02d4d478` (48,215,213 bytes, build 13.01), `export` produces eleven
+files when checkpoints are included:
 
 | File | Rows | Bytes |
 |---|---|---|
-| `fields.parquet` | 1,278,050 | 16,267,043 |
+| `fields.parquet` | 1,282,647 | 16,312,456 |
 | `movement.parquet` | 1,844,147 | 31,886,449 |
 | `actors.parquet` | 3,827 | 87,281 |
 | `net_guids.parquet` | 16,167 | 153,606 |
 | `events.parquet` | 195 | 13,411 |
 | `partials.parquet` | 0 | 2,505 |
-| `checkpoint_fields.parquet` | 245,211 | 860,659 |
+| `checkpoint_fields.parquet` | 250,503 | 858,087 |
 | `checkpoint_actors.parquet` | 3,014 | 27,118 |
 | `checkpoint_net_guids.parquet` | 74,270 | 307,362 |
+| `checkpoint_blocks.parquet` | 22,247 | 182,371 |
 | `manifest.json` |  | ~660,030 |
 
 `checkpoint_fields.parquet` requires `--checkpoints`. The partials row above
@@ -274,7 +275,9 @@ in `raw_payload`, so a future layout change is preserved losslessly.
 
 The field columns are preceded by `checkpoint_index` and `checkpoint_id`.
 Separate `checkpoint_actors.parquet` and `checkpoint_net_guids.parquet` preserve
-the snapshot's actor and GUID context with the same identity columns. Join
+the snapshot's actor and GUID context with the same identity columns.
+`checkpoint_blocks.parquet` links each content block to its field rows and
+preserves class GUIDs and the path used to resolve the group name. Join
 within that checkpoint: its packet, channel and GUID state is independent of
 the main stream. A snapshot actor open is not a new timeline spawn.
 
@@ -318,7 +321,7 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**634 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
+**645 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
 and `check_ascii` on 125 files. The Python suite in `tools/tests` has 655 tests.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
@@ -667,8 +670,13 @@ Physical value coverage is the fraction of `fields.parquet` rows with at
 least one non-null `value_*` column. It cannot be computed by adding overlay,
 effect-blob or struct counters: these count different units and may describe
 parent/child expansions of the same input. The current reference baseline has
-895,896 typed rows out of 1,278,050 (70.10%), measured directly from its columns.
+897,209 typed rows out of 1,282,647 (69.95%), measured directly from its columns.
+Adding raw child windows changes this denominator even when every old typed
+value survives; compare raw preservation and newly typed values separately.
 That snapshot is not a fraction of all game information understood.
+
+The latest [array and checkpoint expansion](docs/ARRAY_CONTEXT_EXPANSION.md)
+adds 8,270,302 raw child windows and 3,943,026 typed values across 714 replays.
 
 The earlier [714-replay schema expansion](docs/SCHEMA_EXPANSION.md) independently
 verified 6,805,323 additional typed values, with physical coverage of 69.98%

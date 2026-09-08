@@ -221,6 +221,42 @@ pub struct CheckpointNetGuidRecord {
     pub net_guid: NetGuidRecord,
 }
 
+/// One checkpoint content block and the field rows emitted while walking it.
+#[derive(Debug, Clone)]
+pub struct CheckpointBlockRecord {
+    pub checkpoint: CheckpointIdentity,
+    pub block_index: u32,
+    pub time_ms: u32,
+    pub packet_id: u32,
+    pub channel_index: u32,
+    pub actor_net_guid: u32,
+    pub object_net_guid: Option<u32>,
+    pub class_net_guid: Option<u32>,
+    /// Effective outer from the parsed header. Present for every recognized
+    /// block; `Some(0)` preserves the invalid-GUID sentinel. The nullable type
+    /// leaves room for a future header form that carries no effective outer.
+    pub outer_net_guid: Option<u32>,
+    pub has_rep_layout: bool,
+    pub is_actor: bool,
+    pub is_deleted: bool,
+    pub is_stably_named: bool,
+    pub delete_flags: u8,
+    pub resolved_group_path: Arc<str>,
+    pub group_resolution_source: &'static str,
+    pub group_declared: bool,
+    pub resolution_memo_hit: bool,
+    pub function_count: u32,
+    pub function_count_source: &'static str,
+    pub actor_archetype_path: Option<String>,
+    pub actor_archetype_outer_path: Option<String>,
+    pub actor_guid_path: Option<String>,
+    pub class_guid_path: Option<String>,
+    pub object_guid_path: Option<String>,
+    pub object_outer_path: Option<String>,
+    pub field_row_start: u64,
+    pub field_row_count: u32,
+}
+
 /// A single Event chunk ready for export.
 #[derive(Debug, Clone)]
 pub struct EventRecord {

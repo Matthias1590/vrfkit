@@ -24,6 +24,69 @@ use super::{ExportSink, FieldValues, TABLE};
 /// rather than a union.
 type DecodedColumns = (Option<i64>, Option<f64>, Option<bool>, Option<String>);
 
+/// New structural-array routes may type only leaf windows independently
+/// validated across the corpus. Everything else remains an exact raw child.
+fn verified_array_leaf_type(
+    parent: &str,
+    checksum: Option<u32>,
+    handle: u32,
+    resolved: Option<FieldType>,
+    declared_name: Option<&str>,
+) -> Option<FieldType> {
+    let wanted = match (parent, checksum, handle) {
+        ("AllPlayersObfuscatedPlayerInformation", Some(1_349_268_968), 49) => FieldType::Bool,
+        ("AllPlayersObfuscatedPlayerInformation", Some(1_349_268_968), 50) => FieldType::EnumByte,
+        ("ServerActiveEffects", Some(3_301_618_856), 5 | 6) => FieldType::Bool,
+        ("ServerActiveEffects", Some(3_301_618_856), 7 | 8) => FieldType::ObjectNetGuid,
+        ("ServerActiveEffects", Some(3_301_618_856), 30 | 31) => FieldType::VectorDouble,
+        ("ServerActiveEffects", Some(3_301_618_856), 33) => FieldType::Float,
+        ("ServerActiveEffects", Some(3_301_618_856), 34) => FieldType::EnumByte,
+        _ => return None,
+    };
+    // These two members have no top-level property overlay. Their exact
+    // 192-bit windows were independently decoded across all measured builds;
+    // keep this typing scoped to the qualified parent array and declared leaf.
+    let measured_vector = parent == "ServerActiveEffects"
+        && checksum == Some(3_301_618_856)
+        && matches!(
+            (handle, declared_name),
+            (30, Some("Translation")) | (31, Some("Scale3D"))
+        );
+    (resolved == Some(wanted) || (resolved.is_none() && measured_vector)).then_some(wanted)
+}
+
+fn measured_array_route(group: &str, parent: &str, checksum: Option<u32>) -> bool {
+    matches!(
+        (group, parent, checksum),
+        (
+            "/Script/ShooterGame.OwnerExclusivePlayerInfo",
+            "AllPlayersObfuscatedPlayerInformation",
+            Some(1_349_268_968)
+        ) | (
+            "/Script/ShooterGame.EffectManagerComponent",
+            "ServerActiveEffects",
+            Some(3_301_618_856)
+        ) | (
+            "/Script/ShooterGame.FiniteSpeedMovementComponent",
+            "RequestedIgnoreActors",
+            Some(1_063_739_204)
+        )
+    )
+}
+
+fn merge_array_stats(
+    target: &mut vrf_decode::ArrayDecodeStats,
+    source: &vrf_decode::ArrayDecodeStats,
+) {
+    target.elements_decoded += source.elements_decoded;
+    target.fields_emitted += source.fields_emitted;
+    target.truncations += source.truncations;
+    target.errors += source.errors;
+    target.unconsumed_nested_bits += source.unconsumed_nested_bits;
+    target.unconsumed_root_bits += source.unconsumed_root_bits;
+    target.implicit_terminations += source.implicit_terminations;
+}
+
 /// The struct-blob fields that have a dedicated decoder in `vrf-decode`.
 #[derive(Clone, Copy)]
 enum StructBlob {
@@ -62,16 +125,35 @@ impl ExportSink<'_> {
     }
 
     /// Check if a field name is a known DynamicArray that should be flattened.
-    pub(super) fn is_known_array_field(&self, field_name: Option<&str>) -> bool {
-        match field_name {
-            Some("Rounds") => self.current_group_path.contains("CombatReportComponent"),
+    pub(super) fn is_known_array_field(
+        &self,
+        field_name: Option<&str>,
+        checksum: Option<u32>,
+    ) -> bool {
+        match (field_name, checksum) {
+            (Some("Rounds"), _) => self.current_group_path.contains("CombatReportComponent"),
             // A RepLayout dynamic array of ability-cast structs. Each element
             // carries a GUID FString (handle 3), ints, floats and vectors;
             // `decode_struct_array` walks it with no hardcoded schema, naming
             // leaves from the replay's own declarations or `_h{N}`.
-            Some("AbilityCastsThisRound") => self
+            (Some("AbilityCastsThisRound"), _) => self
                 .current_group_path
                 .contains("AbilityStatisticsReplicator"),
+            (Some("AllPlayersObfuscatedPlayerInformation"), Some(1_349_268_968)) => {
+                self.measured_array_routes
+                    && self.current_group_path.as_ref()
+                        == "/Script/ShooterGame.OwnerExclusivePlayerInfo"
+            }
+            (Some("ServerActiveEffects"), Some(3_301_618_856)) => {
+                self.measured_array_routes
+                    && self.current_group_path.as_ref()
+                        == "/Script/ShooterGame.EffectManagerComponent"
+            }
+            (Some("RequestedIgnoreActors"), Some(1_063_739_204)) => {
+                self.measured_array_routes
+                    && self.current_group_path.as_ref()
+                        == "/Script/ShooterGame.FiniteSpeedMovementComponent"
+            }
             _ => false,
         }
     }
@@ -105,19 +187,38 @@ impl ExportSink<'_> {
     pub(super) fn emit_flattened_array(
         &mut self,
         field_name: Option<&str>,
+        checksum: Option<u32>,
         raw: &[u8],
         bit_count: u32,
     ) {
         let schema = self.get_array_schema(field_name);
         let declared = Self::declared_handle_names(self.cache, &self.current_group_path);
-        let flattened = vrf_decode::decode_struct_array(
-            raw,
-            bit_count,
-            schema,
-            &declared,
-            &mut self.stats.array,
-        );
         let parent_name = field_name.unwrap_or("_array");
+        let measured = self.measured_array_routes
+            && measured_array_route(&self.current_group_path, parent_name, checksum);
+        let mut isolated = vrf_decode::ArrayDecodeStats::default();
+        let flattened = if measured {
+            vrf_decode::decode_struct_array_exact(raw, bit_count, &declared, &mut isolated)
+        } else {
+            vrf_decode::decode_struct_array(
+                raw,
+                bit_count,
+                schema,
+                &declared,
+                &mut self.stats.array,
+            )
+        };
+        if measured {
+            let complete = isolated.truncations == 0
+                && isolated.errors == 0
+                && isolated.implicit_terminations == 0
+                && isolated.unconsumed_nested_bits == 0
+                && isolated.unconsumed_root_bits == 0;
+            merge_array_stats(&mut self.stats.array, &isolated);
+            if !complete {
+                return;
+            }
+        }
 
         // Resolve every leaf's type before touching `self.records`.
         //
@@ -146,13 +247,18 @@ impl ExportSink<'_> {
                 // leaf was getting only the first, so the same property could
                 // be typed outside an array and untyped inside one.
                 let name = declared.get(f.handle as usize).copied().flatten();
-                vrf_decode::resolve_field_type(
+                let resolved = vrf_decode::resolve_field_type(
                     &TABLE,
                     &self.current_group_path,
                     name,
                     Some(f.handle),
                 )
-                .filter(|ft| !matches!(ft, FieldType::Raw | FieldType::Skip))
+                .filter(|ft| !matches!(ft, FieldType::Raw | FieldType::Skip));
+                if measured {
+                    verified_array_leaf_type(parent_name, checksum, f.handle, resolved, name)
+                } else {
+                    resolved
+                }
             })
             .collect();
 
@@ -538,6 +644,330 @@ fn decode_array_leaf(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::sink::{ChannelState, ExportStats, RecordBuffers};
+    use std::sync::Arc;
+    use vrf_net::field::FieldSink;
+
+    const OWNER: &str = "/Script/ShooterGame.OwnerExclusivePlayerInfo";
+    const OWNER_PARENT: &str = "AllPlayersObfuscatedPlayerInformation";
+    const OWNER_CHECKSUM: u32 = 1_349_268_968;
+    const MEASURED_BUILD: &str = "++Ares-Core+release-13.05";
+
+    fn packed(bits: &mut Vec<bool>, mut value: u32) {
+        loop {
+            let byte = ((value & 127) << 1) | u32::from(value > 127);
+            bits.extend((0..8).map(|bit| byte & (1 << bit) != 0));
+            value >>= 7;
+            if value == 0 {
+                break;
+            }
+        }
+    }
+
+    fn bytes(bits: &[bool]) -> Vec<u8> {
+        let mut raw = vec![0; bits.len().div_ceil(8)];
+        for (index, bit) in bits.iter().enumerate() {
+            raw[index / 8] |= u8::from(*bit) << (index % 8);
+        }
+        raw
+    }
+
+    fn one_leaf(handle: u32, payload: &[bool]) -> Vec<bool> {
+        let mut bits = Vec::new();
+        for value in [1, 1, handle + 1, payload.len() as u32] {
+            packed(&mut bits, value);
+        }
+        bits.extend_from_slice(payload);
+        packed(&mut bits, 0);
+        packed(&mut bits, 0);
+        bits
+    }
+
+    fn export_array(
+        identity: (&str, &str, u32),
+        leaf: (u32, &str),
+        bits: &[bool],
+        branch: Option<&str>,
+    ) -> (RecordBuffers, ExportStats) {
+        let (group, parent, checksum) = identity;
+        let mut cache = NetGuidCache::new();
+        cache
+            .add_export_group(vrf_schema::NetFieldExportGroup::new(group.into(), 7, 128))
+            .unwrap();
+        for (handle, name, compatible_checksum) in [(0, parent, checksum), (leaf.0, leaf.1, 0)] {
+            assert!(cache.set_field_on_group(
+                7,
+                vrf_schema::NetFieldExport {
+                    handle,
+                    compatible_checksum,
+                    name: name.into(),
+                }
+            ));
+        }
+        let mut channel_state = ChannelState::new();
+        let mut records = RecordBuffers::default();
+        let mut sink = ExportSink::new(&mut cache, &mut channel_state, &mut records);
+        sink.set_current_group_path(Arc::from(group));
+        if let Some(branch) = branch {
+            sink.enable_measured_array_routes(branch);
+        }
+        let raw = bytes(bits);
+        sink.on_field(
+            0,
+            bits.len() as u32,
+            BitReader::with_bit_len(&raw, bits.len() as u64).unwrap(),
+        );
+        let stats = sink.stats;
+        (records, stats)
+    }
+
+    #[test]
+    fn measured_array_emits_typed_child_before_exact_raw_parent() {
+        let bits = one_leaf(49, &[true]);
+        let (records, stats) = export_array(
+            (OWNER, OWNER_PARENT, OWNER_CHECKSUM),
+            (49, "bIsAfk"),
+            &bits,
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields.len(), 2);
+        let child = &records.fields[0];
+        assert_eq!(
+            child.field_name.as_deref(),
+            Some("AllPlayersObfuscatedPlayerInformation[0].bIsAfk")
+        );
+        assert_eq!(child.value_bool, Some(true));
+        assert_eq!(child.raw_bits.as_deref(), Some([1u8].as_slice()));
+        assert_eq!(child.bit_count, 1);
+        assert_eq!(child.compatible_checksum, None);
+        let parent = &records.fields[1];
+        assert_eq!(parent.field_name.as_deref(), Some(OWNER_PARENT));
+        assert_eq!(parent.raw_bits.as_deref(), Some(bytes(&bits).as_slice()));
+        assert_eq!(parent.bit_count, bits.len() as u32);
+        assert_eq!(stats.array.fields_emitted, 1);
+        assert_eq!(stats.fields_emitted, 2);
+    }
+
+    #[test]
+    fn measured_array_rejects_unmeasured_build_and_wrong_identity() {
+        let bits = one_leaf(49, &[true]);
+        for (group, name, checksum, branch) in [
+            (OWNER, OWNER_PARENT, OWNER_CHECKSUM, None),
+            (
+                OWNER,
+                OWNER_PARENT,
+                OWNER_CHECKSUM,
+                Some("++Ares-Core+release-13.06"),
+            ),
+            (
+                OWNER,
+                OWNER_PARENT,
+                OWNER_CHECKSUM + 1,
+                Some(MEASURED_BUILD),
+            ),
+            (
+                "/Script/ShooterGame.Other",
+                OWNER_PARENT,
+                OWNER_CHECKSUM,
+                Some(MEASURED_BUILD),
+            ),
+            (
+                OWNER,
+                "DifferentArray",
+                OWNER_CHECKSUM,
+                Some(MEASURED_BUILD),
+            ),
+        ] {
+            let (records, stats) =
+                export_array((group, name, checksum), (49, "bIsAfk"), &bits, branch);
+            assert_eq!(
+                records.fields.len(),
+                1,
+                "{group}/{name}/{checksum}/{branch:?}"
+            );
+            assert_eq!(
+                records.fields[0].raw_bits.as_deref(),
+                Some(bytes(&bits).as_slice())
+            );
+            assert_eq!(stats.array.fields_emitted, 0);
+        }
+    }
+
+    #[test]
+    fn measured_array_rejects_suffix_and_missing_terminator_transactionally() {
+        let valid = one_leaf(49, &[true]);
+        let mut suffix = valid.clone();
+        suffix.extend([false; 8]);
+        let truncated = valid[..valid.len() - 8].to_vec();
+        for bits in [suffix, truncated] {
+            let (records, stats) = export_array(
+                (OWNER, OWNER_PARENT, OWNER_CHECKSUM),
+                (49, "bIsAfk"),
+                &bits,
+                Some(MEASURED_BUILD),
+            );
+            assert_eq!(records.fields.len(), 1, "no partially accepted children");
+            assert_eq!(
+                records.fields[0].raw_bits.as_deref(),
+                Some(bytes(&bits).as_slice())
+            );
+            assert!(
+                stats.array.unconsumed_root_bits > 0
+                    || stats.array.implicit_terminations > 0
+                    || stats.array.errors > 0
+            );
+        }
+    }
+
+    #[test]
+    fn measured_array_unknown_leaf_stays_raw() {
+        let bits = one_leaf(48, &[true, false, true]);
+        let (records, _) = export_array(
+            (OWNER, OWNER_PARENT, OWNER_CHECKSUM),
+            (48, "SubjectUniqueId"),
+            &bits,
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields.len(), 2);
+        let child = &records.fields[0];
+        assert_eq!(child.raw_bits.as_deref(), Some([5u8].as_slice()));
+        assert_eq!(
+            (
+                child.value_i64,
+                child.value_f64,
+                child.value_bool,
+                child.value_str.as_deref()
+            ),
+            (None, None, None, None)
+        );
+    }
+
+    #[test]
+    fn measured_effect_and_ignore_routes_emit_expected_leaf_values() {
+        let payload: Vec<bool> = (0..32)
+            .map(|bit| (-0.0f32).to_bits() & (1 << bit) != 0)
+            .collect();
+        let bits = one_leaf(33, &payload);
+        let (records, _) = export_array(
+            (
+                "/Script/ShooterGame.EffectManagerComponent",
+                "ServerActiveEffects",
+                3_301_618_856,
+            ),
+            (33, "StartTimeStamp"),
+            &bits,
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields.len(), 2);
+        assert_eq!(
+            records.fields[0].value_f64.unwrap().to_bits(),
+            (-0.0f64).to_bits()
+        );
+
+        let mut payload = Vec::new();
+        packed(&mut payload, 700);
+        let bits = one_leaf(5, &payload);
+        let (records, _) = export_array(
+            (
+                "/Script/ShooterGame.FiniteSpeedMovementComponent",
+                "RequestedIgnoreActors",
+                1_063_739_204,
+            ),
+            (5, "IgnoredActor"),
+            &bits,
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields.len(), 2);
+        let child = &records.fields[0];
+        assert_eq!(child.raw_bits.as_deref(), Some(bytes(&payload).as_slice()));
+        assert_eq!(
+            (
+                child.value_i64,
+                child.value_f64,
+                child.value_bool,
+                child.value_str.as_deref()
+            ),
+            (None, None, None, None)
+        );
+    }
+
+    #[test]
+    fn existing_ability_array_keeps_its_float_type_without_measured_route() {
+        let payload: Vec<bool> = (0..32)
+            .map(|bit| 12.5f32.to_bits() & (1 << bit) != 0)
+            .collect();
+        let bits = one_leaf(7, &payload);
+        let (records, _) = export_array(
+            (
+                "/Game/Characters/_Core/Comp_AbilityStatisticsReplicator.Comp_AbilityStatisticsReplicator_C",
+                "AbilityCastsThisRound",
+                0,
+            ),
+            (7, "CastTime_4_5AE288704801A9B74D6D159DFC2BD147"),
+            &bits,
+            None,
+        );
+        assert_eq!(records.fields.len(), 2);
+        assert_eq!(records.fields[0].value_f64, Some(12.5));
+        assert_eq!(
+            records.fields[0].field_name.as_deref(),
+            Some("AbilityCastsThisRound[0].CastTime_4_5AE288704801A9B74D6D159DFC2BD147")
+        );
+    }
+
+    #[test]
+    fn measured_routes_require_the_full_qualified_identity() {
+        assert!(measured_array_route(
+            "/Script/ShooterGame.FiniteSpeedMovementComponent",
+            "RequestedIgnoreActors",
+            Some(1_063_739_204)
+        ));
+        assert!(!measured_array_route(
+            "/Script/ShooterGame.FiniteSpeedMovementComponent",
+            "RequestedIgnoreActors",
+            Some(1)
+        ));
+        assert!(!measured_array_route(
+            "/Script/ShooterGame.Other",
+            "RequestedIgnoreActors",
+            Some(1_063_739_204)
+        ));
+    }
+
+    #[test]
+    fn new_routes_type_only_the_verified_leaf_windows() {
+        assert_eq!(
+            verified_array_leaf_type(
+                "ServerActiveEffects",
+                Some(3_301_618_856),
+                33,
+                Some(FieldType::Float),
+                None
+            ),
+            Some(FieldType::Float)
+        );
+        assert_eq!(
+            verified_array_leaf_type(
+                "RequestedIgnoreActors",
+                Some(1_063_739_204),
+                5,
+                Some(FieldType::ObjectNetGuid),
+                None
+            ),
+            None,
+            "packed wire integers remain raw without an identity claim"
+        );
+        assert_eq!(
+            verified_array_leaf_type(
+                "ServerActiveEffects",
+                Some(3_301_618_856),
+                33,
+                Some(FieldType::Double),
+                None
+            ),
+            None
+        );
+    }
 
     #[test]
     fn a_typed_array_leaf_failure_is_counted_while_its_raw_input_survives() {
@@ -549,5 +979,41 @@ mod tests {
         assert_eq!(decoded, (None, None, None, None));
         assert_eq!(failures, 1);
         assert_eq!(raw, [0x7a]);
+    }
+
+    #[test]
+    fn measured_effect_vectors_are_typed_without_a_top_level_overlay() {
+        let payload: Vec<bool> = [1.25f64, -0.0, -2.5]
+            .iter()
+            .flat_map(|value| (0..64).map(move |bit| value.to_bits() & (1 << bit) != 0))
+            .collect();
+        for (handle, name) in [(30, "Translation"), (31, "Scale3D")] {
+            let bits = one_leaf(handle, &payload);
+            let (records, _) = export_array(
+                (
+                    "/Script/ShooterGame.EffectManagerComponent",
+                    "ServerActiveEffects",
+                    3_301_618_856,
+                ),
+                (handle, name),
+                &bits,
+                Some(MEASURED_BUILD),
+            );
+            assert_eq!(records.fields.len(), 2);
+            assert_eq!(
+                records.fields[0].value_str.as_deref(),
+                Some("(1.25,-0,-2.5)")
+            );
+        }
+        assert_eq!(
+            verified_array_leaf_type(
+                "ServerActiveEffects",
+                Some(3_301_618_856),
+                30,
+                None,
+                Some("DifferentMember")
+            ),
+            None
+        );
     }
 }

@@ -286,6 +286,7 @@ fn print_checkpoints(cp: &CheckpointStats) {
     eprintln!("  Checkpoint rows:  {}", cp.field_rows);
     eprintln!("  Checkpoint actors:{} rows", cp.actor_rows_written);
     eprintln!("  Checkpoint GUID rows: {}", cp.net_guid_rows_written);
+    eprintln!("  Checkpoint blocks:{} rows", cp.block_rows_written);
     eprintln!(
         "  Checkpoint net:   {} bunches / {} blocks / {} fields / {} RPCs",
         cp.net.bunches, cp.net.content_blocks, cp.net.fields, cp.net.rpcs
@@ -423,10 +424,11 @@ fn print_checkpoints(cp: &CheckpointStats) {
 }
 
 /// Tables written only when `--checkpoints` is given.
-const CHECKPOINT_TABLES: [&str; 3] = [
+const CHECKPOINT_TABLES: [&str; 4] = [
     "checkpoint_fields.parquet",
     "checkpoint_actors.parquet",
     "checkpoint_net_guids.parquet",
+    "checkpoint_blocks.parquet",
 ];
 
 /// A warning line when this run drops a checkpoint table an earlier run at

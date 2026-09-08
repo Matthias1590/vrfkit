@@ -16,9 +16,9 @@ use std::io::Write;
 use vrf_container::{decompress_checkpoint, parse_checkpoint_chunk};
 use vrf_decode::OverlayErrorReport;
 use vrf_export::{
-    CheckpointActorRecord, CheckpointActorWriter, CheckpointFieldRecord, CheckpointFieldWriter,
-    CheckpointIdentity, CheckpointNetGuidRecord, CheckpointNetGuidWriter, NetGuidRecord,
-    PartialWriter,
+    CheckpointActorRecord, CheckpointActorWriter, CheckpointBlockWriter, CheckpointFieldRecord,
+    CheckpointFieldWriter, CheckpointIdentity, CheckpointNetGuidRecord, CheckpointNetGuidWriter,
+    NetGuidRecord, PartialWriter,
 };
 use vrf_frame::iter_demo_frames;
 use vrf_net::pipeline::ReplicationReader;
@@ -51,6 +51,7 @@ pub(crate) struct CheckpointStats {
     pub field_rows: u64,
     pub actor_rows_written: u64,
     pub net_guid_rows_written: u64,
+    pub block_rows_written: u64,
     pub partial_rows: u64,
     pub partial_bits: u64,
     /// Actor rows are written to their checkpoint-scoped table. This retained
@@ -81,6 +82,7 @@ pub(super) struct CheckpointWriters<W: Write + Send> {
     pub fields: CheckpointFieldWriter<W>,
     pub actors: CheckpointActorWriter<W>,
     pub net_guids: CheckpointNetGuidWriter<W>,
+    pub blocks: CheckpointBlockWriter<W>,
 }
 
 impl<W: Write + Send> CheckpointWriters<W> {
@@ -88,6 +90,7 @@ impl<W: Write + Send> CheckpointWriters<W> {
         self.fields.finish()?;
         self.actors.finish()?;
         self.net_guids.finish()?;
+        self.blocks.finish()?;
         Ok(())
     }
 }
@@ -134,6 +137,7 @@ pub(super) fn process_chunk<W: Write + Send, P: Write + Send>(
     let mut channels = ChannelState::new();
     let mut buffers = RecordBuffers::default();
     let mut packet_count = 0u64;
+    let mut block_count = 0u32;
     let mut packet_error = None;
     let (_, frame_count) = iter_demo_frames(frame, ctx.flags, &mut cache, |pkt, packet_cache| {
         if packet_error.is_some() {
@@ -141,6 +145,8 @@ pub(super) fn process_chunk<W: Write + Send, P: Write + Send>(
         }
         {
             let mut sink = ExportSink::new(packet_cache, &mut channels, &mut buffers);
+            sink.enable_measured_array_routes(ctx.branch);
+            sink.enable_checkpoint_block_context(checkpoint.clone(), stats.field_rows, block_count);
             sink.time_ms = pkt.time_ms;
             sink.packet_id = packet_count as u32;
             reader.process_packet(pkt.data, packet_count as i32, &mut sink);
@@ -149,6 +155,12 @@ pub(super) fn process_chunk<W: Write + Send, P: Write + Send>(
             stats.sink.absorb(&mut sink.stats, error_report);
         }
         let result = (|| -> Result<(), CliError> {
+            let packet_blocks = buffers.checkpoint_blocks.len() as u32;
+            stats.block_rows_written += u64::from(packet_blocks);
+            writers
+                .blocks
+                .push_batch(buffers.checkpoint_blocks.drain(..))?;
+            block_count += packet_blocks;
             stats.field_rows += buffers.fields.len() as u64;
             writers
                 .fields
@@ -184,8 +196,14 @@ pub(super) fn process_chunk<W: Write + Send, P: Write + Send>(
     }
     {
         let mut sink = ExportSink::new(&mut cache, &mut channels, &mut buffers);
+        sink.enable_measured_array_routes(ctx.branch);
+        sink.enable_checkpoint_block_context(checkpoint.clone(), stats.field_rows, block_count);
         reader.finish_with_sink(&mut sink);
     }
+    stats.block_rows_written += buffers.checkpoint_blocks.len() as u64;
+    writers
+        .blocks
+        .push_batch(buffers.checkpoint_blocks.drain(..))?;
     for mut record in buffers.partials.drain(..) {
         stats.partial_rows += 1;
         stats.partial_bits += record.bit_count;

@@ -12,7 +12,8 @@ use vrf_bitio::BitReader;
 use vrf_decode::apply_overlay_with_checksum;
 use vrf_decode::cnc::decode_cnc_payload;
 use vrf_export::{
-    ActorRecord, MovementRecord, PartialRecord, UNRESOLVED_CLASS_NET_CACHE_PAYLOAD_FIELD_NAME,
+    ActorRecord, CheckpointBlockRecord, MovementRecord, PartialRecord,
+    UNRESOLVED_CLASS_NET_CACHE_PAYLOAD_FIELD_NAME,
 };
 use vrf_net::content::ContentBlockHeader;
 use vrf_net::field::FieldSink;
@@ -44,6 +45,66 @@ fn copy_exact_raw_bits(mut reader: BitReader<'_>, bit_count: u32) -> Option<Smal
 }
 
 impl ExportSink<'_> {
+    fn record_checkpoint_block(
+        &mut self,
+        channel_index: u32,
+        actor_net_guid: NetworkGuid,
+        header: &ContentBlockHeader,
+        function_count: u32,
+        resolved: bool,
+    ) {
+        let Some((checkpoint, field_offset, block_offset)) = self.checkpoint_block_scope.clone()
+        else {
+            return;
+        };
+        let evidence =
+            self.current_block_resolution_evidence(channel_index, actor_net_guid.0, header);
+        let block_index = block_offset + self.records.checkpoint_blocks.len() as u32;
+        let field_row_start = field_offset + self.records.fields.len() as u64;
+        self.records.checkpoint_blocks.push(CheckpointBlockRecord {
+            checkpoint,
+            block_index,
+            time_ms: self.time_ms,
+            packet_id: self.packet_id,
+            channel_index,
+            actor_net_guid: actor_net_guid.0,
+            object_net_guid: (!header.is_actor).then_some(header.object_net_guid.0),
+            class_net_guid: header.has_class_net_guid.then_some(header.class_net_guid.0),
+            outer_net_guid: Some(header.outer_net_guid.0),
+            has_rep_layout: header.has_rep_layout,
+            is_actor: header.is_actor,
+            is_deleted: header.is_deleted,
+            is_stably_named: header.is_stably_named,
+            delete_flags: header.delete_flags,
+            resolved_group_path: if resolved {
+                Arc::clone(&self.current_group_path)
+            } else {
+                Arc::from("<not-resolved:deleted>")
+            },
+            group_resolution_source: if resolved {
+                evidence.group_resolution_source
+            } else {
+                "not_resolved_deleted"
+            },
+            group_declared: resolved && evidence.group_declared,
+            resolution_memo_hit: resolved && evidence.resolution_memo_hit,
+            function_count,
+            function_count_source: if resolved {
+                evidence.function_count_source
+            } else {
+                "not_applicable_deleted"
+            },
+            actor_archetype_path: evidence.actor_archetype_path,
+            actor_archetype_outer_path: evidence.actor_archetype_outer_path,
+            actor_guid_path: evidence.actor_guid_path,
+            class_guid_path: evidence.class_guid_path,
+            object_guid_path: evidence.object_guid_path,
+            object_outer_path: evidence.object_outer_path,
+            field_row_start,
+            field_row_count: 0,
+        });
+    }
+
     /// Resolve a field or function name from the current block's group.
     ///
     /// Interned: 429,637 property rows and 342,735 RPC rows on the reference
@@ -94,9 +155,9 @@ impl FieldSink for ExportSink<'_> {
 
         // Additive pass 1: a known DynamicArray is flattened into one row per
         // leaf. The parent row with the whole payload is still emitted below.
-        if self.is_known_array_field(field_name.as_deref()) {
+        if self.is_known_array_field(field_name.as_deref(), field_checksum) {
             if let Some(ref raw) = raw_bits {
-                self.emit_flattened_array(field_name.as_deref(), raw, bit_count);
+                self.emit_flattened_array(field_name.as_deref(), field_checksum, raw, bit_count);
             }
         }
 
@@ -589,7 +650,9 @@ impl ReplicationSink for ExportSink<'_> {
             && self.cache.get_path_by_guid(header.object_net_guid.0)
                 == Some(ABILITIES_AND_BUFFS_COMPONENT);
         self.stats.content_blocks += 1;
-        self.resolve_block(channel_index, actor_net_guid, header)
+        let function_count = self.resolve_block(channel_index, actor_net_guid, header);
+        self.record_checkpoint_block(channel_index, actor_net_guid, header, function_count, true);
+        function_count
     }
 
     fn on_rep_layout_tail(
@@ -676,11 +739,12 @@ impl ReplicationSink for ExportSink<'_> {
 
     fn on_deleted_block(
         &mut self,
-        _channel_index: u32,
-        _actor_net_guid: NetworkGuid,
-        _header: &ContentBlockHeader,
+        channel_index: u32,
+        actor_net_guid: NetworkGuid,
+        header: &ContentBlockHeader,
     ) {
         self.stats.content_blocks += 1;
+        self.record_checkpoint_block(channel_index, actor_net_guid, header, 0, false);
     }
 
     fn on_unresolved_class_net_cache_payload(&mut self, failure: StreamFailure, payload: &[u8]) {
@@ -1338,14 +1402,14 @@ mod tests {
             "/Game/Characters/_Core/Comp_AbilityStatisticsReplicator.Comp_AbilityStatisticsReplicator_C",
         ));
         assert!(
-            sink.is_known_array_field(Some("AbilityCastsThisRound")),
+            sink.is_known_array_field(Some("AbilityCastsThisRound"), None),
             "should be known under AbilityStatisticsReplicator"
         );
 
         // Under an unrelated group: returns false.
         sink.set_current_group_path(Arc::from("/Script/ShooterGame.SomeOtherComponent"));
         assert!(
-            !sink.is_known_array_field(Some("AbilityCastsThisRound")),
+            !sink.is_known_array_field(Some("AbilityCastsThisRound"), None),
             "should NOT be known under an unrelated group"
         );
     }
@@ -1820,5 +1884,92 @@ mod tests {
 
         let players = sink.channel_state.players.clone();
         assert_eq!(players.get(&7).unwrap().character_net_guid, None);
+    }
+
+    #[test]
+    fn checkpoint_block_spans_include_every_emitted_child_and_empty_block() {
+        let mut cache = NetGuidCache::new();
+        cache
+            .add_export_group(vrf_schema::NetFieldExportGroup::new(
+                "ActorGroup".to_owned(),
+                1,
+                4,
+            ))
+            .unwrap();
+        cache.set_net_guid_path(9, "ActorGroup".to_owned(), None);
+        let mut state = ChannelState::new();
+        let mut records = RecordBuffers::default();
+        let mut sink = ExportSink::new(&mut cache, &mut state, &mut records);
+        sink.enable_checkpoint_block_context(
+            vrf_export::CheckpointIdentity {
+                checkpoint_index: 2,
+                checkpoint_id: Arc::from("duplicate-id"),
+            },
+            100,
+            7,
+        );
+        sink.time_ms = 12;
+        sink.packet_id = 3;
+        let header = ContentBlockHeader {
+            has_rep_layout: true,
+            is_actor: true,
+            ..Default::default()
+        };
+        sink.on_content_block(4, NetworkGuid(9), &header);
+        sink.push_field(FieldValues {
+            field_name: Some(Arc::from("raw-parent")),
+            bit_count: 8,
+            raw_bits: Some(SmallVec::from_slice(&[0xaa])),
+            ..Default::default()
+        });
+        sink.push_field(FieldValues {
+            field_name: Some(Arc::from("typed-child")),
+            value_i64: Some(5),
+            ..Default::default()
+        });
+        sink.on_content_block(4, NetworkGuid(9), &header);
+        assert_eq!(sink.records.checkpoint_blocks.len(), 2);
+        let first = &sink.records.checkpoint_blocks[0];
+        assert_eq!(
+            (
+                first.block_index,
+                first.field_row_start,
+                first.field_row_count
+            ),
+            (7, 100, 2)
+        );
+        assert_eq!(first.checkpoint.checkpoint_index, 2);
+        assert_eq!(first.group_resolution_source, "actor_guid_path");
+        assert!(!first.resolution_memo_hit);
+        let empty = &sink.records.checkpoint_blocks[1];
+        assert_eq!(
+            (
+                empty.block_index,
+                empty.field_row_start,
+                empty.field_row_count
+            ),
+            (8, 102, 0)
+        );
+        assert!(empty.resolution_memo_hit);
+        assert_eq!(empty.group_resolution_source, "actor_guid_path");
+        let explicit_delete = ContentBlockHeader {
+            is_deleted: true,
+            object_net_guid: NetworkGuid(10),
+            outer_net_guid: NetworkGuid(9),
+            ..Default::default()
+        };
+        sink.on_deleted_block(4, NetworkGuid(9), &explicit_delete);
+        let invalid_class_delete = ContentBlockHeader {
+            has_class_net_guid: true,
+            ..explicit_delete
+        };
+        sink.on_deleted_block(4, NetworkGuid(9), &invalid_class_delete);
+        assert_eq!(sink.records.checkpoint_blocks[2].class_net_guid, None);
+        assert_eq!(sink.records.checkpoint_blocks[3].class_net_guid, Some(0));
+        assert_eq!(
+            sink.records.fields[0].raw_bits.as_deref(),
+            Some(&[0xaa][..])
+        );
+        assert_eq!(sink.records.fields[1].value_i64, Some(5));
     }
 }

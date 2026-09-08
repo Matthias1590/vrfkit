@@ -94,12 +94,14 @@ class CrossCheckTests(unittest.TestCase):
         self.assertTrue(any("did not print it" in l for l in lies))
 
     def test_checkpoint_actor_and_guid_identities_reject_counter_mismatches(self):
-        current = checkpoint_measurement(cp_actor_rows_written=2, cp_net_guid_rows_written=3)
+        current = checkpoint_measurement(cp_actor_rows_written=2, cp_net_guid_rows_written=3,
+                                         cp_block_rows_written=5)
         current["parquet"]["checkpoint_actors"]["rows"] = 1
         current["parquet"]["checkpoint_net_guids"]["rows"] = 4
         problems = guard.cross_checks(current["counters"], current["parquet"])
         self.assertTrue(any("Checkpoint actors" in p for p in problems), problems)
         self.assertTrue(any("Checkpoint GUID rows" in p for p in problems), problems)
+        self.assertTrue(any("Checkpoint blocks" in p for p in problems), problems)
 
     def test_checkpoint_measurement_requires_every_new_table_and_zero_dropped_actors(self):
         with tempfile.TemporaryDirectory() as temp:

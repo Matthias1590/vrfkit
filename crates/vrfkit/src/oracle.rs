@@ -279,6 +279,7 @@ pub fn run(path: &str, diagnostics: bool) -> Result<Verdict, CliError> {
 
         iter_demo_frames(&decompressed, flags, &mut cache, |pkt, packet_cache| {
             let mut sink = ExportSink::new(packet_cache, &mut channel_state, &mut buffers);
+            sink.enable_measured_array_routes(branch);
             sink.time_ms = pkt.time_ms;
             sink.packet_id = total_packets;
             repl_reader.process_packet(pkt.data, total_packets as i32, &mut sink);

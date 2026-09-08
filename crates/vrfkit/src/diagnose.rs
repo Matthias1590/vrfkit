@@ -206,6 +206,7 @@ pub fn run(path: &str, json_path: Option<&str>, include_payloads: bool) -> Resul
                     {
                         let mut sink =
                             ExportSink::new(packet_cache, &mut channel_state, &mut buffers);
+                        sink.enable_measured_array_routes(&branch);
                         sink.time_ms = pkt.time_ms;
                         sink.packet_id = pkt_id;
                         repl_reader.process_packet(pkt.data, pkt_id as i32, &mut sink);
@@ -448,6 +449,7 @@ fn process_checkpoint_chunk(
     let (_, frame_count) = iter_demo_frames(frame, flags, &mut cache, |pkt, packet_cache| {
         {
             let mut sink = ExportSink::new(packet_cache, &mut channels, &mut buffers);
+            sink.enable_measured_array_routes(branch);
             sink.time_ms = pkt.time_ms;
             sink.packet_id = packet_count as u32;
             reader.process_packet(pkt.data, packet_count as i32, &mut sink);

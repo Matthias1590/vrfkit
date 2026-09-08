@@ -168,8 +168,9 @@ vrfkit export replay.vrf --out out/ --checkpoints
 ```
 
 `--checkpoints` reads the Checkpoint chunks as well and **additionally** writes
-`checkpoint_fields.parquet`, `checkpoint_actors.parquet`, and
-`checkpoint_net_guids.parquet`. It is off by default because it is a separate pass
+`checkpoint_fields.parquet`, `checkpoint_actors.parquet`,
+`checkpoint_net_guids.parquet`, and `checkpoint_blocks.parquet`.
+It is off by default because it is a separate pass
 that reads roughly 10% more of the file, and **with or without it, the other
 five tables are byte-for-byte identical.**
 
@@ -215,15 +216,16 @@ Measured on `02d4d478` (48,215,213 bytes):
 
 | File | Rows | Bytes | Notes |
 |---|---|---|---|
-| `fields.parquet` | 1,278,050 | 16,267,043 | |
+| `fields.parquet` | 1,282,647 | 16,312,456 | |
 | `movement.parquet` | 1,844,147 | 31,886,449 | |
 | `actors.parquet` | 3,827 | 87,281 | |
 | `net_guids.parquet` | 16,167 | 153,606 | |
 | `events.parquet` | 195 | 13,411 | |
 | `partials.parquet` | 0 | 2,505 | main-only; with checkpoints: 0 rows, 2,505 bytes |
-| `checkpoint_fields.parquet` | 245,211 | 860,659 | requires `--checkpoints` |
+| `checkpoint_fields.parquet` | 250,503 | 858,087 | requires `--checkpoints` |
 | `checkpoint_actors.parquet` | 3,014 | 27,118 | requires `--checkpoints` |
 | `checkpoint_net_guids.parquet` | 74,270 | 307,362 | requires `--checkpoints` |
+| `checkpoint_blocks.parquet` | 22,247 | 182,371 | requires `--checkpoints` |
 | `manifest.json` | -- | ~660,030 | varies: it records `elapsed_ms` |
 
 Use [`bench_export.py`](#analysis-helpers) to measure runtime on your machine.
@@ -454,6 +456,22 @@ two identity columns followed by the columns of their main-stream counterparts.
 Actor opens are snapshot observations, not new spawns on the main timeline.
 The GUID table records the cache after that checkpoint's frame walk. Wire IDs
 may repeat; the chunk index keeps those snapshots distinct within one replay.
+
+### `checkpoint_blocks.parquet`
+
+One row per checkpoint content block, including deleted blocks and blocks
+that emit no fields. `block_index` starts at zero in each checkpoint.
+`field_row_start` is a zero-based physical row offset in the entire
+`checkpoint_fields.parquet`; `field_row_count` includes raw parents and
+additive children. A zero count is a real empty interval.
+
+The table preserves actor/object/class GUIDs, header flags, the resolved group,
+the resolver branch used, and the GUID paths available at that moment.
+`resolution_memo_hit` marks a cached resolution; its source still describes
+the original selected branch. A null `class_net_guid` means the header did not
+carry a class GUID; zero means the field was read with the invalid GUID value.
+These are lookup observations, not proof that an unresolved numeric group is
+the enclosing actor's class.
 
 Historical snapshot-versus-main percentages predate the partial-header fix and
 do not validate cross-stream identity. See [current context and semantic
@@ -875,7 +893,7 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 634 passing
+cargo +1.86.0 test --workspace --locked                              # 645 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 125 files

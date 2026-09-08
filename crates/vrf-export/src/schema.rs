@@ -47,6 +47,44 @@ pub fn checkpoint_net_guids_schema_ref() -> Arc<Schema> {
     Arc::new(checkpoint_net_guids_schema())
 }
 
+pub fn checkpoint_blocks_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("checkpoint_index", DataType::UInt32, false),
+        Field::new("checkpoint_id", DataType::Utf8, false),
+        Field::new("block_index", DataType::UInt32, false),
+        Field::new("time_ms", DataType::UInt32, false),
+        Field::new("packet_id", DataType::UInt32, false),
+        Field::new("channel_index", DataType::UInt32, false),
+        Field::new("actor_net_guid", DataType::UInt32, false),
+        Field::new("object_net_guid", DataType::UInt32, true),
+        Field::new("class_net_guid", DataType::UInt32, true),
+        Field::new("outer_net_guid", DataType::UInt32, true),
+        Field::new("has_rep_layout", DataType::Boolean, false),
+        Field::new("is_actor", DataType::Boolean, false),
+        Field::new("is_deleted", DataType::Boolean, false),
+        Field::new("is_stably_named", DataType::Boolean, false),
+        Field::new("delete_flags", DataType::UInt8, false),
+        Field::new("resolved_group_path", DataType::Utf8, false),
+        Field::new("group_resolution_source", DataType::Utf8, false),
+        Field::new("group_declared", DataType::Boolean, false),
+        Field::new("resolution_memo_hit", DataType::Boolean, false),
+        Field::new("function_count", DataType::UInt32, false),
+        Field::new("function_count_source", DataType::Utf8, false),
+        Field::new("actor_archetype_path", DataType::Utf8, true),
+        Field::new("actor_archetype_outer_path", DataType::Utf8, true),
+        Field::new("actor_guid_path", DataType::Utf8, true),
+        Field::new("class_guid_path", DataType::Utf8, true),
+        Field::new("object_guid_path", DataType::Utf8, true),
+        Field::new("object_outer_path", DataType::Utf8, true),
+        Field::new("field_row_start", DataType::UInt64, false),
+        Field::new("field_row_count", DataType::UInt32, false),
+    ])
+}
+
+pub fn checkpoint_blocks_schema_ref() -> Arc<Schema> {
+    Arc::new(checkpoint_blocks_schema())
+}
+
 /// Schema for the `fields` table (long format).
 ///
 /// Most rows represent one decoded field. A whole ClassNetCache block whose

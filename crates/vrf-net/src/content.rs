@@ -49,6 +49,8 @@ pub struct ContentBlockHeader {
     pub object_net_guid: NetworkGuid,
     /// Net GUID of the class (subobject case, when present).
     pub class_net_guid: NetworkGuid,
+    /// True when the class GUID field was read, including an invalid zero.
+    pub has_class_net_guid: bool,
     /// Net GUID of the outer object.
     pub outer_net_guid: NetworkGuid,
     /// Whether the subobject is stably named.
@@ -65,6 +67,7 @@ impl Default for ContentBlockHeader {
             is_deleted: false,
             object_net_guid: NetworkGuid(0),
             class_net_guid: NetworkGuid(0),
+            has_class_net_guid: false,
             outer_net_guid: NetworkGuid(0),
             is_stably_named: false,
             delete_flags: 0,
@@ -131,6 +134,7 @@ pub fn read_content_block_header(
             is_actor: false,
             is_deleted: true,
             object_net_guid,
+            has_class_net_guid: true,
             outer_net_guid: actor_net_guid,
             delete_flags: 0,
             ..Default::default()
@@ -150,6 +154,7 @@ pub fn read_content_block_header(
         is_actor: false,
         object_net_guid,
         class_net_guid,
+        has_class_net_guid: true,
         outer_net_guid,
         is_stably_named: false,
         is_deleted: false,
@@ -241,5 +246,30 @@ mod tests {
         assert!(hdr.is_deleted);
         assert_eq!(hdr.delete_flags, 0x03);
         assert_eq!(hdr.object_net_guid, NetworkGuid(60));
+    }
+
+    #[test]
+    fn explicit_delete_zero_and_read_invalid_class_zero_stay_distinct() {
+        let parse = |invalid_class: bool| {
+            let mut bits = vec![false, false];
+            write_int_packed(&mut bits, 60);
+            bits.push(false);
+            bits.push(!invalid_class);
+            if invalid_class {
+                write_int_packed(&mut bits, 0);
+            } else {
+                bits.extend([false; 8]);
+            }
+            let data = bits_to_bytes(&bits);
+            read_content_block_header(&mut BitReader::new(&data), NetworkGuid(18), &mut NullSink)
+                .unwrap()
+        };
+        let explicit = parse(false);
+        let invalid = parse(true);
+        assert!(explicit.is_deleted && invalid.is_deleted);
+        assert_eq!(explicit.delete_flags, 0);
+        assert_eq!(invalid.class_net_guid, NetworkGuid(0));
+        assert!(!explicit.has_class_net_guid);
+        assert!(invalid.has_class_net_guid);
     }
 }
