@@ -66,8 +66,9 @@ The preceding [text-history measurement](TEXT_HISTORY_EXPANSION.md) is historica
 
 Full-corpus independent comparison passed all 714 files in 114.672 seconds.
 Both corpus guards, all 40 build/feature checks, both pinned reference exports
-and the full documentation check passed. Rust has 689 passing tests and Python
-has 678. The frozen full-corpus executable SHA-256 is
+and the full documentation check passed. At acceptance of this parser batch,
+before the later kill-ledger tooling, Rust had 689 passing tests and Python
+had 678. The frozen full-corpus executable SHA-256 is
 `569b6cff14e873a75956b7bbfba918d6a340279e7ed8f540c059d769deeddbb8`.
 The comparison requires existing coordinates, raw windows, rows and all other
 values to remain exact; the eleven other Parquet tables must be byte-identical.

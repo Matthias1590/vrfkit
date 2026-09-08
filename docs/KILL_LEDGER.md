@@ -1,0 +1,131 @@
+# Character-death events and KillData state
+
+`tools/extract_kill_ledger.py` produces one JSON document that retains labelled
+character-death events, component-local KillData state, and explicit links
+between them. Use a measured 13.01, 13.02, 13.04 or 13.05 export generated with
+`--checkpoints`:
+
+```powershell
+python tools/extract_kill_ledger.py --export out/replay --out out/kill-ledger.json
+```
+
+The document has schema version 1 and kind
+`vrfkit_character_death_ledger`. It retains the complete
+[serialized observation stream](KILL_OBSERVATIONS.md) in `source_observations`.
+Consumers should reject unsupported versions.
+
+## State and checkpoint snapshots
+
+`state_projection.entities` uses `(export_id, object_net_guid, element_index)`
+as its identity. A complete main observation creates a base state. Subsequent
+finisher-only updates to that exact key create revisions, including updates
+that repeat the existing value. `base`, `latest` and every revision retain raw
+member windows and the source table, physical parent ordinal, packet, clock,
+actor and object coordinates.
+
+`tools/kill_state.py` validates this projection. Partial updates before a base,
+duplicate complete keys, conflicting component ownership, duplicate physical
+coordinates and unsupported partial member sets fail explicitly. It does not
+infer a missing base or silently apply an unmeasured partial shape.
+
+Checkpoint observations are snapshots. They never create entities or increment
+the main entity count. Each snapshot is compared against the base and all
+revisions using exact values and raw windows; matches retain every matching
+revision index. Missing entities, incomplete snapshots and unmatched states
+remain in `checkpoint_snapshots.unresolved`. These comparisons establish state
+equality, not the wall-clock ordering of checkpoint serialization.
+
+## Event identity and matching
+
+All `characterDeath` and `roundStarted` rows retain their physical event-row
+ordinal, original columns and raw payload hex. The tool independently validates
+the entire measured payload: tag, reference/round words, bounded FString,
+terminator, exact float value and agreement with the outer millisecond time.
+Invalid payloads remain visible and cannot establish a join.
+
+The character-death words reference character pawns. KillData owner and victim
+references identify PlayerState actors. The tool bridges each pawn through its
+top-level `PlayerState` field within its active actor lifetime, checking the
+reference against raw bits. Reopening resets the available mapping; dormancy
+does not close an actor. Unknown or conflicting latest values remain unresolved.
+An actor or mapping change at exactly the event timestamp is unresolved because
+events do not carry a packet ID that would establish ordering.
+
+A match requires all of the following:
+
+- Both pawn identities resolve to the KillData owner/victim PlayerState pair.
+- KillData `round_number` equals the unique, strictly prior validated
+  `roundStarted` word. Missing, duplicate, invalid or equal-time round boundaries
+  remain unresolved.
+- KillData's main `time_ms` is between 0 and 50 ms after the event's `time1`.
+- Each side has exactly one candidate. A greedy traversal or nearest timestamp
+  never resolves ambiguity.
+
+The time bound is a measured corroboration window, not a guarantee for every
+future replay. `GameTimeElapsed`, `RoundTimestamp` and the other source clocks
+remain separate. The tool does not convert them into a shared gameplay clock.
+
+`death_events[].killdata_join` records matched, no-candidate or ambiguous status.
+Unmatched main observations retain candidate event ordinals. Their optional
+`different_killer_same_victim_context` records same-round nearby events with the
+same victim and a different killer identity; it does not turn those events into
+matches. `same_player_state` describes identity equality and is not a suicide
+classification. These populations must not be summed as ordinary player kills.
+
+## Provenance and failure behavior
+
+The output records SHA-256 values for nine input Parquet tables, the manifest,
+and four implementation files. Sources are checked before and after extraction.
+An optional `--observations observations.json` verifies an existing observation
+document: both its receipts and its entire content must match fresh extraction.
+This option checks a saved document; it does not skip reading the source data.
+
+Missing references stay null with explicit status. Count keys include zero
+values. Input/schema/value violations return a nonzero exit; a successful
+document is written atomically. Output paths that alias input tables, the
+observation document or the implementation files are refused.
+
+## Validation scope
+
+The final command completed all 714 retained exports with eight processes in
+159.5 seconds. This is derived JSON extraction time from existing Parquets, not
+replay parsing time. The corpus contains 215 exports from 13.01, 204 from 13.02,
+108 from 13.04 and 187 from 13.05.
+
+| Population | Count |
+|---|---:|
+| Character-death events, with fully validated payloads | 101,966 |
+| Complete main KillData entities | 101,212 |
+| Mutually unique same-round identity joins | 101,179 |
+| Unmatched character-death events | 787 |
+| Unmatched main KillData observations | 33 |
+| Ambiguous event/main-observation joins | 0 / 0 |
+| Finisher revisions that change the previous state | 197 |
+| Finisher revisions that repeat the previous state | 0 |
+| Checkpoint snapshots matching an existing state | 1,010,872 |
+| Unresolved checkpoint snapshots | 0 |
+| Validated round-start events | 13,772 |
+
+Independent state reconstruction verified every base, latest state, revision
+and checkpoint match. All 197 partial updates change `false` to `true`. An
+earlier investigation inferred nine unchanged updates by subtracting the 188
+slots with two complete observed variants from 197 partials. Direct comparison
+against each prior main state disproved that inference.
+
+Synthetic Parquet/CLI tests exercise raw-value mismatches, forged observation
+receipts/content, missing event times, source-output aliases and contextual
+events that must remain unjoined. Six deliberately broken implementations were
+rejected by their behavioral tests. The full suites contain 689 Rust and 708
+Python tests. Independent identity reconstruction and join comparison passed
+all 714 exports. Matched replication lags range from 5 to 41 ms; increasing
+the matching cap from 50 to 100 ms changed no match in this corpus. A separate
+audit verified every original event column and every candidate/unmatched edge.
+
+Of the 787 unmatched death events, 760 have the same resolved PlayerState on
+both sides, 25 have distinct resolved PlayerStates, and two have an unresolved
+identity. All 33 unmatched KillData observations retain nearby same-round,
+same-victim context with a different killer identity. These are observed
+attribution differences; they do not establish suicide or kill-credit rules.
+
+This derived view does not change the parser's physical typed-row percentage
+or establish an overall gameplay-semantic coverage percentage.

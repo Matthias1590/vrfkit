@@ -17,6 +17,10 @@ ratios are not semantic completeness. Both corpus guards and the independent
 all-file comparison pass on all 714 inputs.
 RequestedIgnoreActors, TransitionContext and the measured HawkFlash velocity now expose typed reference/vector values.
 Qualified reward names now retain complete text histories, string-table keys and format arguments. [KillData observations](KILL_OBSERVATIONS.md) preserve partial updates and scoped references.
+
+The [kill ledger](KILL_LEDGER.md) combines component-local KillData base/revision
+state with character-death events through validated PlayerState identities and
+rounds. Checkpoint repeats and unmatched events remain separate populations.
 The earlier partial-header correction is recorded in
 [PARTIAL_HEADER_CORRECTION.md](PARTIAL_HEADER_CORRECTION.md), and crosshair/Tidal
 Wave additions in [SCHEMA_EXPANSION.md](SCHEMA_EXPANSION.md).

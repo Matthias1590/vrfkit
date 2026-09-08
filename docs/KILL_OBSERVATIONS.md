@@ -20,3 +20,7 @@ References keep their numeric identifier and scoped resolution status. Victim an
 The extractor fails when declarations differ from the measured group/name/checksum identities, array framing is incomplete, a nested handle is unexpected, a typed child differs from its raw window, child coordinates cross scopes, or emitted children are not physically adjacent to their parent. It records the manifest, input Parquet, and extractor SHA-256 values under `provenance`.
 
 Output uses schema version 1 and top-level kind `vrfkit_killdata_observation_export`. Consumers should reject unsupported schema versions.
+
+For component-local base/revision state and explicit links to character-death
+events, use the [kill ledger command](KILL_LEDGER.md). It retains this original
+observation stream and keeps unmatched records visible.
