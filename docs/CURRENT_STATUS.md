@@ -40,6 +40,14 @@ The measured starting point for follow-up work is
 investigation inventory, not a completed semantic partition or a claim that
 each catalog key is one distinct field meaning.
 
+The subsequent [GAS and PatchVolume wire investigation](GAS_AND_PATCHVOLUME_INVESTIGATION.md)
+recovers numeric FastArray structure from all 2,882,152 AbilitiesAndBuffs inner
+windows in those exports. The separate observation output preserves the
+original bits; the accepted Parquet counts and typed-presence ratio above
+remain unchanged. Numeric field boundaries do not establish gameplay meanings.
+The same investigation fully consumes 26,303 preserved PatchVolume windows;
+their property names and value meanings still require an item schema.
+
 ## Completed evidence phases
 
 The main completed phases are recorded in

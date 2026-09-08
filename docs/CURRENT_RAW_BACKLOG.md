@@ -5,6 +5,15 @@ The later derived-observation tools through `14e58e5` do not change these
 Parquet field counts. See [current status](CURRENT_STATUS.md) for the completed
 work and [DATA](DATA.md) for the available values.
 
+Follow-up: [numeric FastArray extraction](GAS_AND_PATCHVOLUME_INVESTIGATION.md)
+now fully consumes all 2,882,152 AbilitiesAndBuffs inner windows and retains
+their deletion/change records and raw property boundaries separately. The
+Parquet inventory below remains the measured starting point; the remaining
+GAS task is item-schema/value interpretation, rather than an unexplained
+inner byte stream.
+All 26,303 selected PatchVolume whole/tail windows also have an independently
+validated numeric FastArray walk. Their class/item schema remains unresolved.
+
 ## What the inventory counts
 
 A physical field row is untyped only when all four value columns are null.

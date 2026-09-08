@@ -91,6 +91,9 @@ mod types;
 /// ClassNetCache payload brute-forcer for unresolved groups. See [`cnc`].
 pub mod cnc;
 
+/// Numeric FastArray headers, item IDs and raw property windows.
+pub mod fastarray;
+
 #[cfg(feature = "array")]
 mod array;
 #[cfg(feature = "overlay")]

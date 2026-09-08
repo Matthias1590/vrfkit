@@ -205,10 +205,10 @@ with 100.
 | Ultimate cast corroboration | `events.characterUltimateUsed` (word0 resolves to a character on 15,699/15,768 rows) | ◐ do not count Event rows as casts: they outnumber `UltimateActive` False→True transitions by 51.5%; use the transition as authority and Event only as a ±100 ms cross-check |
 | Cooldown / start time | `Comp_Ability_CooldownComponent` | ✅ Double |
 | Ability cast observations | `Comp_AbilityStatisticsReplicator.AbilityCastsThisRound[]` — `Player` (subject UUID), `Slot`, `Round`, `RoundPhase`, `CastTime`, `CastLocation` | ✅ cast records repeated in array snapshots; deduplicate by cast identity before counting. In the reference sample, `Player` matches a manifest subject 352/352. |
-| Ability state stream | `AbilitiesAndBuffsComponent` (`_cnc_h1`) | ◐ fc=34 brute-forced, inner decomposed (flag + u32 stream); semantics need game assets |
-| GAS owner / avatar / attribute sets | `AresAbilitySystemComponent` (OwnerActor, AvatarActor, SpawnedAttributes, CachedAttributeSet) | ✅ via AbilitiesAndBuffsComponent->AresAbilitySystemComponent remap |
+| Ability state stream | `AbilitiesAndBuffsComponent` (`_cnc_h1`) | ◐ FastArray numeric structure exactly consumed on all 2,882,152 inner windows in 714 exports: replication keys, deleted/changed item IDs and raw field boundaries. Available through `extract_fastarray_observations.py`; ability/effect names and field meanings remain unverified. |
+| GAS owner / avatar / attribute sets | `AresAbilitySystemComponent` (OwnerActor, AvatarActor, SpawnedAttributes, CachedAttributeSet) | ◐ Component remap exposes these names. OwnerActor/AvatarActor remain raw: all 629,578 measured packed values equal the enclosing actor GUID, not a separately established player owner. See [the reference audit](GAS_AND_PATCHVOLUME_INVESTIGATION.md). |
 | Status effects on a player (nearsight / slow / detain / ...) | `EffectManagerComponent:MulticastPlayContinuousEffect` + `MulticastStopContinuousEffect`, on the **affected** player's actor | ✅ named, with start and end — see below |
-| Active gameplay effects (GAS array) | `AresAbilitySystemComponent.ActiveGameplayEffects` | ❌ **No named property rows observed.** The 714-file audit (2026-09-08, checkpoints included) found none in the property group. Entries with the same name and child handles occur under `AresAbilitySystemComponent_ClassNetCache` (49,076 rows); these do not establish that the property array was decoded. The function payload's meaning remains unverified. |
+| Active gameplay effects (GAS array) | `AresAbilitySystemComponent.ActiveGameplayEffects` | ◐ No named rows in the ordinary property group in the 714-file audit (2026-09-08, checkpoints included). Entries with that name and child handles occur under `AresAbilitySystemComponent_ClassNetCache` (49,076 rows). CNC framing can carry custom-delta properties as well as RPCs, so this location does not prove a function or an absent replicated array. This named array's item decoding remains unverified. |
 | GAS attribute values | `AresAttributeSet.{BaseValue,CurrentValue}` per handle | ◐ **checkpoints only.** The live stream sends each attribute once when the channel opens and never updates it; `CurrentValue` does move (Reyna's ultimate puts handles at 1.1/0.9) but only checkpoint snapshots show it, and those are written at round transitions, so transient debuffs are gone by then |
 | Persistent effect position (smoke/wall/molly/slow/trap) | `actors.parquet` class_path + spawn xyz | ✅ every spawned effect actor |
 | Persistent effect lifetime | `actors.time_ms` paired across `event` `open`/`close` (non-fuel; a `dormant` event does not end the instance); `CurrentFuelLevel`+`WallActivated` (Viper) | ✅ |
@@ -556,10 +556,11 @@ guessing -- which is the only reason the failure was findable.
   group, so `function_count` is brute-forced (fc=34). The outer RPC framing is
   fully recovered, and the inner payload is decomposed (a flag bit followed by a
   little-endian `u32` stream -- not the opaque blob it was once assumed to be).
-  The stream is the GAS state-sync feed, not one RPC per ability cast, so it
-  cannot attribute or count casts (use ability-actor spawns + `UltimateActive`
-  for that). The later words' meaning is game-asset-dependent (the authoritative
-  C# parser does not model this stream), so they stay in `raw_bits`.
+  The word decomposition does not establish a function name, prediction-key
+  type, cast, or buff event. A leading pair can recur across actor/object
+  identities, and the second word does not always equal the previously observed
+  first word. The words stay in `raw_bits`; see the dated
+  [inner-stream and reference audit](GAS_AND_PATCHVOLUME_INVESTIGATION.md).
 - **FName instance numbers are part of the name.** Unreal stores an FName as a
   string plus a number, where number 0 means "no suffix" and number N means the
   displayed suffix N-1. Both the schema readers and `decode_fname` used to drop

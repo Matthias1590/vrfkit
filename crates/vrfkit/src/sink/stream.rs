@@ -387,19 +387,21 @@ impl ExportSink<'_> {
     /// determined empirically by brute-forcing fc 2-256 across 9,274 payloads
     /// from a reference replay: fc=34 is the minimum that walks **every**
     /// payload cleanly, and each payload contains exactly one RPC at handle 1.
-    /// The inner payload is not standard RepLayout `FunctionParameters`, but
-    /// it is not opaque either: it is a deterministic flag bit followed by a
-    /// little-endian `u32` stream (see `decode_abilities_and_buffs_inner`). It
-    /// is the GAS state-sync stream, not one row per ability cast, so the RPC's
-    /// raw bits are preserved as a row without further typed extraction.
+    /// The inner payload follows FastArray custom-delta framing, validated on
+    /// 2,882,152 inner windows across 714 accepted exports. The separate
+    /// `extract_fastarray_observations.py` tool recovers replication keys,
+    /// item IDs and raw field boundaries. CNC framing can carry custom-delta
+    /// properties as well as RPCs; this legacy method name does not establish
+    /// an ability cast. This sink retains the inner bits without typing them.
     ///
     /// A per-payload brute-force (trying each fc independently) was rejected
     /// because simple payloads can walk cleanly under smaller fc values,
     /// producing garbage handles. Using a single constant fc avoids that: every
-    /// payload gets the same handle width, and the 9274/9274 clean-walk rate
-    /// confirms the fc is correct for this group. If a game update changes the
-    /// function table, the walk will start failing and the preservation row
-    /// will be the only record -- the failure is visible, not silent.
+    /// payload gets the same handle width. The clean outer walk alone does
+    /// not prove that width or the unknown group's declaration; the subsequent
+    /// independent inner-grammar checks provide stronger evidence. An update
+    /// can fail this walk or accidentally fit it, so consumers must retain the
+    /// raw parent and independently validate the inner structure.
     ///
     /// Several adjacent fc values (34-65) produce the same 6-bit handle width
     /// for handle 1 and therefore identical walks. The constant is the minimum

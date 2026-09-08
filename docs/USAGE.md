@@ -685,7 +685,7 @@ m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); print(len(m
 | `compare_rpc_params.py` | RPC parameter comparison |
 | `compare_with_csharp.py` | Diff against the C# parser |
 | `check_effect_decoder.py` | Effect decoder (12 cases) |
-| `check_ascii.py` | Rust source ASCII sweep (126 files) |
+| `check_ascii.py` | Rust source ASCII sweep (127 files) |
 | `check_docs.py` | This document itself (below) |
 | `atomic_io.py` | Internal containment, recursive-removal and atomic-replacement helpers shared by mutating tools |
 
@@ -880,6 +880,7 @@ semantic evidence.
 | `extract_kill_observations.py` | Exports main and checkpoint KillData element snapshots with physical parent-row identity, independently checked raw values, nullable missing members and scoped reference status. Keeps all clocks separately; updates are not deduplicated kills. See [KILL_OBSERVATIONS.md](KILL_OBSERVATIONS.md). |
 | `extract_kill_ledger.py` | Retains character-death events, projects component-local KillData state and links mutually unique same-round PlayerState identities. Preserves unmatched events and observations. See [KILL_LEDGER.md](KILL_LEDGER.md). |
 | `extract_healing_observations.py` | Retains serialized heal amounts, section state, raw source rows and separate identity corroboration. Amount sums do not establish effective HP restored or player healing credit. See [HEALING_OBSERVATIONS.md](HEALING_OBSERVATIONS.md) for validation status. |
+| `extract_fastarray_observations.py` | Writes numeric AbilitiesAndBuffs FastArray headers, deleted/changed item IDs and raw field offsets to NDJSON, retaining each input window and physical row identity. Field meanings remain unknown. See [the wire investigation](GAS_AND_PATCHVOLUME_INVESTIGATION.md). |
 | `extract_section_observations.py` | Retains damage, healing, overheal-decay and reset section observations with raw parent/child checks. Distinguishes parentless records, known non-health sections and unresolved references. See [SECTION_OBSERVATIONS.md](SECTION_OBSERVATIONS.md). |
 | `extract_section_timeline.py` | Builds observed section timelines with exact predecessors and explicit ordering/lifetime gaps; uses the pure `section_timeline.py` helper. See [SECTION_TIMELINE.md](SECTION_TIMELINE.md). |
 | `extract_section_packet_timeline.py` | Retains the strict timeline and adds main packet-order comparisons with separate eligibility and arithmetic counters; uses the pure `section_packet_timeline.py` helper. See [SECTION_PACKET_TIMELINE.md](SECTION_PACKET_TIMELINE.md). |
@@ -898,6 +899,7 @@ python tools/extract_match_observations.py --export <export-directory> --out obs
 python tools/extract_kill_observations.py --export <export-directory> --out kill-observations.json
 python tools/extract_kill_ledger.py --export <export-directory> --out kill-ledger.json
 python tools/extract_healing_observations.py --export <export-directory> --out healing.json
+python tools/extract_fastarray_observations.py --export-dir <export-directory> --out-dir <new-output-directory>
 python tools/extract_section_observations.py --export <export-directory> --out sections.json
 python tools/extract_section_timeline.py --export <export-directory> --out timeline.json
 python tools/extract_section_packet_timeline.py --export <export-directory> --out packet-timeline.json
@@ -962,12 +964,12 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 692 passing
+cargo +1.86.0 test --workspace --locked                              # 699 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
-python -W error tools/check_ascii.py --check                         # 126 files
+python -W error tools/check_ascii.py --check                         # 127 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 786 tests
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 796 tests
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 187 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
