@@ -18,8 +18,8 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Current state:** `cargo +1.86.0 test --workspace --locked` **623 passing**,
-`tools/tests` **583 passing** -- see [Status](#status) for the rest.
+**Current state:** `cargo +1.86.0 test --workspace --locked` **629 passing**,
+`tools/tests` **614 passing** -- see [Status](#status) for the rest.
 
 - Run it: [`docs/USAGE.md`](docs/USAGE.md)
 - What's extractable: [`docs/DATA.md`](docs/DATA.md)
@@ -93,7 +93,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **623 tests** plus a layered validation suite (framing / bytes / decode
+- **629 tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -147,12 +147,12 @@ produces seven files:
 
 | File | Rows | Bytes |
 |---|---|---|
-| `fields.parquet` | 1,277,983 | 16,119,220 |
+| `fields.parquet` | 1,277,983 | 16,121,012 |
 | `movement.parquet` | 1,839,607 | 31,835,557 |
 | `actors.parquet` | 3,827 | 87,281 |
 | `net_guids.parquet` | 16,167 | 153,606 |
 | `events.parquet` | 195 | 13,411 |
-| `checkpoint_fields.parquet` | 78,924 | 234,673 |
+| `checkpoint_fields.parquet` | 78,924 | 238,016 |
 | `manifest.json` |  | ~660,030 |
 
 `checkpoint_fields.parquet` requires `--checkpoints`; with or without it, **the
@@ -299,8 +299,8 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**623 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
-and `check_ascii` on 122 files. The Python suite in `tools/tests` has 583 tests.
+**629 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
+and `check_ascii` on 122 files. The Python suite in `tools/tests` has 614 tests.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
 from the table below on purpose -- they go stale, and re-measuring is one line.
@@ -600,7 +600,7 @@ cannot be expanded into fields, so it emits one preservation row (`handle` =
 diagnostic rather than pretending the properties were decoded.
 
 The overlay table is extracted mechanically from the C# descriptors
-(`tools/extract_descriptors.py`) -- 199 groups, 1,271 entries, 84 handles.
+(`tools/extract_descriptors.py`) -- 214 groups, 1,309 entries, 84 handles.
 Nothing is transcribed by hand, for the same reason S-boxes and golden vectors
 are not: it is the kind of constant where a typo is invisible in review.
 
@@ -619,13 +619,13 @@ committed export baseline `tools/baselines/export_02d4d478.json` (pinned in
 `ee34e9a`) -- not retyped from a console:
 
 ```
-Decoded OK:   789,029      Decode errors:      0
-Raw/Skip:      31,793      Not in table: 166,134
+Decoded OK:   789,606      Decode errors:      0
+Raw/Skip:      31,793      Not in table: 165,557
 No field name:  2,027      Typed:          79.8%
 Effect blobs:  53,908
 ```
 
-The four buckets partition `Rows offered` exactly (789,029 + 31,793 + 166,134 +
+The four buckets partition `Rows offered` exactly (789,606 + 31,793 + 165,557 +
 2,027 = 988,983), and `Typed` is `Decoded OK / Rows offered`. The figures this
 block held until 2026-08-30 partitioned the same 988,983 rows differently -- they
 were an older snapshot, taken before overlay entries that moved rows out of `Not
@@ -645,9 +645,13 @@ whatever `tools/baselines/export_02d4d478.json` currently records.)
 Physical value coverage is the fraction of `fields.parquet` rows with at
 least one non-null `value_*` column. It cannot be computed by adding overlay,
 effect-blob or struct counters: these count different units and may describe
-parent/child expansions of the same input. The post-time-typing baseline has
-887,592 typed rows out of 1,277,983 (69.45%), measured directly from its columns.
+parent/child expansions of the same input. The current reference baseline has
+888,169 typed rows out of 1,277,983 (69.50%), measured directly from its columns.
 That snapshot is not a fraction of all game information understood.
+
+The latest [714-replay schema expansion](docs/SCHEMA_EXPANSION.md) independently
+verified 6,805,323 additional typed values, with physical coverage of 69.98%
+main and 52.90% checkpoint. Raw field columns and non-field exports are unchanged.
 
 Measure the files you actually use, with checkpoint rows reported separately:
 
@@ -691,7 +695,7 @@ checkpoint decode failures. This separate check exists because `vrfkit
 validate` does not print overlay counters, so `validate_corpus.py` alone cannot
 see a wrong type. Reaching zero found three places where the wire disagreed
 with the C# declarations; they are recorded with evidence in
-`tools/apply_type_corrections.py` (147 corrections, verified with `--check`).
+`tools/apply_type_corrections.py` (185 corrections, verified with `--check`).
 
 | Symptom | Actual | Evidence |
 |---|---|---|
@@ -846,7 +850,7 @@ Five files in the tree are generated and must never be edited by hand:
 
 | Generated file | Generator | Notes |
 |---|---|---|
-| `crates/vrf-decode/src/table.rs` | `tools/extract_descriptors.py` then `tools/apply_type_corrections.py` | The overlay table (1,271 entries, 199 groups, 84 handles) and handle table |
+| `crates/vrf-decode/src/table.rs` | `tools/extract_descriptors.py` then `tools/apply_type_corrections.py` | The overlay table (1,309 entries, 214 groups, 84 handles) and handle table |
 | `crates/vrf-decode/src/checksum_table.rs` | `tools/extract_checksum_types.py` | Replay-observed checksum-to-type propagation table; conflicting donors are omitted |
 | `crates/vrf-transform/src/sbox.rs` | `tools/extract_sboxes.py` | 768-byte S-box, shared across builds |
 | `crates/vrf-transform/tests/data/golden_vectors.rs` | `tools/extract_golden.py` | Per-build golden test vectors |

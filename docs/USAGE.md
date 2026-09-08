@@ -126,12 +126,20 @@ vrfkit diag match.vrf --json failures.json
 vrfkit diag match.vrf --json failure-samples.json --include-payloads
 ```
 
-JSON schema version 2 separates main/checkpoint counters and aggregates by
+JSON schema version 3 separates main/checkpoint counters and aggregates by
 stream kind, cause, resolved group, function count, handle and consumed bits.
 Totals include every failure. Distinct cells are bounded; an explicit overflow
 bucket accounts for additional keys. Check overflow before treating the listed
 groups as a complete distribution. Whole RPC payloads preserved by the parser
 are counted separately from lost streams.
+
+Pre-framing partial diagnostics have a separate attempted-bunch denominator
+(`partial_bunches`) and accepted-fragment counter (`partial_fragments`). Cause
+counts distinguish missing initial fragments, overlapping initials, mismatched
+continuations, alignment refusals, channel closure and resource limits.
+Unclassified and overclassified residuals expose incomplete or duplicate
+attribution. These are error events: one attempted fragment can trigger more
+than one cause, so their sum is not a rejected-fragment percentage.
 
 Payload samples are disabled by default. `--include-payloads` adds bounded
 decoded byte samples; prefixes are marked as truncated. The file path and group
@@ -176,7 +184,7 @@ member and handle by name.
 ```
 
 (That figure is `02d4d478`'s, from `tools/baselines/export_02d4d478.json`:
-`overlay_decoded_ok / overlay_rows_offered` = 789,029 / 988,983. It moves as
+`overlay_decoded_ok / overlay_rows_offered` = 789,606 / 988,983. It moves as
 overlay entries are added -- re-measure before quoting it.)
 
 The denominator is **every row offered** to the overlay, and thanks to RPC
@@ -195,12 +203,12 @@ Measured on `02d4d478` (48,215,213 bytes):
 
 | File | Rows | Bytes | Notes |
 |---|---|---|---|
-| `fields.parquet` | 1,277,983 | 16,119,220 | |
+| `fields.parquet` | 1,277,983 | 16,121,012 | |
 | `movement.parquet` | 1,839,607 | 31,835,557 | |
 | `actors.parquet` | 3,827 | 87,281 | |
 | `net_guids.parquet` | 16,167 | 153,606 | |
 | `events.parquet` | 195 | 13,411 | |
-| `checkpoint_fields.parquet` | 78,924 | 234,673 | requires `--checkpoints` |
+| `checkpoint_fields.parquet` | 78,924 | 238,016 | requires `--checkpoints` |
 | `manifest.json` | -- | ~660,030 | varies: it records `elapsed_ms` |
 
 Use [`bench_export.py`](#analysis-helpers) to measure runtime on your machine.
@@ -517,7 +525,7 @@ needs it.
 
 | Script | Produces |
 |---|---|
-| `extract_descriptors.py` | `crates/vrf-decode/src/table.rs` (overlay table 1,271 + 84 handles) |
+| `extract_descriptors.py` | `crates/vrf-decode/src/table.rs` (overlay table 1,309 + 84 handles) |
 | `apply_type_corrections.py` | Applies verified corrections/additions to that file and recomputes the two-line generation header |
 | `extract_checksum_types.py` | `crates/vrf-decode/src/checksum_table.rs` -- `compatible_checksum` -> `FieldType`, learned from the fields the overlay table already declares. Needs an export directory rather than the C# tree, since checksums come from the replay. Checksums whose donors disagree are dropped, which is the safety property. Repeat `--export` to widen the basis; the run **merges** into the committed table rather than replacing it, because a checksum this basis did not happen to see is still correct. `--check` asks whether the two agree *where they overlap* -- not whether they are byte-identical, which a content-addressed table cannot be across different sets of replays. |
 | `extract_sboxes.py` | `crates/vrf-transform/src/sbox.rs` |
@@ -531,15 +539,15 @@ the script does not trust its own apply count -- it **re-verifies the final
 state after applying** and fails if it disagrees.
 
 ```bash
-python tools/apply_type_corrections.py           # apply, then verify (147 corrections)
+python tools/apply_type_corrections.py           # apply, then verify (185 corrections)
 python tools/apply_type_corrections.py --check   # verify only
 ```
 
-Those 147 corrections are the whole live expectation set the script re-verifies; `ADDITIONS` is the
-subset of it that has no C# descriptor behind it at all.
+Those 185 corrections are the whole live expectation set the script re-verifies; `ADDITIONS` is the
+subset absent from the currently pinned C# descriptor input.
 
-The `ADDITIONS` pass inserts items the C# descriptor is **silent on**. There are
-currently 86 of them, and every one is admitted on wire evidence written into the
+The `ADDITIONS` pass inserts items the pinned C# input is **silent on**. There are
+currently 124 of them, and every one is admitted on wire evidence written into the
 comment above the list -- bit width, value range, distribution -- and nothing else.
 The original three still show the bar: `BaseTeamState.LoadoutValue` /
 `AverageLoadoutValue` (26-I, where the reference declares the type of the same
@@ -687,6 +695,26 @@ deliberately sequential for accuracy.
 
 ### Analysis helpers
 
+`compare_descriptor_sources.py --baseline <checkout-or-repo::ref>
+--candidate <checkout-or-repo::ref> --downstream-table <table.rs> --output audit.json`
+compares C# descriptor inputs without fetching or changing their checkouts.
+It reports source-file, parsed type and handle changes, plus downstream entries
+that wholesale regeneration would remove or overwrite. Git commits, input
+digests and the extractor digest identify the compared sources. Changes are
+review candidates; unsupported C# syntax can appear only in the source-file
+diff, so an empty parsed diff does not prove an unchanged schema.
+
+`validate_type_evidence.py <export-or-parent> <specifications.json>` independently
+reads raw payloads against explicit primitive type proposals. Each specification
+names an exact exported group and field, and the decoder requires full payload
+consumption. This checks structure and observed numeric ranges, not gameplay
+meaning. Use it before adding overlay types and when comparing their emitted
+values after export (`--compare-typed`). The shipped `tools/fixtures/type_evidence.json`
+covers the 38 additions; `tools/fixtures/type_evidence_aliases.json` separately
+covers their existing Swiftplay class-alias propagation. Both were checked on
+all corresponding observed rows in the 714-replay corpus. A specimen must not
+be promoted to gameplay semantics just because this primitive check passes.
+
 `summarize_value_coverage.py <export-or-parent> [--jobs 4]` reads the physical
 `value_i64/f64/bool/str` columns and emits JSON to stdout. It counts each row
 once if any typed column is non-null, including zero, false and empty strings.
@@ -695,11 +723,34 @@ reported by the number of exports containing them. Malformed inputs produce
 `complete: false` and a nonzero exit, rather than an apparently complete total.
 This measures value presence, not semantic understanding or block preservation.
 
+`--semantic-evidence <catalog.json>` additionally reports rows selected by an
+opt-in, reviewed evidence catalog. It is a bounded audit count, never a
+semantic-coverage percentage: only `reviewed` claims with exact criteria are
+counted; `unknown` and `unsupported` claims remain explicit and uncounted. A
+catalog has `schema_version: 1`, a versioned `sources` list, and `claims`.
+Every source needs an `id`, `version`, and non-empty `scope` (record build,
+replay count, and commands there when known). Every claim names its source,
+table, evidence status, and non-empty exact-match `criteria`; reviewed claims
+also require a semantic label, review date, evidence note, exact `group_path`
+and `field_name`, and enforceable `applicability`. Applicability must name
+explicit export-directory IDs and/or replay builds; build applicability is
+checked from each export's `manifest.json`. Build strings must match
+`replay_build` exactly (for example,
+`++Ares-Core+release-13.05`). If both export IDs and builds are supplied, both
+restrictions must match. Source scope documents the evidence
+sample; claim applicability limits where that evidence may be counted. The
+report includes the catalog SHA-256 and full source/claim definitions. A
+duplicate claim/source ID, non-finite number, missing applicability, or a
+criteria field absent from an export makes the report incomplete and returns
+nonzero. Typed values and field names alone do not qualify a row for reviewed
+semantic evidence.
+
 | Script | What it does |
 |---|---|
 | `analyze_coverage.py` | Coverage analysis |
 | `extract_ability_stats.py` | Validates a build-scoped Statistic/FText dictionary from exact cast/effect array slots, with main and checkpoint observations separate. Unknown IDs, changed names, missing partners and conflicts remain visible and return a nonzero exit. Counts are snapshots, not casts. |
 | `extract_match_observations.py` | Exports evidence-labelled ammo changes, equip/reload intervals, round balances, team loadouts, defuse observations and economic state. Money decreases and transaction snapshots remain separate; temporal association is not a verified purchase ledger. |
+| `extract_ability_lifecycle.py` | Emits ability-path actor candidates with observed open/close/dormant events and explicit Owner/Instigator references. Player links are identity evidence, not proof of casts. Missing closes remain censored; no nearest-player attribution or fixed duration is used. |
 | `analyze_raw_properties.py` | Streams a deterministic size-stratified corpus sample (or `--all`) one temporary export at a time and inventories preserved unnamed/raw replicated properties. Reports only build-level counts, bit widths, and anonymous recurrence ranks; it never prints replay paths/names, group/actor/object/handle/checksum identifiers, hashes, or payloads. Exits nonzero if an unnamed property row lacks exact-length `raw_bits`. Use `--format json` for a deterministic, versioned aggregate document. |
 | `find_skips.py` | Finds skipped bits |
 | `bench_export.py` | Times a full `export` against `tools/baselines/bench.json`. A smoke detector, not a profiler -- wall clock is noisy, so the default tolerance is 25% and it answers "did something get twice as slow", nothing finer. Reports a run *faster* than the baseline too: that means the recorded number no longer describes the code. |
@@ -709,6 +760,7 @@ This measures value presence, not semantic understanding or block preservation.
 ```bash
 python tools/extract_ability_stats.py --export <export-directory> --out ability-stats.json
 python tools/extract_match_observations.py --export <export-directory> --out observations.json
+python tools/extract_ability_lifecycle.py --export <export-directory> --out ability-lifecycle.json
 ```
 
 Repeat `--export` for the stat dictionary when comparing builds. The observed
@@ -754,14 +806,14 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 623 passing
+cargo +1.86.0 test --workspace --locked                              # 629 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 122 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 583 passing
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 614 passing
 python -W error tools/check_docs.py --fast
-python -W error tools/apply_type_corrections.py --check              # 147 corrections
+python -W error tools/apply_type_corrections.py --check              # 185 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
 python -W error tools/check_baseline_schemas.py
 ```
@@ -856,7 +908,7 @@ silent change must be impossible.
 
 The current 714-file sweep passes ReplayData block validation and separately
 reports zero checkpoint block loss. Both exclude rejected partial bunches
-before block framing. Physical typed coverage is 69.92% main and 41.30%
+before block framing. Physical typed coverage is 69.98% main and 52.90%
 checkpoint; [FOLLOWUP.md](FOLLOWUP.md) gives exact denominators and limitations.
 Historical measurements follow; their percentages are not current results. The 2026-09-07 full sweep exported all 714
 files but found field-stream loss in every `validate` run. The main weighted

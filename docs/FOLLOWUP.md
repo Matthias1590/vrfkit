@@ -1,5 +1,10 @@
 # September 2026 corpus follow-up
 
+This is the earlier tail-preservation batch. The subsequent
+[schema expansion and full partial-cause audit](SCHEMA_EXPANSION.md) supersedes
+its typed-value percentages and four-file-only cause classification. The
+before/after figures below remain the dated results of this earlier batch.
+
 This note records the final measurements for the September 2026 batch and
 separates completed parser work from unresolved transport loss. Measurements
 cover 714 preserved replays: 215 build 13.01, 204 build 13.02, 108 build 13.04

@@ -96,8 +96,22 @@ pub(super) fn print(
     eprintln!("  Bunches:          {}", net_stats.bunches);
     eprintln!("  Malformed pkts:   {}", net_stats.malformed_packets);
     eprintln!(
-        "  Partial bunches:  {} errors / {} fragments / {} completed",
-        net_stats.partial_errors, net_stats.partial_fragments, net_stats.partial_completed
+        "  Partial bunches:  {} attempted / {} errors / {} accepted fragments / {} completed",
+        net_stats.partial_bunches,
+        net_stats.partial_errors,
+        net_stats.partial_fragments,
+        net_stats.partial_completed
+    );
+    eprintln!(
+        "  Partial causes:   {} missing initial / {} overlapping initial / {} mismatched continuation / {} unaligned / {} channel close / {} resource limit / {} unclassified / {} overclassified",
+        net_stats.partial_missing_initial,
+        net_stats.partial_overlapping_initial,
+        net_stats.partial_mismatched_continuation,
+        net_stats.partial_non_byte_aligned,
+        net_stats.partial_channel_close,
+        net_stats.partial_resource_limit_failures,
+        net_stats.partial_unclassified_errors(),
+        net_stats.partial_overclassified_errors()
     );
     eprintln!("  Bunch header fails: {}", net_stats.bunch_header_failures);
     eprintln!(
@@ -265,8 +279,22 @@ fn print_checkpoints(cp: &CheckpointStats) {
         cp.net.bunches, cp.net.content_blocks, cp.net.fields, cp.net.rpcs
     );
     eprintln!(
-        "  Checkpoint partial:{} errors / {} fragments / {} completed",
-        cp.net.partial_errors, cp.net.partial_fragments, cp.net.partial_completed
+        "  Checkpoint partial:{} attempted / {} errors / {} accepted fragments / {} completed",
+        cp.net.partial_bunches,
+        cp.net.partial_errors,
+        cp.net.partial_fragments,
+        cp.net.partial_completed
+    );
+    eprintln!(
+        "  Checkpoint causes: {} missing initial / {} overlapping initial / {} mismatched continuation / {} unaligned / {} channel close / {} resource limit / {} unclassified / {} overclassified",
+        cp.net.partial_missing_initial,
+        cp.net.partial_overlapping_initial,
+        cp.net.partial_mismatched_continuation,
+        cp.net.partial_non_byte_aligned,
+        cp.net.partial_channel_close,
+        cp.net.partial_resource_limit_failures,
+        cp.net.partial_unclassified_errors(),
+        cp.net.partial_overclassified_errors()
     );
     eprintln!(
         "  Checkpoint loss:  {} malformed packets / {} bunch headers / {} malformed blocks / {} transform / {} field / {} RPC / {} unfinished partials ({} bits) / {} skipped bits",

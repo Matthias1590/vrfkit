@@ -233,7 +233,7 @@ pub fn run(path: &str, json_path: Option<&str>, include_payloads: bool) -> Resul
     let main_failures = channel_state.take_failure_aggregate();
     let mut json = String::with_capacity(1 << 16);
     json.push_str("{\n");
-    json.push_str("  \"schema_version\": 2,\n");
+    json.push_str("  \"schema_version\": 3,\n");
     json.push_str("  \"tool\": \"vrfkit diag\",\n");
     json.push_str("  \"file\": ");
     push_json_string(&mut json, path);
@@ -517,6 +517,44 @@ fn push_net_stats(out: &mut String, s: &NetStats) {
         ("malformed_packets", s.malformed_packets.to_string()),
         ("bunches", s.bunches.to_string()),
         ("partial_errors", s.partial_errors.to_string()),
+        ("partial_bunches", s.partial_bunches.to_string()),
+        (
+            "partial_missing_initial",
+            s.partial_missing_initial.to_string(),
+        ),
+        (
+            "partial_missing_initial_final",
+            s.partial_missing_initial_final.to_string(),
+        ),
+        (
+            "partial_missing_initial_reliable",
+            s.partial_missing_initial_reliable.to_string(),
+        ),
+        (
+            "partial_missing_initial_bits",
+            s.partial_missing_initial_bits.to_string(),
+        ),
+        (
+            "partial_overlapping_initial",
+            s.partial_overlapping_initial.to_string(),
+        ),
+        (
+            "partial_mismatched_continuation",
+            s.partial_mismatched_continuation.to_string(),
+        ),
+        (
+            "partial_non_byte_aligned",
+            s.partial_non_byte_aligned.to_string(),
+        ),
+        ("partial_channel_close", s.partial_channel_close.to_string()),
+        (
+            "partial_unclassified_errors",
+            s.partial_unclassified_errors().to_string(),
+        ),
+        (
+            "partial_overclassified_errors",
+            s.partial_overclassified_errors().to_string(),
+        ),
         ("partial_fragments", s.partial_fragments.to_string()),
         ("partial_completed", s.partial_completed.to_string()),
         ("unfinished_partials", s.unfinished_partials.to_string()),

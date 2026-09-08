@@ -314,8 +314,22 @@ pub fn run(path: &str, diagnostics: bool) -> Result<Verdict, CliError> {
     println!("    Deleted:            {deleted}");
     println!("    Malformed packets:  {}", stats.malformed_packets);
     println!(
-        "    Partial bunches:    {} errors / {} fragments / {} completed",
-        stats.partial_errors, stats.partial_fragments, stats.partial_completed
+        "    Partial bunches:    {} attempted / {} errors / {} accepted fragments / {} completed",
+        stats.partial_bunches,
+        stats.partial_errors,
+        stats.partial_fragments,
+        stats.partial_completed
+    );
+    println!(
+        "    Partial causes:     {} missing initial / {} overlapping initial / {} mismatched continuation / {} unaligned / {} channel close / {} resource limit / {} unclassified / {} overclassified",
+        stats.partial_missing_initial,
+        stats.partial_overlapping_initial,
+        stats.partial_mismatched_continuation,
+        stats.partial_non_byte_aligned,
+        stats.partial_channel_close,
+        stats.partial_resource_limit_failures,
+        stats.partial_unclassified_errors(),
+        stats.partial_overclassified_errors()
     );
     println!("    Bunch header failed:{}", stats.bunch_header_failures);
     println!("    Malformed framing:  {malformed}");

@@ -29,6 +29,62 @@ fn canonical_group_leaves_a_bomb_class_alone() {
 }
 
 #[test]
+fn bomb_player_crosshair_fields_are_typed_without_the_colliding_b() {
+    const GROUP: &str = "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C";
+    let table = OverlayTable::new(&OVERLAY_TABLE);
+    for field in [
+        "bHasOutline",
+        "bDisplayCenterDot",
+        "bShowLines",
+        "bUseAdvancedOptions",
+    ] {
+        assert_eq!(table.lookup(GROUP, field), Some(FieldType::Bool), "{field}");
+    }
+    for field in ["OutlineThickness", "CenterDotSize", "LineLength", "Opacity"] {
+        assert_eq!(
+            table.lookup(GROUP, field),
+            Some(FieldType::Float),
+            "{field}"
+        );
+    }
+    for field in ["G", "R"] {
+        assert_eq!(table.lookup(GROUP, field), Some(FieldType::Byte), "{field}");
+    }
+    assert_eq!(table.lookup(GROUP, "ProfileName"), Some(FieldType::FString));
+    assert_eq!(
+        table.lookup(GROUP, "B"),
+        None,
+        "B has both 8- and 32-bit wire fields"
+    );
+}
+
+#[test]
+fn tidal_wave_rpc_parameters_are_typed() {
+    const CHUNK: &str = "/Game/Characters/Mage/S0/Ability_X/GameObject_Mage_X_TidalWave_Chunk.GameObject_Mage_X_TidalWave_Chunk_C";
+    let table = OverlayTable::new(&OVERLAY_TABLE);
+    let initialize = format!("{CHUNK}:MulticastInitialize");
+    for (field, field_type) in [
+        ("ChunkIndex", FieldType::Int32),
+        ("ChunkSpacing", FieldType::Float),
+        ("Velocity In", FieldType::Double),
+        ("PreviousChunk", FieldType::ObjectNetGuid),
+    ] {
+        assert_eq!(
+            table.lookup(&initialize, field),
+            Some(field_type),
+            "{field}"
+        );
+    }
+    assert_eq!(
+        table.lookup(
+            &format!("{CHUNK}:MulticastWallStartLinger"),
+            "FinalEndpointReached"
+        ),
+        Some(FieldType::Bool)
+    );
+}
+
+#[test]
 fn canonical_group_maps_the_swiftplay_siblings() {
     assert_eq!(canonical_group(SWIFT_GS), BOMB_GS);
     assert_eq!(canonical_group(SWIFT_PS), BOMB_PS);

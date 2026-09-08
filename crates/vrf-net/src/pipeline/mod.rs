@@ -510,6 +510,7 @@ impl ReplicationReader {
         let bit_count = payload.bits_remaining();
 
         if header.b_partial {
+            stage.stats.partial_bunches += 1;
             let byte_count = stage_fragment(payload, fragment_stage);
 
             let result = accumulator.add_fragment(
@@ -522,6 +523,30 @@ impl ReplicationReader {
                 &mut stage.stats.partial_completed,
             );
             *header = result.header;
+
+            if result.overlapping_initial {
+                stage.stats.partial_overlapping_initial += 1;
+            }
+            match result.error_kind {
+                Some(crate::error::PartialSequenceKind::MissingInitial) => {
+                    stage.stats.partial_missing_initial += 1;
+                    stage.stats.partial_missing_initial_bits += bit_count;
+                    if header.b_partial_final {
+                        stage.stats.partial_missing_initial_final += 1;
+                    }
+                    if header.b_reliable {
+                        stage.stats.partial_missing_initial_reliable += 1;
+                    }
+                }
+                Some(crate::error::PartialSequenceKind::OverlappingInitial) => {}
+                Some(crate::error::PartialSequenceKind::MismatchedContinuation) => {
+                    stage.stats.partial_mismatched_continuation += 1;
+                }
+                Some(crate::error::PartialSequenceKind::NonByteAlignedFragment) => {
+                    stage.stats.partial_non_byte_aligned += 1;
+                }
+                None => {}
+            }
 
             stage.stats.skipped_bits += result.discarded_bits as u64;
             if result.resource_limit.is_some() {
@@ -598,6 +623,7 @@ impl ReplicationReader {
         let discarded = accumulator.retire_channel(header.ch_index);
         if discarded != 0 {
             stage.stats.partial_errors += 1;
+            stage.stats.partial_channel_close += 1;
             stage.stats.skipped_bits += discarded as u64;
         }
     }
@@ -952,6 +978,7 @@ mod tests {
         let stats = reader.stats();
         assert_eq!(stats.bunches, 2);
         assert_eq!(stats.partial_fragments, 2);
+        assert_eq!(stats.partial_bunches, 2);
         assert_eq!(stats.partial_completed, 1);
         assert_eq!(stats.partial_errors, 0);
         assert_eq!(stats.actor_opens, 1, "the open is read from fragment 1");
@@ -1003,6 +1030,14 @@ mod tests {
             1,
             "one missing-initial error, counted once (not twice)"
         );
+        assert_eq!(reader.stats().partial_bunches, 1);
+        assert_eq!(reader.stats().partial_missing_initial, 1);
+        assert_eq!(reader.stats().partial_missing_initial_final, 1);
+        assert_eq!(reader.stats().partial_missing_initial_reliable, 1);
+        assert_eq!(reader.stats().partial_missing_initial_bits, 8);
+        assert_eq!(reader.stats().partial_overlapping_initial, 0);
+        assert_eq!(reader.stats().partial_mismatched_continuation, 0);
+        assert_eq!(reader.stats().partial_non_byte_aligned, 0);
         assert_eq!(
             reader.stats().skipped_bits,
             8,

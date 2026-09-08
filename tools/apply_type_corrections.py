@@ -295,6 +295,54 @@ EXPECTED += [
 #: a Bool widened to 32 bits by the property block), and RequestedIgnoreActors
 #: (a variable-width array).
 ADDITIONS = [
+    # Crosshair settings: every adopted name was independently decoded on
+    # retained 13.01/13.02/13.04/13.05 payloads with exact consumption. B is
+    # deliberately absent: its color handles are 8-bit, but handle 208 uses
+    # the same name for a 32-bit field, which a name-keyed overlay cannot split.
+    *[("/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C", field,
+       "FieldType::Bool") for field in (
+        "bHasOutline", "bDisplayCenterDot", "bFadeCrosshairWithFiringError",
+        "bShowSpectatedPlayerCrosshair", "bFixMinErrorAcrossWeapons",
+        "bAllowVertScaling", "bShowMovementError", "bShowShootingError",
+        "bShowMinError", "bShowLines", "bUsePrimaryCrosshairForADS",
+        "bUseCustomCrosshairOnAllPrimary", "bUseAdvancedOptions",
+    )],
+    *[("/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C", field,
+       "FieldType::Float") for field in (
+        "OutlineThickness", "OutlineOpacity", "CenterDotSize",
+        "CenterDotOpacity", "LineThickness", "LineLength",
+        "LineLengthVertical", "LineOffset", "Opacity", "FiringErrorScale",
+        "MovementErrorScale",
+    )],
+    ("/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C", "G", "FieldType::Byte"),
+    ("/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C", "R", "FieldType::Byte"),
+    ("/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+     "ProfileName", "FieldType::FString"),
+    # Tidal Wave types come from upstream 99d9646 (pinned at b51d674) and each
+    # was independently confirmed against retained payload widths and ranges.
+    # AliveChunks is a variable-width collection and remains raw.
+    *[("/Game/Characters/Mage/S0/Ability_X/"
+       "GameObject_Mage_X_TidalWave_Chunk.GameObject_Mage_X_TidalWave_Chunk_C:"
+       "MulticastInitialize", field, field_type) for field, field_type in (
+        ("ChunkIndex", "FieldType::Int32"),
+        ("Generation", "FieldType::Int32"),
+        ("Num Chunks", "FieldType::Int32"),
+        ("ChunkSpacing", "FieldType::Float"),
+        # The replay exports a space; upstream labels handle 4 `VelocityIn`.
+        ("Velocity In", "FieldType::Double"),
+        ("Anchor Spacing In", "FieldType::Double"),
+        ("Num Crossfade Anchors In", "FieldType::Int32"),
+        ("PreviousChunk", "FieldType::ObjectNetGuid"),
+    )],
+    ("/Game/Characters/Mage/S0/Ability_X/"
+     "GameObject_Mage_X_TidalWave_Chunk.GameObject_Mage_X_TidalWave_Chunk_C:"
+     "MulticastWallStartLinger", "LingerWallStopPosition", "FieldType::Double"),
+    ("/Game/Characters/Mage/S0/Ability_X/"
+     "GameObject_Mage_X_TidalWave_Chunk.GameObject_Mage_X_TidalWave_Chunk_C:"
+     "MulticastWallStartLinger", "FinalEndpointReached", "FieldType::Bool"),
+    ("/Game/Characters/Mage/S0/Ability_X/"
+     "GameObject_Mage_X_TidalWave.GameObject_Mage_X_TidalWave_C:MulticastStopWave",
+     "FinalEndpointReached", "FieldType::Bool"),
     ("/Game/GameModes/Bomb/BombGameState.BombGameState_C",
      "ChosenCeremonyForRound", "FieldType::ObjectNetGuid"),
     # Phoenix's wall, the other class declaring `MulticastAddSmokeScreenPoint`.

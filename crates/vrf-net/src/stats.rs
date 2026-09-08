@@ -46,6 +46,24 @@ pub struct NetStats {
     pub bunches: u64,
     /// Partial-bunch sequence errors (fragment discarded).
     pub partial_errors: u64,
+    /// Bunches whose header declared `b_partial`, including rejected ones.
+    pub partial_bunches: u64,
+    /// Rejected continuations for which no initial fragment was buffered.
+    pub partial_missing_initial: u64,
+    /// Missing-initial rejects that were marked as the final fragment.
+    pub partial_missing_initial_final: u64,
+    /// Missing-initial rejects on reliable channels.
+    pub partial_missing_initial_reliable: u64,
+    /// Payload bits in missing-initial fragments, all discarded before framing.
+    pub partial_missing_initial_bits: u64,
+    /// Initial fragments that replaced an incomplete assembly on the channel.
+    pub partial_overlapping_initial: u64,
+    /// Continuations whose reliability or sequence did not match the assembly.
+    pub partial_mismatched_continuation: u64,
+    /// Non-final fragments rejected because their payload was not byte-aligned.
+    pub partial_non_byte_aligned: u64,
+    /// Buffered assemblies discarded by a destructive channel close.
+    pub partial_channel_close: u64,
     /// Partial fragments accumulated (initial + continuations).
     pub partial_fragments: u64,
     /// Partial bunches that completed successfully.
@@ -197,6 +215,32 @@ pub struct NetStats {
 }
 
 impl NetStats {
+    /// Partial errors not explained by the mutually exclusive cause counters.
+    ///
+    /// Kept as a derived residual so an old or newly added error path remains
+    /// visible instead of being silently assigned to the nearest known cause.
+    #[must_use]
+    pub fn partial_unclassified_errors(&self) -> u64 {
+        self.partial_errors
+            .saturating_sub(self.classified_partial_errors())
+    }
+
+    /// Cause counts in excess of `partial_errors`, if attribution double-counted.
+    #[must_use]
+    pub fn partial_overclassified_errors(&self) -> u64 {
+        self.classified_partial_errors()
+            .saturating_sub(self.partial_errors)
+    }
+
+    fn classified_partial_errors(&self) -> u64 {
+        self.partial_missing_initial
+            + self.partial_overlapping_initial
+            + self.partial_mismatched_continuation
+            + self.partial_non_byte_aligned
+            + self.partial_channel_close
+            + self.partial_resource_limit_failures
+    }
+
     /// Add every counter from a completed independent replication pass.
     ///
     /// Diagnostics are appended up to the ordinary cap and any excess is
@@ -207,6 +251,15 @@ impl NetStats {
         self.malformed_packets += other.malformed_packets;
         self.bunches += other.bunches;
         self.partial_errors += other.partial_errors;
+        self.partial_bunches += other.partial_bunches;
+        self.partial_missing_initial += other.partial_missing_initial;
+        self.partial_missing_initial_final += other.partial_missing_initial_final;
+        self.partial_missing_initial_reliable += other.partial_missing_initial_reliable;
+        self.partial_missing_initial_bits += other.partial_missing_initial_bits;
+        self.partial_overlapping_initial += other.partial_overlapping_initial;
+        self.partial_mismatched_continuation += other.partial_mismatched_continuation;
+        self.partial_non_byte_aligned += other.partial_non_byte_aligned;
+        self.partial_channel_close += other.partial_channel_close;
         self.partial_fragments += other.partial_fragments;
         self.partial_completed += other.partial_completed;
         self.unfinished_partials += other.unfinished_partials;
@@ -594,12 +647,45 @@ mod tests {
     }
 
     #[test]
+    fn unknown_partial_error_paths_remain_visible_as_a_residual() {
+        let stats = NetStats {
+            partial_errors: 9,
+            partial_missing_initial: 2,
+            partial_overlapping_initial: 1,
+            partial_mismatched_continuation: 1,
+            partial_non_byte_aligned: 1,
+            partial_channel_close: 1,
+            partial_resource_limit_failures: 1,
+            ..Default::default()
+        };
+        assert_eq!(stats.partial_unclassified_errors(), 2);
+        assert_eq!(stats.partial_overclassified_errors(), 0);
+
+        let over = NetStats {
+            partial_errors: 1,
+            partial_missing_initial: 2,
+            ..Default::default()
+        };
+        assert_eq!(over.partial_unclassified_errors(), 0);
+        assert_eq!(over.partial_overclassified_errors(), 1);
+    }
+
+    #[test]
     fn absorbing_checkpoint_stats_keeps_every_counter() {
         let source = NetStats {
             packets: 1,
             malformed_packets: 2,
             bunches: 3,
             partial_errors: 4,
+            partial_bunches: 35,
+            partial_missing_initial: 36,
+            partial_missing_initial_final: 41,
+            partial_missing_initial_reliable: 42,
+            partial_missing_initial_bits: 43,
+            partial_overlapping_initial: 37,
+            partial_mismatched_continuation: 38,
+            partial_non_byte_aligned: 39,
+            partial_channel_close: 40,
             partial_fragments: 5,
             partial_completed: 6,
             unfinished_partials: 7,
@@ -640,6 +726,15 @@ mod tests {
         assert_eq!(totals.malformed_packets, 4);
         assert_eq!(totals.bunches, 6);
         assert_eq!(totals.partial_errors, 8);
+        assert_eq!(totals.partial_bunches, 70);
+        assert_eq!(totals.partial_missing_initial, 72);
+        assert_eq!(totals.partial_missing_initial_final, 82);
+        assert_eq!(totals.partial_missing_initial_reliable, 84);
+        assert_eq!(totals.partial_missing_initial_bits, 86);
+        assert_eq!(totals.partial_overlapping_initial, 74);
+        assert_eq!(totals.partial_mismatched_continuation, 76);
+        assert_eq!(totals.partial_non_byte_aligned, 78);
+        assert_eq!(totals.partial_channel_close, 80);
         assert_eq!(totals.partial_fragments, 10);
         assert_eq!(totals.partial_completed, 12);
         assert_eq!(totals.unfinished_partials, 14);

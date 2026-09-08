@@ -1,5 +1,6 @@
 //! Bunch header structure and partial bunch reassembly.
 
+use crate::error::PartialSequenceKind;
 use crate::types::ChannelCloseReason;
 
 /// Maximum simultaneously active partial-bunch assemblies.
@@ -54,6 +55,8 @@ pub struct RawBunchHeader {
     // --- tracking flags set by partial-bunch logic ---
     /// A partial-bunch sequence error was detected for this fragment.
     pub has_partial_error: bool,
+    /// Exact sequence/alignment failure, when one was identified.
+    pub partial_error_kind: Option<PartialSequenceKind>,
     /// This fragment completed a partial bunch (was the valid final).
     pub is_partial_completed: bool,
     /// Per-channel reader state could not admit or advance this channel.
@@ -92,6 +95,11 @@ pub struct PartialBunchResult {
     pub resource_limit: Option<PartialResourceLimit>,
     /// Previously/currently buffered bits discarded by the refusal.
     pub discarded_bits: usize,
+    /// Sequence/alignment cause when this fragment was rejected.
+    pub error_kind: Option<PartialSequenceKind>,
+    /// The fragment replaced an incomplete initial, independently of whether
+    /// a second error later rejected the replacement.
+    pub overlapping_initial: bool,
 }
 
 /// Which bounded partial-reassembly resource refused a fragment.
@@ -159,16 +167,23 @@ impl PartialBunchAccumulator {
                 header,
                 resource_limit: Some(PartialResourceLimit::ActiveStates),
                 discarded_bits: payload_bit_count,
+                error_kind: None,
+                overlapping_initial: false,
             };
         }
         let (sequence_valid, sequence_discarded_bits) =
             self.validate_sequence(ch_index, &mut header, stats_partial_errors);
+        let overlapping_initial =
+            header.partial_error_kind == Some(PartialSequenceKind::OverlappingInitial);
         if !sequence_valid {
+            let error_kind = header.partial_error_kind;
             return PartialBunchResult {
                 should_process: false,
                 header,
                 resource_limit: None,
                 discarded_bits: sequence_discarded_bits.saturating_add(payload_bit_count),
+                error_kind,
+                overlapping_initial,
             };
         }
 
@@ -185,6 +200,8 @@ impl PartialBunchAccumulator {
                     header,
                     resource_limit: None,
                     discarded_bits: sequence_discarded_bits,
+                    error_kind: None,
+                    overlapping_initial,
                 };
             }
             // Final with zero payload: complete it.
@@ -197,6 +214,8 @@ impl PartialBunchAccumulator {
                 header,
                 resource_limit: None,
                 discarded_bits: sequence_discarded_bits,
+                error_kind: None,
+                overlapping_initial,
             };
         }
 
@@ -212,6 +231,8 @@ impl PartialBunchAccumulator {
                 header,
                 resource_limit: None,
                 discarded_bits,
+                error_kind: Some(PartialSequenceKind::NonByteAlignedFragment),
+                overlapping_initial,
             };
         }
 
@@ -233,6 +254,8 @@ impl PartialBunchAccumulator {
                     discarded_bits: sequence_discarded_bits
                         .saturating_add(prior)
                         .saturating_add(payload_bit_count),
+                    error_kind: None,
+                    overlapping_initial,
                 };
             }
         }
@@ -253,6 +276,8 @@ impl PartialBunchAccumulator {
                     discarded_bits: sequence_discarded_bits
                         .saturating_add(prior)
                         .saturating_add(payload_bit_count),
+                    error_kind: None,
+                    overlapping_initial,
                 };
             }
             state.bit_count = state
@@ -293,11 +318,14 @@ impl PartialBunchAccumulator {
             0
         };
 
+        let error_kind = header.partial_error_kind;
         PartialBunchResult {
             should_process: header.b_partial_final && !header.has_partial_error,
             header,
             resource_limit: None,
             discarded_bits: sequence_discarded_bits.saturating_add(error_final_bits),
+            error_kind,
+            overlapping_initial,
         }
     }
 
@@ -359,6 +387,7 @@ impl PartialBunchAccumulator {
                 if !existing.is_complete {
                     *stats_partial_errors += 1;
                     header.has_partial_error = true;
+                    header.partial_error_kind = Some(PartialSequenceKind::OverlappingInitial);
                 }
             }
             let discarded_bits = self.discard(ch_index);
@@ -386,12 +415,14 @@ impl PartialBunchAccumulator {
         if !has_state || is_complete {
             *stats_partial_errors += 1;
             header.has_partial_error = true;
+            header.partial_error_kind = Some(PartialSequenceKind::MissingInitial);
             return (false, self.discard(ch_index));
         }
 
         if prev_reliable != header.b_reliable {
             *stats_partial_errors += 1;
             header.has_partial_error = true;
+            header.partial_error_kind = Some(PartialSequenceKind::MismatchedContinuation);
             return (false, self.discard(ch_index));
         }
 
@@ -404,6 +435,7 @@ impl PartialBunchAccumulator {
         if !seq_ok {
             *stats_partial_errors += 1;
             header.has_partial_error = true;
+            header.partial_error_kind = Some(PartialSequenceKind::MismatchedContinuation);
             return (false, self.discard(ch_index));
         }
 
@@ -701,6 +733,10 @@ mod tests {
         };
         let rejected =
             acc.add_fragment(1, mismatched, &[0x1F], 5, &mut errs, &mut frags, &mut comps);
+        assert_eq!(
+            rejected.error_kind,
+            Some(PartialSequenceKind::MismatchedContinuation)
+        );
         assert_eq!(rejected.discarded_bits, 13, "8 buffered + 5 current");
         assert_eq!(acc.total_buffered_bits(), 0);
 
@@ -711,6 +747,10 @@ mod tests {
             ..Default::default()
         };
         let rejected = acc.add_fragment(2, missing, &[0x7F], 7, &mut errs, &mut frags, &mut comps);
+        assert_eq!(
+            rejected.error_kind,
+            Some(PartialSequenceKind::MissingInitial)
+        );
         assert_eq!(rejected.discarded_bits, 7, "the refused current fragment");
     }
 
@@ -739,6 +779,11 @@ mod tests {
             &mut comps,
         );
         assert_eq!(replacement.discarded_bits, 8);
+        assert_eq!(
+            replacement.error_kind,
+            Some(PartialSequenceKind::OverlappingInitial)
+        );
+        assert!(replacement.overlapping_initial);
         assert_eq!(acc.total_buffered_bits(), 16);
         assert_eq!(acc.active_count(), 1);
     }
@@ -771,6 +816,104 @@ mod tests {
             &mut comps,
         );
         assert_eq!(rejected.discarded_bits, 11);
+        assert_eq!(
+            rejected.error_kind,
+            Some(PartialSequenceKind::NonByteAlignedFragment)
+        );
         assert_eq!(acc.total_buffered_bits(), 0);
+    }
+
+    #[test]
+    fn overlapping_empty_initial_retains_its_cause() {
+        let mut acc = PartialBunchAccumulator::new();
+        let mut errs = 0;
+        let mut frags = 0;
+        let mut comps = 0;
+        let initial = RawBunchHeader {
+            ch_index: 1,
+            b_partial: true,
+            b_partial_initial: true,
+            ..Default::default()
+        };
+        acc.add_fragment(
+            1,
+            initial.clone(),
+            &[0xAA],
+            8,
+            &mut errs,
+            &mut frags,
+            &mut comps,
+        );
+        let result = acc.add_fragment(1, initial, &[], 0, &mut errs, &mut frags, &mut comps);
+        assert!(result.overlapping_initial);
+        assert_eq!(errs, 1);
+    }
+
+    #[test]
+    fn overlapping_unaligned_initial_reports_both_errors() {
+        let mut acc = PartialBunchAccumulator::new();
+        let mut errs = 0;
+        let mut frags = 0;
+        let mut comps = 0;
+        let initial = RawBunchHeader {
+            ch_index: 1,
+            b_partial: true,
+            b_partial_initial: true,
+            ..Default::default()
+        };
+        acc.add_fragment(
+            1,
+            initial.clone(),
+            &[0xAA],
+            8,
+            &mut errs,
+            &mut frags,
+            &mut comps,
+        );
+        let result = acc.add_fragment(1, initial, &[0x07], 3, &mut errs, &mut frags, &mut comps);
+        assert!(result.overlapping_initial);
+        assert_eq!(
+            result.error_kind,
+            Some(PartialSequenceKind::NonByteAlignedFragment)
+        );
+        assert_eq!(errs, 2);
+    }
+
+    #[test]
+    fn overlapping_initial_over_resource_limit_retains_both_causes() {
+        let mut acc = PartialBunchAccumulator::with_limits(2, 12);
+        let mut errs = 0;
+        let mut frags = 0;
+        let mut comps = 0;
+        let initial = RawBunchHeader {
+            ch_index: 1,
+            b_partial: true,
+            b_partial_initial: true,
+            ..Default::default()
+        };
+        acc.add_fragment(
+            1,
+            initial.clone(),
+            &[0xAA],
+            8,
+            &mut errs,
+            &mut frags,
+            &mut comps,
+        );
+        let result = acc.add_fragment(
+            1,
+            initial,
+            &[0xBB, 0xCC],
+            16,
+            &mut errs,
+            &mut frags,
+            &mut comps,
+        );
+        assert!(result.overlapping_initial);
+        assert_eq!(
+            result.resource_limit,
+            Some(PartialResourceLimit::BufferedBits)
+        );
+        assert_eq!(errs, 2);
     }
 }

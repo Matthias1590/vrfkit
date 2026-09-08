@@ -9,6 +9,10 @@ with "lost"; check stream-loss counters separately.
 Legend: ✅ typed (value decoded) · ◐ raw or derivable · ❌ unavailable in the
 stated observation scope. Absence in a sample is not proof of format-wide absence.
 
+The latest 714-replay measurements and additional crosshair/Tidal Wave fields
+are recorded in [SCHEMA_EXPANSION.md](SCHEMA_EXPANSION.md). Physical typed-value
+coverage is 69.98% main and 52.90% checkpoint; this is not semantic completeness.
+
 ---
 
 ## Player identity
@@ -19,7 +23,8 @@ stated observation scope. Absence in a sample is not proof of format-wide absenc
 | Character NetGUID | `manifest.players.character_net_guid` / `SpawnedCharacter` | ✅ joins movement 10/10 on 71 of 71 replays |
 | Agent (characterId) | `manifest` game_specific_data.playerLoadouts | ✅ |
 | Two players on the same agent | disambiguated by `subject` (characterId alone can't) | ✅ |
-| Display name | — | ❌ replays carry no display names, only the subject UUID |
+| Display name / Riot ID | — | ❌ not established by the available evidence |
+| `ProfileName` | PlayerState replicated FString | ✅ exact string decoded; its purpose is not established as a display name or Riot ID |
 
 That 10/10 was not free, and it is worth knowing why it can break.
 `SpawnedCharacter` is replicated a second time as 0 when a player disconnects,
