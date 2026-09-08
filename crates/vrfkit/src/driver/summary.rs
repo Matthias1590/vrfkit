@@ -224,6 +224,10 @@ pub(super) fn print(
         totals.sink.array_leaf_decode_errors
     );
     eprintln!(
+        "  Target locations: {} array children",
+        totals.sink.targeting_world_locations_decoded
+    );
+    eprintln!(
         "  Reward opaque:    {} empty variants",
         totals.sink.tracked_rewards_opaque_empty_variants
     );
@@ -420,6 +424,10 @@ fn print_checkpoints(cp: &CheckpointStats) {
     eprintln!(
         "  Checkpoint leaf:  {} typed decode errors",
         cp.sink.array_leaf_decode_errors
+    );
+    eprintln!(
+        "  Checkpoint targets: {} array children",
+        cp.sink.targeting_world_locations_decoded
     );
     eprintln!(
         "  Checkpoint reward opaque: {} empty variants",

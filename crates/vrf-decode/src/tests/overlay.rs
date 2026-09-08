@@ -1516,6 +1516,45 @@ fn the_random_number_generator_seed_is_typed() {
     );
 }
 
+#[test]
+fn targeting_vectors_and_heal_causer_require_exact_scoped_checksums() {
+    let table = OverlayTable::new(&OVERLAY_TABLE);
+    let cases = [
+        (
+            "/Script/ShooterGame.MapTargetingStateComponent",
+            "CursorWorldLocation",
+            3280594315,
+            FieldType::VectorDouble,
+        ),
+        (
+            "/Script/ShooterGame.MapTargetingStateComponent:MulticastRespondToValidSingleMapClick",
+            "ClickedLocation",
+            975869058,
+            FieldType::VectorDouble,
+        ),
+        (
+            "/Script/ShooterGame.DamageableComponent:MulticastNotifyHeal",
+            "HealCauser",
+            546618027,
+            FieldType::ObjectNetGuid,
+        ),
+    ];
+    for (group, field, checksum, expected) in cases {
+        assert_eq!(
+            resolve_field_type_with_checksum(&table, group, Some(field), None, Some(checksum)),
+            Some(expected)
+        );
+        assert_eq!(
+            resolve_field_type_with_checksum(&table, group, Some(field), None, Some(checksum ^ 1)),
+            None
+        );
+        assert_eq!(
+            resolve_field_type_with_checksum(&table, "/wrong", Some(field), None, Some(checksum)),
+            None
+        );
+    }
+}
+
 /// The life-change array walks into its four members, on real wire bytes.
 ///
 /// `docs/DATA.md`'s health section rests on these and nothing shipped could

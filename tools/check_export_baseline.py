@@ -114,6 +114,7 @@ COUNTERS = {
     # (0 decoded, 0 failed) from reading the same as a clean one.
     "struct_blobs_decoded": r"Struct blobs:\s+(\d+) decoded",
     "struct_blobs_failed": r"Struct blobs:\s+\d+ decoded / (\d+) failed",
+    "targeting_world_locations_decoded": r"(?m)^\s*Target locations:\s+(\d+) array children\s*$",
     # This is a measured opaque shape, not a decode-error counter: the main
     # corpus is expected to contain it. Require its unconditional summary
     # line and reconcile it with the manifest instead of requiring zero.
@@ -149,6 +150,7 @@ CHECKPOINT_COUNTERS = {
     # these regexes cannot match each other's line.
     "cp_struct_blobs_decoded": r"Checkpoint blobs:\s+(\d+) decoded",
     "cp_struct_blobs_failed": r"Checkpoint blobs:\s+\d+ decoded / (\d+) failed",
+    "cp_targeting_world_locations_decoded": r"(?m)^\s*Checkpoint targets:\s+(\d+) array children\s*$",
     "cp_tracked_rewards_opaque_empty_variants": (
         r"(?m)^\s*Checkpoint reward opaque:\s+(\d+) empty variants\s*$"
     ),
@@ -326,6 +328,22 @@ def reward_opaque_manifest_errors(
     ]
 
 
+def targeting_manifest_errors(out_dir: Path, counters: dict, checkpoints: bool) -> list[str]:
+    """Require the additive targeting count even when it is zero."""
+    key = "targeting_world_locations_decoded"
+    try:
+        quality = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))["quality"]
+        values = {key: quality["sink"][key]}
+        if checkpoints:
+            values["cp_" + key] = quality["checkpoints"]["sink"][key]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return [f"manifest omits targeting world-location quality data: {exc}"]
+    if any(type(value) is not int or value < 0 for value in values.values()):
+        return ["targeting world-location counts must be nonnegative integers"]
+    return [f"manifest {name}={value} disagrees with summary {counters.get(name)}"
+            for name, value in values.items() if counters.get(name) != value]
+
+
 def measure(exe: Path, replay: Path, out_dir: Path, checkpoints: bool = False) -> dict:
     """Export one replay and collect the summary counters and Parquet shape.
 
@@ -373,7 +391,8 @@ def measure(exe: Path, replay: Path, out_dir: Path, checkpoints: bool = False) -
             "sha256": sha256_file(path),
         }
 
-    manifest_errors = reward_opaque_manifest_errors(out_dir, counters, checkpoints)
+    manifest_errors = (reward_opaque_manifest_errors(out_dir, counters, checkpoints)
+                       + targeting_manifest_errors(out_dir, counters, checkpoints))
     if manifest_errors:
         raise SystemExit("; ".join(manifest_errors))
 

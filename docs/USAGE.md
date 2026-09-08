@@ -195,11 +195,11 @@ member and handle by name.
 #### Reading the `Typed` ratio
 
 ```
-  Typed:            80.4% (properties + RPC parameters)
+  Typed:            80.6% (properties + RPC parameters)
 ```
 
 (That figure is `02d4d478`'s, from `tools/baselines/export_02d4d478.json`:
-`overlay_decoded_ok / overlay_rows_offered` = 794,910 / 988,995. It moves as
+`overlay_decoded_ok / overlay_rows_offered` = 796,804 / 988,995. It moves as
 overlay entries are added -- re-measure before quoting it.)
 
 The denominator is **every row offered** to the overlay, and thanks to RPC
@@ -218,7 +218,7 @@ Measured on `02d4d478` (48,215,213 bytes):
 
 | File | Rows | Bytes | Notes |
 |---|---|---|---|
-| `fields.parquet` | 1,296,660 | 16,454,754 | |
+| `fields.parquet` | 1,296,660 | 16,455,045 | |
 | `movement.parquet` | 1,844,147 | 31,886,449 | |
 | `actors.parquet` | 3,827 | 87,281 | |
 | `net_guids.parquet` | 16,167 | 153,606 | |
@@ -247,13 +247,20 @@ Replicated properties and RPC parameters.
 | `channel_index` | u32 | Actor channel |
 | `actor_net_guid` | u32 | Actor NetGUID |
 | `object_net_guid` | u32? | Subobject NetGUID |
-| `group_path` | str | `NetFieldExportGroup` path; RPCs use `<Class>:<Function>` |
-| `handle` | u32 | Field handle within the group |
+| `group_path` | str | Export group path; expanded RPC parameters retain the enclosing `_ClassNetCache` group |
+| `handle` | u32 | Property handle, or enclosing function handle for expanded RPC parameters/children |
 | `field_name` | str? | Name the replay declares for that handle |
 | `compatible_checksum` | u32? | The replay's own checksum for that handle -- see below |
 | `bit_count` | u32 | Payload size in bits |
 | `raw_bits` | bytes? | Raw payload |
 | `value_i64` / `value_f64` / `value_bool` / `value_str` | | Only when the type is known |
+
+Qualified map cursor/click vectors use `(x,y,z)` in `value_str`, and HealCauser
+references use `value_i64`. Multi-click vectors appear as additive indexed
+children immediately before their raw parent. Their inner declaration handle
+differs from the exported enclosing function handle. See
+[TARGETING_AND_HEAL_VALUES.md](TARGETING_AND_HEAL_VALUES.md) for exact routes,
+counts and interpretation limits.
 
 **`compatible_checksum` is what separates "nobody described this" from "we
 missed this".** Unreal hashes a property's type into it alongside its name, so
@@ -265,9 +272,11 @@ Bucket the untyped rows by it and three different situations come apart:
 |---|---|
 | checksum present, **in** `CHECKSUM_TYPES` | the type is known and was not applied -- a resolution bug |
 | checksum present, **not** in the table | a real coverage gap: a described property nothing has typed |
-| **no checksum** | addressed inside a payload (array leaves, struct blobs), so the replay declares none |
+| **no checksum** | this row carries no checksum; a nested member may still have a separate replay declaration |
 
 `None` means the third of those, not that the export failed to carry a value.
+For example, targeting array children have null checksums in their rows even
+though their member declaration is checked before decoding.
 Over 20 replays on 13.02 the split is 0.5% / 48.6% / 51.0% of 10,062,142
 untyped rows, and it barely moves replay to replay.
 
@@ -945,12 +954,12 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 689 passing
+cargo +1.86.0 test --workspace --locked                              # 692 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 126 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 708 tests
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 709 tests
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 187 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
@@ -1096,7 +1105,7 @@ live in `%LOCALAPPDATA%\vrfkit\baseline-corpora`.
 
 ## 8. Known limits
 
-- **Untyped residual** -- the [`export`](#export) `Typed` is ~80.4% (denominator
+- **Untyped residual** -- the [`export`](#export) `Typed` is ~80.6% (denominator
   including RPC parameters). **Untyped != lost** (`raw_bits` preserved). Typing
   the rest needs the game binary or UE headers -- this is not a table-editing
   problem (archive/PROJECT_STATUS.md section 24).

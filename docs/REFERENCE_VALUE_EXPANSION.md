@@ -52,6 +52,10 @@ lifecycle meaning.
 
 ## Coverage and validation
 
+The following snapshot predates the
+[targeting and heal expansion](TARGETING_AND_HEAL_VALUES.md). Its typed-row
+ratios are historical; that report carries the newer direct measurement.
+
 A direct scan of all four typed columns in all 714 exports measured:
 
 | Scope | Physical rows | Rows with typed values | Presence |

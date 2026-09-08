@@ -294,6 +294,9 @@ pub struct ExportStats {
     /// decoder. Their raw leaf rows are still emitted; this counts the typed
     /// values that could not be recovered.
     pub array_leaf_decode_errors: u64,
+
+    /// Typed world-location children emitted from the guarded map-click array.
+    pub targeting_world_locations_decoded: u64,
 }
 
 impl ExportStats {

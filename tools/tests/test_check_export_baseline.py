@@ -286,6 +286,32 @@ class ContentIdentityTests(unittest.TestCase):
         self.assertTrue(any("fields.parquet sha256" in p for p in problems), problems)
 
 
+class TargetingCounterTests(unittest.TestCase):
+    def test_targeting_counts_require_matching_main_and_checkpoint_evidence(self):
+        key = "targeting_world_locations_decoded"
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            manifest = root / "manifest.json"
+            counts = {key: 12, "cp_" + key: 0}
+            data = {"quality": {"sink": {key: 12}, "checkpoints": {"sink": {key: 0}}}}
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            self.assertEqual(guard.targeting_manifest_errors(root, counts, True), [])
+            for changed in ({key: 11, "cp_" + key: 0}, {key: 12}, {key: 12, "cp_" + key: 1}):
+                self.assertIn("disagrees", " ".join(guard.targeting_manifest_errors(root, changed, True)))
+            for invalid in (True, -1, "0"):
+                data["quality"]["checkpoints"]["sink"][key] = invalid
+                manifest.write_text(json.dumps(data), encoding="utf-8")
+                self.assertIn("nonnegative integers", " ".join(guard.targeting_manifest_errors(root, counts, True)))
+            del data["quality"]["checkpoints"]
+            manifest.write_text(json.dumps(data), encoding="utf-8")
+            self.assertIn("omits", " ".join(guard.targeting_manifest_errors(root, counts, True)))
+            self.assertEqual(guard.targeting_manifest_errors(root, counts, False), [])
+        text = "Target locations: 12 array children\nCheckpoint targets: 0 array children\n"
+        self.assertEqual(guard.PATTERNS[key].search(text).group(1), "12")
+        self.assertEqual(re.search(guard.CHECKPOINT_COUNTERS["cp_" + key], text).group(1), "0")
+        self.assertIsNone(guard.PATTERNS[key].search("Checkpoint targets: 12 array children"))
+
+
 class RequiredInputTests(unittest.TestCase):
     def test_explicit_required_mode_cannot_report_missing_replay_as_skip(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -323,6 +349,7 @@ NetGUID rows: 1
 Actor opens: 1
 Actor closes: 0
 Reward opaque: 0 empty variants
+Target locations: 0 array children
 """
 
     def run_fake_export(self, *, fail: bool):
@@ -356,7 +383,7 @@ Reward opaque: 0 empty variants
                 "stage.mkdir()\n"
                 "for name in ('actors', 'fields', 'movement', 'net_guids', 'events', 'partials'):\n"
                 "    pq.write_table(pa.table({'value': [1]}), stage / (name + '.parquet'))\n"
-                "(stage / 'manifest.json').write_text(json.dumps({'quality': {'sink': {'tracked_rewards_opaque_empty_variants': 0}}}), encoding='utf-8')\n"
+                "(stage / 'manifest.json').write_text(json.dumps({'quality': {'sink': {'tracked_rewards_opaque_empty_variants': 0, 'targeting_world_locations_decoded': 0}}}), encoding='utf-8')\n"
                 "os.replace(out, backup)\n"
                 "os.replace(stage, out)\n"
                 "shutil.rmtree(backup)\n"

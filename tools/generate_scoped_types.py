@@ -16,7 +16,7 @@ from atomic_io import atomic_write_text
 ROOT = Path(__file__).resolve().parents[1]
 EVIDENCE = ROOT / "tools/fixtures/scoped_type_evidence.json"
 OUTPUT = ROOT / "crates/vrf-decode/src/scoped_types.rs"
-TYPES = {"Byte", "Bool", "Int32", "UInt32", "Float", "Double", "FString", "ObjectNetGuid"}
+TYPES = {"Byte", "Bool", "Int32", "UInt32", "Float", "Double", "VectorDouble", "FString", "ObjectNetGuid"}
 
 
 def load(path: Path) -> list[dict]:

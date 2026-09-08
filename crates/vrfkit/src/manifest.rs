@@ -753,6 +753,10 @@ fn write_sink_quality(
         ),
         ("array_leaf_decode_errors", sink.array_leaf_decode_errors),
         (
+            "targeting_world_locations_decoded",
+            sink.targeting_world_locations_decoded,
+        ),
+        (
             "tracked_rewards_opaque_empty_variants",
             sink.tracked_rewards_opaque_empty_variants,
         ),

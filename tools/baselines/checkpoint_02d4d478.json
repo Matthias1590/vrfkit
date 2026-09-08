@@ -21,15 +21,16 @@
     "event_layout_mismatches": 0,
     "event_payloads_decoded": 195,
     "event_payload_unknown_groups": 0,
-    "overlay_decoded_ok": 794910,
+    "overlay_decoded_ok": 796804,
     "overlay_decode_errors": 0,
     "overlay_raw_skip": 26507,
-    "overlay_not_in_table": 165544,
+    "overlay_not_in_table": 163650,
     "overlay_no_field_name": 2034,
     "overlay_rows_offered": 988995,
     "effect_blobs_decoded": 61617,
     "struct_blobs_decoded": 207,
     "struct_blobs_failed": 0,
+    "targeting_world_locations_decoded": 0,
     "tracked_rewards_opaque_empty_variants": 7,
     "cp_partial_rows": 0,
     "cp_partial_bits": 0,
@@ -51,13 +52,14 @@
     "cp_resolved_path_indices": 18526,
     "cp_struct_blobs_decoded": 205,
     "cp_struct_blobs_failed": 0,
+    "cp_targeting_world_locations_decoded": 0,
     "cp_tracked_rewards_opaque_empty_variants": 0
   },
   "parquet": {
     "fields": {
       "rows": 1296660,
-      "bytes": 16454754,
-      "sha256": "9a8dc331d60b6c9ac83ef90c4781e3f770bfd7fff7f9464bf667759074b04cc5"
+      "bytes": 16455045,
+      "sha256": "2a209449c3ee459b39c6805e8429ab53411d4ae2ecfab82c6acd8eb7e80ec8ca"
     },
     "movement": {
       "rows": 1844147,

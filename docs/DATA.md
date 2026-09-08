@@ -10,12 +10,14 @@ Legend: ✅ typed (value decoded) · ◐ raw or derivable · ❌ unavailable in 
 stated observation scope. Absence in a sample is not proof of format-wide absence.
 
 The current 714-replay field measurement is recorded in
-[REFERENCE_VALUE_EXPANSION.md](REFERENCE_VALUE_EXPANSION.md): physical
-typed-value presence is 71.0545% main, 77.3039% checkpoint, and 72.4203%
+[TARGETING_AND_HEAL_VALUES.md](TARGETING_AND_HEAL_VALUES.md): physical
+typed-value presence is 71.2336% main, 77.3065% checkpoint, and 72.5608%
 combined, counted directly from all four value columns. These physical row
 ratios are not semantic completeness. Both corpus guards and the independent
-all-file comparison pass on all 714 inputs.
+before/after comparison pass on all 714 inputs.
 RequestedIgnoreActors, TransitionContext and the measured HawkFlash velocity now expose typed reference/vector values.
+Qualified HealCauser actor references and map-targeting cursor/click vectors
+also expose values. Multi-click arrays retain raw parents and add vector children.
 Qualified reward names now retain complete text histories, string-table keys and format arguments. [KillData observations](KILL_OBSERVATIONS.md) preserve partial updates and scoped references.
 
 The [kill ledger](KILL_LEDGER.md) combines component-local KillData base/revision

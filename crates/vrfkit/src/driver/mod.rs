@@ -517,6 +517,7 @@ mod tests {
                 rep_layout_cnc_tails_preserved: 24,
                 tracked_rewards_opaque_empty_variants: 25,
                 array_leaf_decode_errors: 22,
+                targeting_world_locations_decoded: 26,
                 ..crate::sink::ExportStats::default()
             };
             stats.overlay.decoded_ok = 9;
@@ -547,6 +548,7 @@ mod tests {
         assert_eq!(totals.rep_layout_cnc_tails_preserved, 48);
         assert_eq!(totals.tracked_rewards_opaque_empty_variants, 50);
         assert_eq!(totals.array_leaf_decode_errors, 44);
+        assert_eq!(totals.targeting_world_locations_decoded, 52);
         assert_eq!(totals.overlay.decoded_ok, 18);
         assert_eq!(totals.overlay.decoded_err, 20);
         assert_eq!(totals.overlay.raw_or_skip, 22);

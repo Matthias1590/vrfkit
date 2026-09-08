@@ -5,6 +5,7 @@
 //! grammar, and walking it turns one opaque blob into one row per named
 //! parameter -- 559,346 of the reference replay's 1,246,812 field rows.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use smallvec::{SmallVec, smallvec};
@@ -12,7 +13,8 @@ use vrf_bitio::BitReader;
 use vrf_decode::{
     ArrayFieldSchema, DecodeErrorKind, EffectArrayKind, EffectBlobError, FieldType,
     LIFE_CHANGE_BY_SECTION_SCHEMA, LIFE_CHANGE_DAMAGE_SCHEMA, LIFE_CHANGE_SECTION_SCHEMA,
-    apply_overlay_with_checksum, decode_effect_blob_json, decode_struct_array, group_hash_state,
+    apply_overlay_with_checksum, decode_effect_blob_json, decode_struct_array,
+    decode_struct_array_exact, group_hash_state,
 };
 use vrf_schema::{FxHashMap, NetGuidCache};
 
@@ -290,6 +292,21 @@ impl ExportSink<'_> {
                 }
             }
 
+            let targeting_world_location_array = func_name == "MulticastRespondToValidMapClick"
+                && param_handle == 0
+                && param_name == Some("WorldLocation")
+                && param_checksum == Some(2052180909)
+                && param_group_path_ref
+                    == Some(
+                        "/Script/ShooterGame.MapTargetingStateComponent:MulticastRespondToValidMapClick",
+                    )
+                && param_group_path_ref
+                    .and_then(|path| self.cache.get_group_by_path(path))
+                    .and_then(|group| group.get_field(1))
+                    .is_some_and(|field| {
+                        field.name == "WorldLocation" && field.compatible_checksum == 3965480401
+                    });
+
             // Third, additive pass: the life-change arrays.
             //
             // Outside the `value_*.is_none()` gate above, not inside it. That
@@ -310,6 +327,21 @@ impl ExportSink<'_> {
                     raw,
                     payload_bits,
                 );
+            }
+
+            // The multi-click RPC carries a flat RepLayout array whose sole
+            // leaf is a 192-bit world-location vector.  Every identity below
+            // comes from the replay declaration; a similarly named parameter
+            // or child therefore remains raw.
+            if targeting_world_location_array {
+                if let Some(raw) = raw_bits.as_deref() {
+                    self.emit_targeting_world_location_array(
+                        &full_field_name,
+                        rpc_handle,
+                        raw,
+                        payload_bits,
+                    );
+                }
             }
 
             self.push_field(FieldValues {
@@ -404,6 +436,96 @@ impl ExportSink<'_> {
                 value_str,
             });
             self.stats.fields_emitted += 1;
+        }
+    }
+
+    /// Emit fully validated `WorldLocation` leaves while retaining the raw parent.
+    fn emit_targeting_world_location_array(
+        &mut self,
+        prefix: &str,
+        rpc_handle: u32,
+        raw: &[u8],
+        bit_count: u32,
+    ) {
+        let before = self.stats.array.clone();
+        let declared = [None, Some("WorldLocation")];
+        let flattened = decode_struct_array_exact(raw, bit_count, &declared, &mut self.stats.array);
+        let diagnostics_clean = self.stats.array.errors == before.errors
+            && self.stats.array.truncations == before.truncations
+            && self.stats.array.unconsumed_nested_bits == before.unconsumed_nested_bits
+            && self.stats.array.unconsumed_root_bits == before.unconsumed_root_bits
+            && self.stats.array.implicit_terminations == before.implicit_terminations;
+        let decoded_elements = self
+            .stats
+            .array
+            .elements_decoded
+            .saturating_sub(before.elements_decoded);
+        let decoded_fields = self
+            .stats
+            .array
+            .fields_emitted
+            .saturating_sub(before.fields_emitted);
+        let unique_paths = flattened
+            .iter()
+            .map(|field| field.path.as_str())
+            .collect::<HashSet<_>>()
+            .len()
+            == flattened.len();
+        if !diagnostics_clean
+            || decoded_elements != flattened.len() as u64
+            || decoded_fields != flattened.len() as u64
+            || !unique_paths
+            || flattened.iter().any(|field| {
+                field.handle != 1
+                    || field.bit_count != 192
+                    || !field.path.ends_with(".WorldLocation")
+                    || !field.raw_bits.chunks_exact(8).all(|chunk| {
+                        f64::from_le_bytes(chunk.try_into().expect("eight-byte chunk")).is_finite()
+                    })
+            })
+        {
+            if diagnostics_clean {
+                self.stats.array_leaf_decode_errors =
+                    self.stats.array_leaf_decode_errors.saturating_add(1);
+            }
+            return;
+        }
+        let decoded: Option<Vec<_>> = flattened
+            .into_iter()
+            .map(|field| {
+                let columns = super::blobs::decode_leaf_with_stats(
+                    FieldType::VectorDouble,
+                    &field.raw_bits,
+                    field.bit_count,
+                    &mut self.stats.array_leaf_decode_errors,
+                );
+                columns.3.as_ref()?;
+                Some((field, columns))
+            })
+            .collect();
+        let Some(decoded) = decoded else {
+            return;
+        };
+        for (field, (value_i64, value_f64, value_bool, value_str)) in decoded {
+            let full_name = self.channel_state.names.intern_fmt(|out| {
+                out.push_str(prefix);
+                out.push_str(&field.path);
+            });
+            self.push_field(FieldValues {
+                handle: rpc_handle,
+                field_name: Some(full_name),
+                compatible_checksum: None,
+                bit_count: field.bit_count,
+                raw_bits: Some(SmallVec::from_slice(&field.raw_bits)),
+                value_i64,
+                value_f64,
+                value_bool,
+                value_str,
+            });
+            self.stats.targeting_world_locations_decoded = self
+                .stats
+                .targeting_world_locations_decoded
+                .saturating_add(1);
         }
     }
 

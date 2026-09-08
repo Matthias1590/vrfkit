@@ -823,7 +823,7 @@ impl ReplicationSink for ExportSink<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sink::{ChannelState, RecordBuffers};
+    use crate::sink::{ChannelState, ExportStats, RecordBuffers};
     use vrf_schema::NetGuidCache;
 
     /// Run one content block through the sink and report the subobject GUID it
@@ -1212,6 +1212,320 @@ mod tests {
         let emitted = sink.try_parse_rpc_params(7, reader, Some("SomeFunction"));
         assert!(emitted, "one parameter row is emitted");
         assert_eq!(sink.stats.truncated_rpcs, 0);
+    }
+
+    fn targeting_rpc(
+        group: &str,
+        parent_handle: u32,
+        parent_name: &str,
+        parent_checksum: u32,
+        child_name: &str,
+        child_checksum: u32,
+        array_bits: &[bool],
+    ) -> (RecordBuffers, ExportStats) {
+        let mut cache = NetGuidCache::new();
+        cache
+            .add_export_group(vrf_schema::NetFieldExportGroup::new(group.into(), 7, 3))
+            .unwrap();
+        for (handle, name, checksum) in [
+            (parent_handle, parent_name, parent_checksum),
+            (1, child_name, child_checksum),
+        ] {
+            assert!(cache.set_field_on_group(
+                7,
+                vrf_schema::NetFieldExport {
+                    handle,
+                    compatible_checksum: checksum,
+                    name: name.into(),
+                },
+            ));
+        }
+        let mut rpc_bits = vec![false];
+        write_int_packed(&mut rpc_bits, parent_handle + 1);
+        write_int_packed(&mut rpc_bits, array_bits.len() as u32);
+        rpc_bits.extend_from_slice(array_bits);
+        write_int_packed(&mut rpc_bits, 0);
+        let bytes = bits_to_bytes(&rpc_bits);
+        let mut channel_state = ChannelState::new();
+        let mut records = RecordBuffers::default();
+        let mut sink = ExportSink::new(&mut cache, &mut channel_state, &mut records);
+        assert!(sink.try_parse_rpc_params(
+            3,
+            BitReader::with_bit_len(&bytes, rpc_bits.len() as u64).unwrap(),
+            Some("MulticastRespondToValidMapClick"),
+        ));
+        let stats = sink.stats.clone();
+        drop(sink);
+        (records, stats)
+    }
+
+    fn append_world_location(bits: &mut Vec<bool>, values: [f64; 3]) {
+        let payload = values.into_iter().flat_map(|value| {
+            value
+                .to_le_bytes()
+                .into_iter()
+                .flat_map(|byte| (0..8).map(move |bit| byte & (1 << bit) != 0))
+        });
+        write_int_packed(bits, 2);
+        write_int_packed(bits, 192);
+        bits.extend(payload);
+    }
+
+    fn world_locations(values: &[[f64; 3]]) -> Vec<bool> {
+        let mut bits = Vec::new();
+        write_int_packed(&mut bits, values.len() as u32);
+        for (index, values) in values.iter().copied().enumerate() {
+            write_int_packed(&mut bits, index as u32 + 1);
+            append_world_location(&mut bits, values);
+            write_int_packed(&mut bits, 0);
+        }
+        write_int_packed(&mut bits, 0);
+        bits
+    }
+
+    fn one_world_location(values: [f64; 3]) -> Vec<bool> {
+        world_locations(&[values])
+    }
+
+    #[test]
+    fn guarded_targeting_array_emits_vector_child_and_raw_parent() {
+        let array = one_world_location([12.5, -9.25, 3.0]);
+        let group =
+            "/Script/ShooterGame.MapTargetingStateComponent:MulticastRespondToValidMapClick";
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &array,
+        );
+        assert_eq!(records.fields.len(), 2);
+        assert_eq!(
+            records.fields[0].field_name.as_deref(),
+            Some("MulticastRespondToValidMapClick.WorldLocation[0].WorldLocation")
+        );
+        assert_eq!(records.fields[0].bit_count, 192);
+        assert_eq!(records.fields[0].handle, 3);
+        assert_eq!(
+            records.fields[0].value_str.as_deref(),
+            Some("(12.5,-9.25,3)")
+        );
+        let expected_raw: Vec<u8> = [12.5f64, -9.25, 3.0]
+            .into_iter()
+            .flat_map(f64::to_le_bytes)
+            .collect();
+        assert_eq!(
+            records.fields[0].raw_bits.as_deref(),
+            Some(expected_raw.as_slice())
+        );
+        assert_eq!(
+            records.fields[1].raw_bits.as_deref(),
+            Some(bits_to_bytes(&array).as_slice())
+        );
+        assert_eq!(stats.targeting_world_locations_decoded, 1);
+
+        let signed_zero = one_world_location([-0.0, 0.0, -0.0]);
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &signed_zero,
+        );
+        let expected_raw: Vec<u8> = [-0.0f64, 0.0, -0.0]
+            .into_iter()
+            .flat_map(f64::to_le_bytes)
+            .collect();
+        assert_eq!(
+            records.fields[0].raw_bits.as_deref(),
+            Some(expected_raw.as_slice())
+        );
+        assert_eq!(records.fields[0].handle, 3);
+        assert_eq!(stats.targeting_world_locations_decoded, 1);
+    }
+
+    #[test]
+    fn targeting_array_requires_exact_child_declaration_and_complete_grammar() {
+        let group =
+            "/Script/ShooterGame.MapTargetingStateComponent:MulticastRespondToValidMapClick";
+        let array = one_world_location([1.0, 2.0, 3.0]);
+        let empty = world_locations(&[]);
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &empty,
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert_eq!(stats.targeting_world_locations_decoded, 0);
+        assert_eq!(stats.array_leaf_decode_errors, 0);
+        for (name, checksum) in [("Other", 3965480401), ("WorldLocation", 7)] {
+            let (records, stats) = targeting_rpc(
+                group,
+                0,
+                "WorldLocation",
+                2052180909,
+                name,
+                checksum,
+                &array,
+            );
+            assert_eq!(records.fields.len(), 1);
+            assert_eq!(stats.targeting_world_locations_decoded, 0);
+        }
+        for (candidate_group, handle, name, checksum) in [
+            (group, 0, "WorldLocation", 7),
+            (group, 0, "Other", 2052180909),
+            (group, 2, "WorldLocation", 2052180909),
+            (
+                "/Script/ShooterGame.Other:MulticastRespondToValidMapClick",
+                0,
+                "WorldLocation",
+                2052180909,
+            ),
+        ] {
+            let (records, stats) = targeting_rpc(
+                candidate_group,
+                handle,
+                name,
+                checksum,
+                "WorldLocation",
+                3965480401,
+                &array,
+            );
+            assert_eq!(records.fields.len(), 1);
+            assert_eq!(stats.targeting_world_locations_decoded, 0);
+        }
+        let truncated = &array[..array.len() - 8];
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            truncated,
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert_eq!(stats.targeting_world_locations_decoded, 0);
+        assert!(
+            stats.array.errors > 0
+                || stats.array.unconsumed_root_bits > 0
+                || stats.array.implicit_terminations > 0
+        );
+
+        let mut residual = array.clone();
+        residual.push(true);
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &residual,
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert!(stats.array.unconsumed_root_bits > 0);
+
+        let wrong_handle = {
+            let mut bits = Vec::new();
+            for value in [1, 1, 3, 192] {
+                write_int_packed(&mut bits, value);
+            }
+            bits.extend(std::iter::repeat_n(false, 192));
+            write_int_packed(&mut bits, 0);
+            write_int_packed(&mut bits, 0);
+            bits
+        };
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &wrong_handle,
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert!(stats.array_leaf_decode_errors > 0);
+
+        let wrong_width = {
+            let mut bits = Vec::new();
+            for value in [1, 1, 2, 191] {
+                write_int_packed(&mut bits, value);
+            }
+            bits.extend(std::iter::repeat_n(false, 191));
+            write_int_packed(&mut bits, 0);
+            write_int_packed(&mut bits, 0);
+            bits
+        };
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &wrong_width,
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert!(stats.array_leaf_decode_errors > 0);
+
+        let nonfinite = one_world_location([f64::NAN, 0.0, -0.0]);
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &nonfinite,
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert!(stats.array_leaf_decode_errors > 0);
+
+        let mut duplicate_member = Vec::new();
+        write_int_packed(&mut duplicate_member, 1);
+        write_int_packed(&mut duplicate_member, 1);
+        append_world_location(&mut duplicate_member, [1.0, 2.0, 3.0]);
+        append_world_location(&mut duplicate_member, [4.0, 5.0, 6.0]);
+        write_int_packed(&mut duplicate_member, 0);
+        write_int_packed(&mut duplicate_member, 0);
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &duplicate_member,
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert!(stats.array_leaf_decode_errors > 0);
+
+        let mixed = world_locations(&[[1.0, 2.0, 3.0], [f64::NAN, 5.0, 6.0]]);
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &mixed,
+        );
+        assert_eq!(
+            records.fields.len(),
+            1,
+            "children are emitted transactionally"
+        );
+        assert!(stats.array_leaf_decode_errors > 0);
     }
 
     /// Build an RPC payload of one parameter, the zero-handle terminator, and

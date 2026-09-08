@@ -5,7 +5,7 @@
 use crate::decode::FieldType;
 
 /// Sorted by (field name, group path, compatible checksum).
-pub(crate) static SCOPED_TYPES: [(&str, &str, u32, FieldType); 16] = [
+pub(crate) static SCOPED_TYPES: [(&str, &str, u32, FieldType); 19] = [
     (
         "B",
         "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
@@ -101,5 +101,23 @@ pub(crate) static SCOPED_TYPES: [(&str, &str, u32, FieldType); 16] = [
         "/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits/Swiftplay_EoRCredits_PlayerState.Swiftplay_EoRCredits_PlayerState_C",
         3944193776,
         FieldType::Byte,
+    ),
+    (
+        "ClickedLocation",
+        "/Script/ShooterGame.MapTargetingStateComponent:MulticastRespondToValidSingleMapClick",
+        975869058,
+        FieldType::VectorDouble,
+    ),
+    (
+        "CursorWorldLocation",
+        "/Script/ShooterGame.MapTargetingStateComponent",
+        3280594315,
+        FieldType::VectorDouble,
+    ),
+    (
+        "HealCauser",
+        "/Script/ShooterGame.DamageableComponent:MulticastNotifyHeal",
+        546618027,
+        FieldType::ObjectNetGuid,
     ),
 ];

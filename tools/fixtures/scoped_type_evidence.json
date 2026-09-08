@@ -197,6 +197,45 @@
         "++Ares-Core+release-13.02"
       ],
       "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 9 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Script/ShooterGame.MapTargetingStateComponent",
+      "field": "CursorWorldLocation",
+      "checksum": 3280594315,
+      "type": "VectorDouble",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export exact-route audit at bb5e155: 291883 main plus 7547 checkpoint rows, all exactly 192 bits and all three little-endian f64 components finite. Geometry association is corroboration only."
+    },
+    {
+      "group": "/Script/ShooterGame.MapTargetingStateComponent:MulticastRespondToValidSingleMapClick",
+      "field": "ClickedLocation",
+      "checksum": 975869058,
+      "type": "VectorDouble",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export exact-route audit at bb5e155: 13715 main rows, all exactly 192 bits and all three little-endian f64 components finite. 7201 exact XY pairs with prior same-object cursor and 646 independent marker positions corroborate geometry only."
+    },
+    {
+      "group": "/Script/ShooterGame.DamageableComponent:MulticastNotifyHeal",
+      "field": "HealCauser",
+      "checksum": 546618027,
+      "type": "ObjectNetGuid",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export exact-route audit at bb5e155: 1518207 main rows, each fully consumed as low-bit-continuation packed u32 and each resolved to an actor in the same export. No checkpoint value rows; no heal-attribution meaning asserted."
     }
   ]
 }
