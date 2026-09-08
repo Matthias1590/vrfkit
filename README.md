@@ -18,13 +18,13 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Verified state:** Rust has **677 passing** tests; Python has **666 passing** tests. The full
+**Verified state:** Rust has **685 passing** tests; Python has **678 passing** tests. The full
 714-file comparison and corpus guards passed; see
-[nested reference evidence](docs/NESTED_ARRAY_REFERENCES.md).
+[reward text evidence](docs/TEXT_HISTORY_EXPANSION.md).
 
 - Run it: [`docs/USAGE.md`](docs/USAGE.md)
 - What's extractable: [`docs/DATA.md`](docs/DATA.md)
-- Latest corpus results: [`docs/NESTED_ARRAY_REFERENCES.md`](docs/NESTED_ARRAY_REFERENCES.md)
+- Latest corpus results: [`docs/TEXT_HISTORY_EXPANSION.md`](docs/TEXT_HISTORY_EXPANSION.md)
 - Build it, test it, open a PR: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Working conventions (for an AI agent): [`CLAUDE.md`](CLAUDE.md)
 
@@ -95,7 +95,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **677 Rust tests** plus a layered validation suite (framing / bytes / decode
+- **685 Rust tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -149,13 +149,13 @@ Parquet files plus a manifest when checkpoints are included:
 
 | File | Rows | Bytes |
 |---|---|---|
-| `fields.parquet` | 1,296,660 | 16,436,211 |
+| `fields.parquet` | 1,296,660 | 16,441,472 |
 | `movement.parquet` | 1,844,147 | 31,886,449 |
 | `actors.parquet` | 3,827 | 87,281 |
 | `net_guids.parquet` | 16,167 | 153,606 |
 | `events.parquet` | 195 | 13,411 |
 | `partials.parquet` | 0 | 2,505 |
-| `checkpoint_fields.parquet` | 352,089 | 1,217,020 |
+| `checkpoint_fields.parquet` | 352,089 | 1,218,954 |
 | `checkpoint_actors.parquet` | 3,014 | 27,118 |
 | `checkpoint_net_guids.parquet` | 74,270 | 277,718 |
 | `checkpoint_blocks.parquet` | 22,247 | 175,103 |
@@ -339,7 +339,7 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**677 passing**; the full Python suite also has **666 passing** tests. The
+**685 passing**; the full Python suite also has **678 passing** tests. The
 all-corpus guards, all-file comparison, and full documentation check pass.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
@@ -688,7 +688,7 @@ Physical value coverage is the fraction of `fields.parquet` rows with at
 least one non-null `value_*` column. It cannot be computed by adding overlay,
 effect-blob or struct counters: these count different units and may describe
 parent/child expansions of the same input. The current reference
-baseline has 903,546 typed rows out of 1,296,660 (69.68%), measured directly
+baseline has 904,151 typed rows out of 1,296,660 (69.73%), measured directly
 from its columns.
 Adding raw child windows changes this denominator even when every old typed
 value survives; compare raw preservation and newly typed values separately.

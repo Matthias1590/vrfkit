@@ -10,11 +10,12 @@ Legend: ✅ typed (value decoded) · ◐ raw or derivable · ❌ unavailable in 
 stated observation scope. Absence in a sample is not proof of format-wide absence.
 
 The current 714-replay field measurement is recorded in
-[NESTED_ARRAY_REFERENCES.md](NESTED_ARRAY_REFERENCES.md): physical
-typed-value presence is 70.3740% main, 76.9972% checkpoint, and 71.8215%
+[TEXT_HISTORY_EXPANSION.md](TEXT_HISTORY_EXPANSION.md): physical
+typed-value presence is 70.4189% main, 77.1425% checkpoint, and 71.8884%
 combined, counted directly from all four value columns. These physical row
 ratios are not semantic completeness. Both corpus guards and the independent
 all-file comparison pass on all 714 inputs.
+Qualified reward names now retain complete text histories, string-table keys and format arguments. [KillData observations](KILL_OBSERVATIONS.md) preserve partial updates and scoped references.
 The earlier partial-header correction is recorded in
 [PARTIAL_HEADER_CORRECTION.md](PARTIAL_HEADER_CORRECTION.md), and crosshair/Tidal
 Wave additions in [SCHEMA_EXPANSION.md](SCHEMA_EXPANSION.md).

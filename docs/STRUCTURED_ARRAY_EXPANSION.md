@@ -28,7 +28,7 @@ The four typed reward fields are the only ones supported by the private `reward-
 | `RewardGrantStrategy` | `value_i64` (enum code) | 0 and 1; action names are unverified |
 | `Source` | `value_i64` (enum code) | 0 through 3; source names are unverified |
 
-Every other reward child remains raw, including the anonymous repeated `Rewards` members and `LocalizedRewardName` (FText). `SelectedV2` and `KillData` children are raw, including nested bodies such as `EquippableAttachments` and `AssistingPlayers`; declaration labels do not establish types, nested schemas, or game meaning. These are replicated updates, not a deduplicated reward or kill ledger. Checkpoint snapshots and parent/child windows must not be summed as independent events.
+At this initial batch, every other reward child remained raw, including the anonymous repeated `Rewards` members and `LocalizedRewardName` (FText). At that stage `SelectedV2` and `KillData` children were raw, including nested bodies such as `EquippableAttachments` and `AssistingPlayers`; declaration labels do not establish types, nested schemas, or game meaning. These are replicated updates, not a deduplicated reward or kill ledger. Checkpoint snapshots and parent/child windows must not be summed as independent events.
 
 ## Framing boundary
 
@@ -41,3 +41,5 @@ For `TrackedRewards`, 4,470 main-stream parents are the exact opaque empty shape
 The completed candidate measurement in `TYPED_PRESENCE.json` reports physical typed-value presence: 715,339,906 / 1,020,129,371 main rows (70.1225%), 174,149,661 / 277,331,271 checkpoint rows (62.7948%), and 889,489,567 / 1,297,460,642 combined rows (68.5562%). The candidate adds 1,851,595 typed main windows and 1,658,420 typed checkpoint windows. These are physical row ratios after child expansion, not semantic completeness, parser correctness, or unique game facts. The completed all-file comparison independently reproduced the added child and typed-value totals.
 
 The prior arrays/context report is historical ([`ARRAY_CONTEXT_EXPANSION.md`](ARRAY_CONTEXT_EXPANSION.md)); its coverage and its statement that `TrackedRewards` was excluded predate this candidate. The checkpoint GUID-path result remains separately documented in [`CHECKPOINT_PATH_RESOLUTION.md`](CHECKPOINT_PATH_RESOLUTION.md); its 72.4914% combined coverage is pre-array-expansion and is not the current ratio.
+
+Subsequent [leaf typing](ARRAY_LEAF_TYPES.md), [nested references](NESTED_ARRAY_REFERENCES.md), and [reward text histories](TEXT_HISTORY_EXPANSION.md) supersede the initial raw-only status above.

@@ -28,6 +28,7 @@ type DecodedColumns = (Option<i64>, Option<f64>, Option<bool>, Option<String>);
 enum VerifiedArrayLeaf {
     Field(FieldType),
     KillWeaponTheme,
+    TrackedRewardLocalizedText,
 }
 
 struct VerifiedNestedLeaf {
@@ -289,6 +290,35 @@ fn verified_reward_leaf_type(
     };
     (declared_name == Some(name) && declared_checksum == Some(checksum) && resolved == Some(wanted))
         .then_some(wanted)
+}
+
+/// This descriptor is deliberately Raw in the generated table. The full FText
+/// reader is admitted only for this measured parent leaf; Skip, a conflict, or
+/// any future declared type change remains raw.
+fn verified_reward_localized_text(
+    handle: u32,
+    declared_name: Option<&str>,
+    declared_checksum: Option<u32>,
+    resolved: Option<FieldType>,
+) -> bool {
+    handle == 29
+        && declared_name == Some("LocalizedRewardName")
+        && declared_checksum == Some(483_770_233)
+        && resolved == Some(FieldType::Raw)
+}
+
+fn decode_tracked_reward_localized_text(
+    raw: &[u8],
+    bit_count: u32,
+    failures: &mut u64,
+) -> DecodedColumns {
+    match vrf_decode::decode_ftext_tree(raw, bit_count) {
+        Ok(value) => (None, None, None, Some(value.to_json())),
+        Err(_) => {
+            *failures = failures.saturating_add(1);
+            (None, None, None, None)
+        }
+    }
 }
 
 /// `SelectedV2` has six observed, declaration-qualified IntPacked NetGUID
@@ -716,8 +746,17 @@ impl ExportSink<'_> {
                 if measured && parent_name == "TrackedRewards" {
                     let declared_checksum =
                         declared_checksums.get(f.handle as usize).copied().flatten();
-                    verified_reward_leaf_type(f.handle, name, declared_checksum, resolved)
-                        .map(VerifiedArrayLeaf::Field)
+                    if verified_reward_localized_text(
+                        f.handle,
+                        name,
+                        declared_checksum,
+                        declared_resolved,
+                    ) {
+                        Some(VerifiedArrayLeaf::TrackedRewardLocalizedText)
+                    } else {
+                        verified_reward_leaf_type(f.handle, name, declared_checksum, resolved)
+                            .map(VerifiedArrayLeaf::Field)
+                    }
                 } else if measured && parent_name == "SelectedV2" {
                     let declared_checksum =
                         declared_checksums.get(f.handle as usize).copied().flatten();
@@ -793,6 +832,13 @@ impl ExportSink<'_> {
                     f.bit_count,
                     &mut self.stats.array_leaf_decode_errors,
                 ),
+                Some(VerifiedArrayLeaf::TrackedRewardLocalizedText) => {
+                    decode_tracked_reward_localized_text(
+                        &f.raw_bits,
+                        f.bit_count,
+                        &mut self.stats.array_leaf_decode_errors,
+                    )
+                }
                 // The hardcoded handle->type map is CombatReport-specific:
                 // handle 3 is an Int32 there and an FString in
                 // AbilityCastsThisRound, so applying it to any other array
@@ -1543,6 +1589,47 @@ mod tests {
     }
 
     #[test]
+    fn tracked_rewards_localized_text_requires_its_raw_declaration() {
+        assert!(verified_reward_localized_text(
+            29,
+            Some("LocalizedRewardName"),
+            Some(483_770_233),
+            Some(FieldType::Raw),
+        ));
+        for (handle, name, checksum, resolved) in [
+            (29, Some("Other"), Some(483_770_233), Some(FieldType::Raw)),
+            (
+                29,
+                Some("LocalizedRewardName"),
+                Some(0),
+                Some(FieldType::Raw),
+            ),
+            (
+                29,
+                Some("LocalizedRewardName"),
+                Some(483_770_233),
+                Some(FieldType::Skip),
+            ),
+            (
+                29,
+                Some("LocalizedRewardName"),
+                Some(483_770_233),
+                Some(FieldType::FText),
+            ),
+            (
+                28,
+                Some("LocalizedRewardName"),
+                Some(483_770_233),
+                Some(FieldType::Raw),
+            ),
+        ] {
+            assert!(!verified_reward_localized_text(
+                handle, name, checksum, resolved
+            ));
+        }
+    }
+
+    #[test]
     fn tracked_rewards_bad_typed_width_keeps_raw_leaf_and_counts_error() {
         let bits = one_leaf(30, &[false; 8]);
         let (records, stats) = export_array_with_child_checksum(
@@ -1555,6 +1642,41 @@ mod tests {
         assert_eq!(records.fields[0].raw_bits.as_deref(), Some([0].as_slice()));
         assert_eq!(records.fields[0].value_i64, None);
         assert_eq!(stats.array_leaf_decode_errors, 1);
+    }
+
+    #[test]
+    fn localized_reward_text_keeps_raw_on_success_and_failure() {
+        let empty = bits_from_bytes(&[0, 0, 0, 0, 255, 0, 0, 0, 0]);
+        for (payload, errors, expected) in [
+            (
+                empty.clone(),
+                0,
+                Some(r#"{"flags":0,"history":255,"kind":"empty"}"#),
+            ),
+            (empty[..empty.len() - 1].to_vec(), 1, None),
+        ] {
+            let bits = one_leaf(29, &payload);
+            let (records, stats) = export_array_with_child_checksum(
+                (OWNER, REWARDS_PARENT, REWARDS_CHECKSUM),
+                (29, "LocalizedRewardName", 483_770_233),
+                &bits,
+                Some(MEASURED_BUILD),
+            );
+            assert_eq!(records.fields.len(), 2);
+            assert_eq!(
+                records.fields[0].raw_bits.as_deref(),
+                Some(bytes(&payload).as_slice())
+            );
+            assert_eq!(records.fields[0].value_str.as_deref(), expected);
+            assert_eq!(records.fields[0].value_i64, None);
+            assert_eq!(records.fields[0].value_f64, None);
+            assert_eq!(records.fields[0].value_bool, None);
+            assert_eq!(stats.array_leaf_decode_errors, errors);
+            assert_eq!(
+                records.fields[1].raw_bits.as_deref(),
+                Some(bytes(&bits).as_slice())
+            );
+        }
     }
 
     #[test]

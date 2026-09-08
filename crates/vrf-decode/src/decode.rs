@@ -106,12 +106,9 @@ pub enum DecodeError {
     #[error("FName instance number must be non-negative, got {number}")]
     InvalidFNameNumber { number: i32 },
 
-    /// An `FText` whose history discriminator was never observed.
-    ///
-    /// Only type 5 (a string-table entry) appears on this wire, and each
-    /// `ETextHistory` variant lays out differently after the header. Reading
-    /// one as another would return a plausible wrong string, which is the
-    /// failure `LocalizedStat` was untyped for.
+    /// The legacy key-only FText reader rejected its post-33-bit selector.
+    /// Its accepted selector 5 is a shifted view of history byte 11 plus the
+    /// inline-name bit. Full history trees use `FTextTreeError` separately.
     #[error("FText history type {history_type} is not one this decoder has seen")]
     UnsupportedTextHistory { history_type: u8 },
 

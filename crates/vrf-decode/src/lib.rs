@@ -85,6 +85,7 @@
 #![forbid(unsafe_code)]
 
 mod decode;
+mod ftext;
 mod types;
 
 /// ClassNetCache payload brute-forcer for unresolved groups. See [`cnc`].
@@ -112,6 +113,9 @@ mod table;
 mod tests;
 
 pub use decode::{DecodeError, DecodedValue, FieldType, decode_field};
+pub use ftext::{
+    FTextArgument, FTextArgumentValue, FTextName, FTextTree, FTextTreeError, decode_ftext_tree,
+};
 pub use types::{FQuat, FRepMovement, FRotator, FTransform, FVector, RotatorQuantization};
 
 #[cfg(feature = "array")]

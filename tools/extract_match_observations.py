@@ -23,9 +23,9 @@ import pyarrow as pa
 import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
-try:
+if __package__:
     from .atomic_io import atomic_write_text
-except ImportError:
+else:  # direct script execution
     from atomic_io import atomic_write_text
 
 

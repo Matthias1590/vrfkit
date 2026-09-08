@@ -218,13 +218,13 @@ Measured on `02d4d478` (48,215,213 bytes):
 
 | File | Rows | Bytes | Notes |
 |---|---|---|---|
-| `fields.parquet` | 1,296,660 | 16,436,211 | |
+| `fields.parquet` | 1,296,660 | 16,441,472 | |
 | `movement.parquet` | 1,844,147 | 31,886,449 | |
 | `actors.parquet` | 3,827 | 87,281 | |
 | `net_guids.parquet` | 16,167 | 153,606 | |
 | `events.parquet` | 195 | 13,411 | |
 | `partials.parquet` | 0 | 2,505 | main-only; with checkpoints: 0 rows, 2,505 bytes |
-| `checkpoint_fields.parquet` | 352,089 | 1,217,020 | requires `--checkpoints` |
+| `checkpoint_fields.parquet` | 352,089 | 1,218,954 | requires `--checkpoints` |
 | `checkpoint_actors.parquet` | 3,014 | 27,118 | requires `--checkpoints` |
 | `checkpoint_net_guids.parquet` | 74,270 | 277,718 | requires `--checkpoints` |
 | `checkpoint_blocks.parquet` | 22,247 | 175,103 | requires `--checkpoints` |
@@ -868,6 +868,7 @@ semantic evidence.
 |---|---|
 | `analyze_coverage.py` | Coverage analysis |
 | `extract_ability_stats.py` | Validates a build-scoped Statistic/FText dictionary from exact cast/effect array slots, with main and checkpoint observations separate. Unknown IDs, changed names, missing partners and conflicts remain visible and return a nonzero exit. Counts are snapshots, not casts. |
+| `extract_kill_observations.py` | Exports main and checkpoint KillData element snapshots with physical parent-row identity, independently checked raw values, nullable missing members and scoped reference status. Keeps all clocks separately; updates are not deduplicated kills. See [KILL_OBSERVATIONS.md](KILL_OBSERVATIONS.md). |
 | `extract_match_observations.py` | Exports evidence-labelled ammo changes, equip/reload intervals, round balances, team loadouts, defuse observations and economic state. Money decreases and transaction snapshots remain separate; temporal association is not a verified purchase ledger. |
 | `extract_ability_lifecycle.py` | Emits ability-path actor candidates with observed open/close/dormant events and explicit Owner/Instigator references. Player links are identity evidence, not proof of casts. Missing closes remain censored; no nearest-player attribution or fixed duration is used. |
 | `analyze_raw_properties.py` | Streams a deterministic size-stratified corpus sample (or `--all`) one temporary export at a time and inventories preserved unnamed/raw replicated properties. Reports only build-level counts, bit widths, and anonymous recurrence ranks; it never prints replay paths/names, group/actor/object/handle/checksum identifiers, hashes, or payloads. Exits nonzero if an unnamed property row lacks exact-length `raw_bits`. Use `--format json` for a deterministic, versioned aggregate document. |
@@ -879,6 +880,7 @@ semantic evidence.
 ```bash
 python tools/extract_ability_stats.py --export <export-directory> --out ability-stats.json
 python tools/extract_match_observations.py --export <export-directory> --out observations.json
+python tools/extract_kill_observations.py --export <export-directory> --out kill-observations.json
 python tools/extract_ability_lifecycle.py --export <export-directory> --out ability-lifecycle.json
 ```
 
@@ -940,12 +942,12 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 677 passing
+cargo +1.86.0 test --workspace --locked                              # 685 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 125 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 666 tests
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 678 tests
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 185 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
