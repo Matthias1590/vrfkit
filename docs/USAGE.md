@@ -168,7 +168,8 @@ vrfkit export replay.vrf --out out/ --checkpoints
 ```
 
 `--checkpoints` reads the Checkpoint chunks as well and **additionally** writes
-`checkpoint_fields.parquet`. It is off by default because it is a separate pass
+`checkpoint_fields.parquet`, `checkpoint_actors.parquet`, and
+`checkpoint_net_guids.parquet`. It is off by default because it is a separate pass
 that reads roughly 10% more of the file, and **with or without it, the other
 five tables are byte-for-byte identical.**
 
@@ -220,7 +221,9 @@ Measured on `02d4d478` (48,215,213 bytes):
 | `net_guids.parquet` | 16,167 | 153,606 | |
 | `events.parquet` | 195 | 13,411 | |
 | `partials.parquet` | 0 | 2,505 | main-only; with checkpoints: 0 rows, 2,505 bytes |
-| `checkpoint_fields.parquet` | 245,211 | 857,914 | requires `--checkpoints` |
+| `checkpoint_fields.parquet` | 245,211 | 860,659 | requires `--checkpoints` |
+| `checkpoint_actors.parquet` | 3,014 | 27,118 | requires `--checkpoints` |
+| `checkpoint_net_guids.parquet` | 74,270 | 307,362 | requires `--checkpoints` |
 | `manifest.json` | -- | ~660,030 | varies: it records `elapsed_ms` |
 
 Use [`bench_export.py`](#analysis-helpers) to measure runtime on your machine.
@@ -440,12 +443,21 @@ layout mismatch the overlay stays null and the original remains intact in
 
 ### `checkpoint_fields.parquet`
 
-Same schema as `fields.parquet`. A Checkpoint is a full-state snapshot at one
-instant and **is not redundant** -- against the last ReplayData value at the same
-timestamp in the exported parquet, about 1.4% disagree and about 0.4% are keys
-absent from ReplayData entirely (identical for 13.01 and 13.02). The earlier
-6-11% figures were raw live-wire measurements, and export's byte-width
-normalization collapses them to ~1.4% (archive/PROJECT_STATUS.md 22-I).
+The existing `fields.parquet` columns, preceded by non-null `checkpoint_index`
+(UInt32, zero-based checkpoint chunk order) and `checkpoint_id` (Utf8, original
+wire ID). Each checkpoint has independent packet, channel and NetGUID state.
+Use the checkpoint identity when joining its fields; matching a main-stream
+GUID by number alone does not establish that it identifies the same actor.
+
+`checkpoint_actors.parquet` and `checkpoint_net_guids.parquet` carry the same
+two identity columns followed by the columns of their main-stream counterparts.
+Actor opens are snapshot observations, not new spawns on the main timeline.
+The GUID table records the cache after that checkpoint's frame walk. Wire IDs
+may repeat; the chunk index keeps those snapshots distinct within one replay.
+
+Historical snapshot-versus-main percentages predate the partial-header fix and
+do not validate cross-stream identity. See [current context and semantic
+evidence](SEMANTIC_CONTEXT_EXPANSION.md).
 
 ### `manifest.json`
 
@@ -599,7 +611,7 @@ m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); print(len(m
 | `compare_rpc_params.py` | RPC parameter comparison |
 | `compare_with_csharp.py` | Diff against the C# parser |
 | `check_effect_decoder.py` | Effect decoder (12 cases) |
-| `check_ascii.py` | Rust source ASCII sweep (124 files) |
+| `check_ascii.py` | Rust source ASCII sweep (125 files) |
 | `check_docs.py` | This document itself (below) |
 | `atomic_io.py` | Internal containment, recursive-removal and atomic-replacement helpers shared by mutating tools |
 
@@ -805,6 +817,21 @@ python tools/extract_match_observations.py --export <export-directory> --out obs
 python tools/extract_ability_lifecycle.py --export <export-directory> --out ability-lifecycle.json
 ```
 
+Reload observations recognize `ReloadState` and `ReloadStateEmpty`. Each carries
+packet endpoints, start/end boundary labels, and left/right censor flags.
+`observed_span_ms` measures the retained interval; `duration_ms` is null when an
+entry or exit is uncertain. Round resets and unknown state paths break intervals.
+`reload_magazine_increases` links positive ammo transitions strictly inside an
+observed interval through the same non-null weapon outer GUID. Boundary-packet
+ordering is unresolved and excluded. These are supporting observations, not
+completed reloads, shots, or a purchase ledger.
+
+The reviewed semantic catalog accepts schema 1 exact field names and schema 2
+literal indexed paths, such as
+`Rounds[].Reports[].Interactions[].ParticipantSubject`. The latter requires an
+exact group and build/export applicability; it does not accept arbitrary regex
+or suffix matches. See [the measured evidence](SEMANTIC_CONTEXT_EXPANSION.md).
+
 Repeat `--export` for the stat dictionary when comparing builds. The observed
 13.01, 13.02 and 13.04 dictionaries contain 31 IDs each; 13.05 adds ID 27,
 `TimeSprinting`, for a union of 32. The previous investigation's 33-ID headline
@@ -848,12 +875,12 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 633 passing
+cargo +1.86.0 test --workspace --locked                              # 634 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
-python -W error tools/check_ascii.py --check                         # 124 files
+python -W error tools/check_ascii.py --check                         # 125 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 641 passing
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 655 passing
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 185 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check

@@ -18,8 +18,8 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Current state:** `cargo +1.86.0 test --workspace --locked` **633 passing**,
-`tools/tests` **641 passing** -- see [Status](#status) for the rest.
+**Current state:** `cargo +1.86.0 test --workspace --locked` **634 passing**,
+`tools/tests` **655 passing** -- see [Status](#status) for the rest.
 
 - Run it: [`docs/USAGE.md`](docs/USAGE.md)
 - What's extractable: [`docs/DATA.md`](docs/DATA.md)
@@ -94,7 +94,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **633 tests** plus a layered validation suite (framing / bytes / decode
+- **634 tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -144,7 +144,7 @@ silently** -- a subcommand that printed nothing and exited 0 would be
 indistinguishable from one that wrote the files.
 
 On `02d4d478` (48,215,213 bytes, build 13.01), `export` takes ~0.79 s and
-produces eight files when checkpoints are included:
+produces ten files when checkpoints are included:
 
 | File | Rows | Bytes |
 |---|---|---|
@@ -154,7 +154,9 @@ produces eight files when checkpoints are included:
 | `net_guids.parquet` | 16,167 | 153,606 |
 | `events.parquet` | 195 | 13,411 |
 | `partials.parquet` | 0 | 2,505 |
-| `checkpoint_fields.parquet` | 245,211 | 857,914 |
+| `checkpoint_fields.parquet` | 245,211 | 860,659 |
+| `checkpoint_actors.parquet` | 3,014 | 27,118 |
+| `checkpoint_net_guids.parquet` | 74,270 | 307,362 |
 | `manifest.json` |  | ~660,030 |
 
 `checkpoint_fields.parquet` requires `--checkpoints`. The partials row above
@@ -270,15 +272,15 @@ in `raw_payload`, so a future layout change is preserved losslessly.
 
 ### `checkpoint_fields.parquet` -- snapshot
 
-Same schema as `fields.parquet`. A Checkpoint is a full-state snapshot at one
-instant and **is not redundant**: against the last ReplayData value at the same
-timestamp in the exported parquet, about 1.4-1.6% of keys disagree (of which
-~0.4% differ in value, the rest in bit-width) and about 0.4% of keys are
-absent from ReplayData entirely. Results are identical for 13.01 and 13.02.
-The earlier 6-11% figures were raw live-wire measurements; export's byte-width
-normalization collapses them to ~1.4% (see `docs/archive/PROJECT_STATUS.md`
-section 22-I; byte-level format in
-[`docs/archive/CHECKPOINT_SPEC.md`](docs/archive/CHECKPOINT_SPEC.md)).
+The field columns are preceded by `checkpoint_index` and `checkpoint_id`.
+Separate `checkpoint_actors.parquet` and `checkpoint_net_guids.parquet` preserve
+the snapshot's actor and GUID context with the same identity columns. Join
+within that checkpoint: its packet, channel and GUID state is independent of
+the main stream. A snapshot actor open is not a new timeline spawn.
+
+See [checkpoint output](docs/USAGE.md#checkpoint_fieldsparquet) and
+[current semantic evidence](docs/SEMANTIC_CONTEXT_EXPANSION.md). Older comparisons
+that joined checkpoint and main GUIDs by number do not establish actor identity.
 
 ### `partials.parquet` -- unresolved transport payloads
 
@@ -316,8 +318,8 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**633 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
-and `check_ascii` on 124 files. The Python suite in `tools/tests` has 641 tests.
+**634 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
+and `check_ascii` on 125 files. The Python suite in `tools/tests` has 655 tests.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
 from the table below on purpose -- they go stale, and re-measuring is one line.

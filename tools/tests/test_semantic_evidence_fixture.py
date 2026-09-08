@@ -29,10 +29,11 @@ class SemanticEvidenceFixtureTests(unittest.TestCase):
             claim for claim in self.catalog["claims"]
             if claim["evidence_status"] == "reviewed"
         ]
-        self.assertEqual(4, len(reviewed))
+        self.assertEqual(6, len(reviewed))
         for claim in reviewed:
             self.assertEqual(
-                {"group_path", "field_name"}, set(claim["criteria"]), claim["id"]
+                {"group_path"} if "field_path_template" in claim else {"group_path", "field_name"},
+                set(claim["criteria"]), claim["id"]
             )
             self.assertEqual(
                 [
@@ -46,16 +47,18 @@ class SemanticEvidenceFixtureTests(unittest.TestCase):
 
     def test_only_cross_source_identity_claims_are_reviewed(self) -> None:
         reviewed_fields = {
-            claim["criteria"]["field_name"]
+            claim["criteria"].get("field_name", claim.get("field_path_template"))
             for claim in self.catalog["claims"]
             if claim["evidence_status"] == "reviewed"
         }
-        self.assertEqual({"Subject", "SpawnedCharacter"}, reviewed_fields)
+        self.assertEqual({"Subject", "SpawnedCharacter",
+                          "Rounds[].Reports[].Interactions[].ParticipantSubject"}, reviewed_fields)
 
     def test_unresolved_meanings_remain_unknown(self) -> None:
         status_by_field = {
             claim["criteria"]["field_name"]: claim["evidence_status"]
             for claim in self.catalog["claims"]
+            if "field_name" in claim["criteria"]
         }
         expected = {
             "ProfileName", "G", "R",
@@ -65,6 +68,10 @@ class SemanticEvidenceFixtureTests(unittest.TestCase):
         }
         for field in expected:
             self.assertEqual("unknown", status_by_field[field])
+        checkpoint_actor = next(c for c in self.catalog["claims"]
+                                if c["id"] == "checkpoint-bomb-player-state-spawned-character")
+        self.assertEqual("reviewed", checkpoint_actor["evidence_status"])
+        self.assertEqual("checkpoint-local-character-audit", checkpoint_actor["source_id"])
 
     def test_fixture_counts_only_exact_reviewed_group_and_field_pairs(self) -> None:
         claims = [
@@ -88,7 +95,7 @@ class SemanticEvidenceFixtureTests(unittest.TestCase):
         self.assertEqual(2, result["reviewed_typed_rows"])
         self.assertEqual(
             {"fields-bomb-player-state-subject", "fields-bomb-player-state-spawned-character"},
-            {claim["id"] for claim in result["claims"]},
+            {claim["id"] for claim in result["claims"] if claim["rows"]},
         )
 
     def test_reviewed_claims_do_not_apply_to_an_unmeasured_build(self) -> None:

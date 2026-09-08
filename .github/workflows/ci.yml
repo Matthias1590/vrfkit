@@ -42,6 +42,7 @@ jobs:
             @("vrf-export", "actors"), @("vrf-export", "net-guids"),
             @("vrf-export", "events"), @("vrf-export", "snappy"),
             @("vrf-export", "partials"),
+            @("vrf-export", "checkpoint-context"),
             @("vrf-net", ""), @("vrf-net", "diagnostics"),
             @("vrf-schema", ""), @("vrf-schema", "checkpoint")
           )

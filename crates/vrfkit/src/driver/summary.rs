@@ -284,6 +284,8 @@ fn print_checkpoints(cp: &CheckpointStats) {
     eprintln!("  Frames:           {}", cp.frames);
     eprintln!("  Frame packets:    {}", cp.packets);
     eprintln!("  Checkpoint rows:  {}", cp.field_rows);
+    eprintln!("  Checkpoint actors:{} rows", cp.actor_rows_written);
+    eprintln!("  Checkpoint GUID rows: {}", cp.net_guid_rows_written);
     eprintln!(
         "  Checkpoint net:   {} bunches / {} blocks / {} fields / {} RPCs",
         cp.net.bunches, cp.net.content_blocks, cp.net.fields, cp.net.rpcs
@@ -350,11 +352,11 @@ fn print_checkpoints(cp: &CheckpointStats) {
         cp.net.diagnostics.len(),
         cp.net.diagnostics_dropped
     );
-    // Printed, not silent: a checkpoint re-opens every live actor and replays
-    // its state, so these two would corrupt the tables they would otherwise
-    // land in. See CheckpointStats.
+    // Movement remains a replayed snapshot sample rather than timeline data.
+    // Actor rows have a checkpoint-scoped destination; its dropped count must
+    // remain visible and zero.
     eprintln!(
-        "  Dropped:          {} actor / {} movement rows (snapshot re-opens)",
+        "  Dropped:          {} actor / {} movement rows (checkpoint snapshot)",
         cp.actor_rows_dropped, cp.movement_rows_dropped
     );
     eprintln!(
@@ -420,14 +422,18 @@ fn print_checkpoints(cp: &CheckpointStats) {
     );
 }
 
-/// The one table that is written only when `--checkpoints` is given.
-const CHECKPOINT_TABLE: &str = "checkpoint_fields.parquet";
+/// Tables written only when `--checkpoints` is given.
+const CHECKPOINT_TABLES: [&str; 3] = [
+    "checkpoint_fields.parquet",
+    "checkpoint_actors.parquet",
+    "checkpoint_net_guids.parquet",
+];
 
 /// A warning line when this run drops a checkpoint table an earlier run at
 /// this destination had.
 ///
 /// The five main tables and the manifest are recreated on every export, but
-/// [`CHECKPOINT_TABLE`] is only opened when the flag asks for it. Export
+/// [`CHECKPOINT_TABLES`] are only opened when the flag asks for them. Export
 /// replay A with checkpoints and replay B without, into the same directory,
 /// and `OutputTransaction::publish` atomically replaces the whole
 /// destination with B's staging -- A's checkpoint table is not merged in and
@@ -445,13 +451,21 @@ pub(super) fn stale_checkpoint_note(out_path: &Path, with_checkpoints: bool) -> 
     if with_checkpoints {
         return None;
     }
-    let path = out_path.join(CHECKPOINT_TABLE);
-    path.exists().then(|| {
+    let paths: Vec<_> = CHECKPOINT_TABLES
+        .iter()
+        .map(|name| out_path.join(name))
+        .filter(|path| path.exists())
+        .collect();
+    (!paths.is_empty()).then(|| {
         format!(
-            "{} from a previous export to this destination is being dropped: this run has no \
+            "{} from a previous export to this destination are being dropped: this run has no \
              --checkpoints, and publishing replaces the whole destination directory rather than \
              merging into it",
-            path.display()
+            paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         )
     })
 }
@@ -476,7 +490,9 @@ fn print_file_sizes(
     eprintln!("  events.parquet:   {} bytes", size("events.parquet"));
     eprintln!("  partials.parquet: {} bytes", size("partials.parquet"));
     if with_checkpoints {
-        eprintln!("  {CHECKPOINT_TABLE}: {} bytes", size(CHECKPOINT_TABLE));
+        for table in CHECKPOINT_TABLES {
+            eprintln!("  {table}: {} bytes", size(table));
+        }
     }
     eprintln!("  manifest.json:    {}", manifest_path.display());
     if let Some(note) = stale_checkpoint_note {
@@ -577,7 +593,7 @@ fn display_tail(value: &str, width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CHECKPOINT_TABLE, display_tail, stale_checkpoint_note};
+    use super::{CHECKPOINT_TABLES, display_tail, stale_checkpoint_note};
     use std::fs;
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
@@ -600,10 +616,10 @@ mod tests {
             "nothing to warn about in a clean directory"
         );
 
-        fs::write(dir.join(CHECKPOINT_TABLE), b"not really parquet").expect("write");
+        fs::write(dir.join(CHECKPOINT_TABLES[0]), b"not really parquet").expect("write");
         let note = stale_checkpoint_note(&dir, false).expect("the leftover must be reported");
         assert!(
-            note.contains(CHECKPOINT_TABLE),
+            note.contains(CHECKPOINT_TABLES[0]),
             "the warning must name the file: {note}"
         );
 

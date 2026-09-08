@@ -130,6 +130,8 @@ CHECKPOINT_COUNTERS = {
     "cp_frames": r"Frames:\s+(\d+)",
     "cp_frame_packets": r"Frame packets:\s+(\d+)",
     "cp_field_rows": r"Checkpoint rows:\s+(\d+)",
+    "cp_actor_rows_written": r"Checkpoint actors:\s*(\d+) rows",
+    "cp_net_guid_rows_written": r"Checkpoint GUID rows:\s+(\d+)",
     # Deliberately a different label from the main block's "Struct blobs", so
     # these regexes cannot match each other's line.
     "cp_struct_blobs_decoded": r"Checkpoint blobs:\s+(\d+) decoded",
@@ -137,6 +139,7 @@ CHECKPOINT_COUNTERS = {
 }
 
 PARQUET_FILES = ("fields", "movement", "actors", "net_guids", "events", "partials")
+CHECKPOINT_PARQUET_FILES = ("checkpoint_fields", "checkpoint_actors", "checkpoint_net_guids")
 
 
 def sha256_file(path: Path) -> str:
@@ -157,7 +160,7 @@ def cross_check_identities(counters: dict, parquet: dict) -> list:
     the fourth made it report a number it had not checked -- the same class of
     claim this whole script exists to catch.
     """
-    return [
+    identities = [
         ("NetGUID rows", counters.get("net_guid_rows"), parquet["net_guids"]["rows"]),
         ("Movement rows", counters.get("movement_rows"), parquet["movement"]["rows"]),
         ("Event rows", counters.get("event_rows"), parquet["events"]["rows"]),
@@ -175,6 +178,13 @@ def cross_check_identities(counters: dict, parquet: dict) -> list:
             parquet["actors"]["rows"],
         ),
     ]
+    if "cp_actor_rows_written" in counters or "checkpoint_actors" in parquet:
+        identities.append(("Checkpoint actors", counters.get("cp_actor_rows_written"),
+                           parquet.get("checkpoint_actors", {}).get("rows")))
+    if "cp_net_guid_rows_written" in counters or "checkpoint_net_guids" in parquet:
+        identities.append(("Checkpoint GUID rows", counters.get("cp_net_guid_rows_written"),
+                           parquet.get("checkpoint_net_guids", {}).get("rows")))
+    return identities
 
 
 def cross_checks(counters: dict, parquet: dict) -> list[str]:
@@ -209,6 +219,18 @@ def unpinnable(current: dict) -> list[str]:
             if current["counters"][key] is None]
 
 
+def checkpoint_manifest_errors(out_dir: Path) -> list[str]:
+    """Checkpoint actor rows must be written, never silently dropped."""
+    try:
+        manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
+        dropped = manifest["quality"]["checkpoints"]["checkpoint_actor_rows_dropped"]
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        return [f"checkpoint manifest does not expose checkpoint_actor_rows_dropped: {exc}"]
+    if dropped != 0:
+        return [f"checkpoint manifest says checkpoint_actor_rows_dropped={dropped}, expected 0"]
+    return []
+
+
 def measure(exe: Path, replay: Path, out_dir: Path, checkpoints: bool = False) -> dict:
     """Export one replay and collect the summary counters and Parquet shape.
 
@@ -238,7 +260,7 @@ def measure(exe: Path, replay: Path, out_dir: Path, checkpoints: bool = False) -
     files = list(PARQUET_FILES)
     if checkpoints:
         patterns.update({k: re.compile(v) for k, v in CHECKPOINT_COUNTERS.items()})
-        files.append("checkpoint_fields")
+        files.extend(CHECKPOINT_PARQUET_FILES)
 
     counters = {}
     for key, pat in patterns.items():
@@ -255,6 +277,11 @@ def measure(exe: Path, replay: Path, out_dir: Path, checkpoints: bool = False) -
             "bytes": path.stat().st_size,
             "sha256": sha256_file(path),
         }
+
+    if checkpoints:
+        manifest_errors = checkpoint_manifest_errors(out_dir)
+        if manifest_errors:
+            raise SystemExit("; ".join(manifest_errors))
 
     return {"counters": counters, "parquet": parquet}
 

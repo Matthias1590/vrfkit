@@ -17,9 +17,9 @@ import extract_match_observations as observations  # noqa: E402
 
 def write_export(root: Path) -> None:
     pq.write_table(pa.table({
-        "net_guid": [100, 300, 400, 401, 500, 601, 700],
-        "path": ["MagazineAmmo", None, "/State/ReloadState", "/State/IdleState", None, None, "InventoryComponent"],
-        "outer_net_guid": [200, 200, None, None, 600, None, 600],
+        "net_guid": [100, 300, 400, 401, 402, 500, 601, 700],
+        "path": ["MagazineAmmo", None, "/State/ReloadState", "/State/IdleState", "/State/ReloadStateEmpty", None, None, "InventoryComponent"],
+        "outer_net_guid": [200, 200, None, None, None, 600, None, 600],
     }), root / "net_guids.parquet")
     pq.write_table(pa.table({
         "group": ["roundStarted", "spikeDefused"],
@@ -82,6 +82,13 @@ def append_field_rows(root: Path, rows: list[tuple]) -> None:
 
 
 class MatchObservationTests(unittest.TestCase):
+    def _replace_state_rows(self, root: Path, rows: list[tuple]) -> None:
+        table = pq.read_table(root / "fields.parquet")
+        keep = pa.array([not group.endswith("EquippableStateMachineComponent")
+                         for group in table["group_path"].to_pylist()])
+        pq.write_table(table.filter(keep), root / "fields.parquet")
+        append_field_rows(root, rows)
+
     def test_build_deduplicates_and_labels_all_v1_evidence(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
@@ -98,7 +105,9 @@ class MatchObservationTests(unittest.TestCase):
         self.assertEqual(result["equip_intervals"][0]["inventory_component_guid"], 700)
         self.assertEqual(result["equip_intervals"][0]["inventory_actor_guid"], 701)
         self.assertEqual(result["equip_intervals"][0]["owner_guid"], 600)
-        self.assertEqual(result["reload_intervals"][0]["duration_ms"], 13)
+        self.assertIsNone(result["reload_intervals"][0]["duration_ms"])
+        self.assertEqual(result["reload_intervals"][0]["observed_span_ms"], 13)
+        self.assertTrue(result["reload_intervals"][0]["left_censored"])
         self.assertFalse(result["defuse_progress_transitions"][0]["authoritative_completion"])
         self.assertEqual(result["defuse_completions"][0]["time_ms"], 55)
         self.assertEqual(result["round_balances"][1]["money"], 900)
@@ -153,6 +162,138 @@ class MatchObservationTests(unittest.TestCase):
         self.assertIsNone(interval["duration_ms"])
         self.assertFalse(interval["closed_by_state_change"])
         self.assertEqual(interval["end_boundary"], "ambiguous_same_packet")
+
+    def test_reload_magazine_evidence_is_same_weapon_and_inside_interval(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_export(root)
+            append_field_rows(root, [
+                # 30 -> 35 is a positive magazine observation while the
+                # observed ReloadState interval is still open.
+                (18, 2, 0, 100, "/Script/ShooterGame.AmmoComponent", "AuthResourceAmount", 35, None),
+                # Different component/object has no proven same-weapon outer
+                # join and must not be attached.
+                (19, 1, 0, 999, "/Script/ShooterGame.AmmoComponent", "AuthResourceAmount", 99, None),
+            ])
+            result = observations.build(root)
+
+        interval = result["reload_intervals"][0]
+        self.assertEqual(interval["magazine_increase_count"], 1)
+        self.assertEqual(interval["magazine_increase_join"],
+                         "same_weapon_outer_guid; observed_interval")
+        self.assertEqual(len(result["reload_magazine_increases"]), 1)
+        self.assertEqual(result["reload_magazine_increases"][0]["time_ms"], 18)
+        self.assertEqual(result["reload_magazine_increases"][0]["magazine_component_guid"], 100)
+
+    def test_unknown_state_path_breaks_reload_interval(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_export(root)
+            append_field_rows(root, [
+                (20, 2, 0, 300, "/Script/ShooterGame.EquippableStateMachineComponent", "CurrentState", 999, None),
+            ])
+            result = observations.build(root)
+
+        interval = result["reload_intervals"][0]
+        self.assertEqual(interval["end_boundary"], "unknown_state_path")
+        self.assertIsNone(interval["duration_ms"])
+        self.assertTrue(interval["left_censored"])
+
+    def test_known_nonreload_then_reload_empty_has_observed_entry(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_export(root)
+            self._replace_state_rows(root, [
+                (5, 1, 0, 300, "/Script/ShooterGame.EquippableStateMachineComponent", "CurrentState", 401, None),
+                (12, 1, 0, 300, "/Script/ShooterGame.EquippableStateMachineComponent", "CurrentState", 402, None),
+                (25, 1, 0, 300, "/Script/ShooterGame.EquippableStateMachineComponent", "CurrentState", 401, None),
+            ])
+            result = observations.build(root)
+
+        interval = result["reload_intervals"][0]
+        self.assertEqual(interval["state_guid"], 402)
+        self.assertFalse(interval["left_censored"])
+        self.assertFalse(interval["right_censored"])
+        self.assertEqual(interval["end_boundary"], "state_change")
+
+    def test_first_reload_normal_exit_is_left_censored(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); write_export(root)
+            interval = observations.build(root)["reload_intervals"][0]
+        self.assertTrue(interval["left_censored"])
+        self.assertFalse(interval["right_censored"])
+
+    def test_known_idle_reload_stream_end_is_not_left_censored(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); write_export(root)
+            self._replace_state_rows(root, [
+                (5, 1, 0, 300, "/Script/ShooterGame.EquippableStateMachineComponent", "CurrentState", 401, None),
+                (12, 1, 0, 300, "/Script/ShooterGame.EquippableStateMachineComponent", "CurrentState", 400, None),
+            ])
+            interval = observations.build(root)["reload_intervals"][0]
+        self.assertFalse(interval["left_censored"])
+        self.assertTrue(interval["right_censored"])
+
+    def test_same_timestamp_later_packet_is_inside_but_boundary_packet_is_excluded(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); write_export(root)
+            append_field_rows(root, [
+                # Same state-entry packet is unorderable and excluded; packet 2
+                # at the same timestamp is strictly inside the interval.
+                (12, 1, 0, 100, "/Script/ShooterGame.AmmoComponent", "AuthResourceAmount", 35, None),
+                (12, 2, 0, 100, "/Script/ShooterGame.AmmoComponent", "AuthResourceAmount", 40, None),
+            ])
+            rows = observations.build(root)["reload_magazine_increases"]
+        self.assertEqual([(row["time_ms"], row["packet_id"]) for row in rows], [(12, 2)])
+
+    def test_unknown_then_reload_is_left_censored(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); write_export(root)
+            append_field_rows(root, [
+                (13, 1, 0, 300, "/Script/ShooterGame.EquippableStateMachineComponent", "CurrentState", 999, None),
+                (14, 1, 0, 300, "/Script/ShooterGame.EquippableStateMachineComponent", "CurrentState", 400, None),
+            ])
+            rows = observations.build(root)["reload_intervals"]
+        self.assertTrue(rows[-1]["left_censored"])
+
+    def test_conflicting_guid_metadata_and_second_weapon_do_not_join(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp); write_export(root)
+            net = pq.read_table(root / "net_guids.parquet")
+            pq.write_table(pa.concat_tables([net, pa.table({
+                "net_guid": [100, 101, 100],
+                "path": ["MagazineAmmo", "MagazineAmmo", "MagazineAmmo"],
+                "outer_net_guid": [201, 201, 200],
+            })]), root / "net_guids.parquet")
+            append_field_rows(root, [
+                (18, 1, 0, 100, "/Script/ShooterGame.AmmoComponent", "AuthResourceAmount", 35, None),
+                (10, 1, 0, 101, "/Script/ShooterGame.AmmoComponent", "AuthResourceAmount", 30, None),
+                (18, 1, 0, 101, "/Script/ShooterGame.AmmoComponent", "AuthResourceAmount", 35, None),
+            ])
+            rows = observations.build(root)["reload_magazine_increases"]
+        self.assertEqual(rows, [])
+
+    def test_round_reset_breaks_reload_magazine_join(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_export(root)
+            append_field_rows(root, [
+                (18, 2, 0, 100, "/Script/ShooterGame.AmmoComponent", "AuthResourceAmount", 35, None),
+            ])
+            events = pq.read_table(root / "events.parquet")
+            pq.write_table(pa.concat_tables([events, pa.table({
+                "group": ["roundStarted"], "time1": [20],
+            })]), root / "events.parquet")
+            result = observations.build(root)
+
+        interval = result["reload_intervals"][0]
+        self.assertTrue(interval["reset_boundary_crossed"])
+        self.assertEqual(interval["to_ms"], 20)
+        self.assertIsNone(interval["to_packet_id"])
+        self.assertTrue(interval["right_censored"])
+        self.assertIsNone(interval["duration_ms"])
+        self.assertEqual(interval["magazine_increase_count"], 0)
+        self.assertEqual(result["reload_magazine_increases"], [])
 
     def test_team_conflicts_are_null_and_row_order_independent(self):
         with tempfile.TemporaryDirectory() as temp:

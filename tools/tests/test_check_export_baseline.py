@@ -15,8 +15,12 @@ import os
 import sys
 import tempfile
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import check_export_baseline as guard  # noqa: E402
@@ -30,6 +34,17 @@ def measurement(**overrides):
         "parquet": {name: {"rows": 1, "bytes": 100, "sha256": "a" * 64}
                     for name in guard.PARQUET_FILES},
     }
+
+
+def checkpoint_measurement(**overrides):
+    current = measurement()
+    current["counters"].update({key: 1 for key in guard.CHECKPOINT_COUNTERS})
+    current["parquet"].update({
+        name: {"rows": 1, "bytes": 100, "sha256": "a" * 64}
+        for name in guard.CHECKPOINT_PARQUET_FILES
+    })
+    current["counters"].update(overrides)
+    return current
 
 
 class UnpinnableTests(unittest.TestCase):
@@ -77,6 +92,32 @@ class CrossCheckTests(unittest.TestCase):
         current = measurement(movement_rows=None)
         lies = guard.cross_checks(current["counters"], current["parquet"])
         self.assertTrue(any("did not print it" in l for l in lies))
+
+    def test_checkpoint_actor_and_guid_identities_reject_counter_mismatches(self):
+        current = checkpoint_measurement(cp_actor_rows_written=2, cp_net_guid_rows_written=3)
+        current["parquet"]["checkpoint_actors"]["rows"] = 1
+        current["parquet"]["checkpoint_net_guids"]["rows"] = 4
+        problems = guard.cross_checks(current["counters"], current["parquet"])
+        self.assertTrue(any("Checkpoint actors" in p for p in problems), problems)
+        self.assertTrue(any("Checkpoint GUID rows" in p for p in problems), problems)
+
+    def test_checkpoint_measurement_requires_every_new_table_and_zero_dropped_actors(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            out = root / "out"
+            out.mkdir()
+            for name in (*guard.PARQUET_FILES, "checkpoint_fields", "checkpoint_net_guids"):
+                pq.write_table(pa.table({"value": [1]}), out / f"{name}.parquet")
+            (out / "manifest.json").write_text(json.dumps({"quality": {"checkpoints": {
+                "checkpoint_actor_rows_dropped": 0}}}), encoding="utf-8")
+            with patch.object(guard.subprocess, "run", return_value=SimpleNamespace(
+                    returncode=0, stdout="", stderr="")):
+                with self.assertRaisesRegex(SystemExit, "checkpoint_actors.parquet"):
+                    guard.measure(Path("fake.exe"), root / "sample.vrf", out, checkpoints=True)
+
+            (out / "manifest.json").write_text(json.dumps({"quality": {"checkpoints": {
+                "checkpoint_actor_rows_dropped": 1}}}), encoding="utf-8")
+            self.assertIn("expected 0", " ".join(guard.checkpoint_manifest_errors(out)))
 
 
 class ContentIdentityTests(unittest.TestCase):

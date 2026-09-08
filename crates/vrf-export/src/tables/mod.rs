@@ -13,6 +13,8 @@
 
 #[cfg(feature = "actors")]
 pub mod actors;
+#[cfg(feature = "checkpoint-context")]
+pub mod checkpoints;
 #[cfg(feature = "events")]
 pub mod events;
 #[cfg(feature = "fields")]

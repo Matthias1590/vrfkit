@@ -34,8 +34,9 @@ use vrf_container::{
 use vrf_container::{EventPayload, parse_event_payload};
 use vrf_decode::OverlayErrorReport;
 use vrf_export::{
-    ActorWriter, EventRecord, EventWriter, FieldRecord, FieldWriter, MovementRecord,
-    MovementWriter, NetGuidRecord, NetGuidWriter,
+    ActorWriter, CheckpointActorWriter, CheckpointFieldWriter, CheckpointNetGuidWriter,
+    EventRecord, EventWriter, FieldRecord, FieldWriter, MovementRecord, MovementWriter,
+    NetGuidRecord, NetGuidWriter,
 };
 use vrf_frame::iter_demo_frames;
 use vrf_net::pipeline::ReplicationReader;
@@ -116,7 +117,11 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
     let mut event_writer = EventWriter::new(create("events.parquet")?)?;
     let mut partial_writer = vrf_export::PartialWriter::new(create("partials.parquet")?)?;
     let mut checkpoint_writer = if with_checkpoints {
-        Some(FieldWriter::new(create("checkpoint_fields.parquet")?)?)
+        Some(checkpoints::CheckpointWriters {
+            fields: CheckpointFieldWriter::new(create("checkpoint_fields.parquet")?)?,
+            actors: CheckpointActorWriter::new(create("checkpoint_actors.parquet")?)?,
+            net_guids: CheckpointNetGuidWriter::new(create("checkpoint_net_guids.parquet")?)?,
+        })
     } else {
         None
     };

@@ -88,6 +88,7 @@ cargo +1.86.0 check -p vrf-export --no-default-features --features actors --lock
 cargo +1.86.0 check -p vrf-export --no-default-features --features net-guids --locked
 cargo +1.86.0 check -p vrf-export --no-default-features --features events --locked
 cargo +1.86.0 check -p vrf-export --no-default-features --features partials --locked
+cargo +1.86.0 check -p vrf-export --no-default-features --features checkpoint-context --locked
 cargo +1.86.0 check -p vrf-export --no-default-features --features snappy --locked
 cargo +1.86.0 check -p vrf-net --no-default-features --locked
 cargo +1.86.0 check -p vrf-net --no-default-features --features diagnostics --locked

@@ -15,6 +15,38 @@
 use arrow_schema::{DataType, Field, Schema};
 use std::sync::Arc;
 
+fn checkpoint_schema(base: Schema) -> Schema {
+    let mut fields = Vec::with_capacity(base.fields().len() + 2);
+    fields.push(Field::new("checkpoint_index", DataType::UInt32, false));
+    fields.push(Field::new("checkpoint_id", DataType::Utf8, false));
+    fields.extend(base.fields().iter().map(|field| field.as_ref().clone()));
+    Schema::new(fields)
+}
+
+pub fn checkpoint_fields_schema() -> Schema {
+    checkpoint_schema(fields_schema())
+}
+
+pub fn checkpoint_fields_schema_ref() -> Arc<Schema> {
+    Arc::new(checkpoint_fields_schema())
+}
+
+pub fn checkpoint_actors_schema() -> Schema {
+    checkpoint_schema(actors_schema())
+}
+
+pub fn checkpoint_actors_schema_ref() -> Arc<Schema> {
+    Arc::new(checkpoint_actors_schema())
+}
+
+pub fn checkpoint_net_guids_schema() -> Schema {
+    checkpoint_schema(net_guids_schema())
+}
+
+pub fn checkpoint_net_guids_schema_ref() -> Arc<Schema> {
+    Arc::new(checkpoint_net_guids_schema())
+}
+
 /// Schema for the `fields` table (long format).
 ///
 /// Most rows represent one decoded field. A whole ClassNetCache block whose

@@ -16,6 +16,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+import re
 import sys
 
 import pyarrow as pa
@@ -25,6 +26,7 @@ import pyarrow.parquet as pq
 VALUE_COLUMNS = ("value_i64", "value_f64", "value_bool", "value_str")
 TABLES = ("fields", "checkpoint_fields")
 SEMANTIC_STATUSES = {"reviewed", "unknown", "unsupported"}
+FIELD_PATH_TEMPLATE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*(?:\[\])?(?:\.[A-Za-z_][A-Za-z0-9_]*(?:\[\])?)*")
 
 
 class EvidenceError(ValueError):
@@ -86,16 +88,18 @@ def load_semantic_evidence(path: Path) -> dict:
     """Read an explicit catalog of reviewed semantic assertions.
 
     Each source records provenance; each reviewed claim selects rows by exact
-    JSON-scalar equality. Unknown and unsupported claims remain visible but
-    are never counted as semantic verification.
+    JSON-scalar equality or a schema-2 literal indexed path template. Unknown
+    and unsupported claims remain visible but are never counted as semantic
+    verification.
     """
     try:
         raw_document = path.read_bytes()
         document = json.loads(raw_document)
     except (OSError, json.JSONDecodeError) as exc:
         raise EvidenceError(f"cannot read semantic evidence {path}: {exc}") from exc
-    if not isinstance(document, dict) or document.get("schema_version") != 1:
-        raise EvidenceError("semantic evidence schema_version must be 1")
+    if not isinstance(document, dict) or document.get("schema_version") not in (1, 2):
+        raise EvidenceError("semantic evidence schema_version must be 1 or 2")
+    schema_version = document["schema_version"]
     _require_string(document.get("catalog_version"), "catalog_version")
     sources = document.get("sources")
     claims = document.get("claims")
@@ -129,6 +133,13 @@ def load_semantic_evidence(path: Path) -> dict:
         status = claim.get("evidence_status")
         if status not in SEMANTIC_STATUSES:
             raise EvidenceError(f"{location}.evidence_status must be reviewed, unknown, or unsupported")
+        template = claim.get("field_path_template")
+        if template is not None:
+            if schema_version == 1:
+                raise EvidenceError(f"{location}.field_path_template requires schema_version 2")
+            _require_string(template, f"{location}.field_path_template")
+            if not FIELD_PATH_TEMPLATE.fullmatch(template) or "[]" not in template:
+                raise EvidenceError(f"{location}.field_path_template must be literal dot segments with at least one []")
         criteria = claim.get("criteria")
         if not isinstance(criteria, dict) or not criteria:
             raise EvidenceError(f"{location}.criteria must be a non-empty object")
@@ -142,10 +153,13 @@ def load_semantic_evidence(path: Path) -> dict:
             _require_string(claim.get("semantic_label"), f"{location}.semantic_label")
             _require_string(claim.get("reviewed_at"), f"{location}.reviewed_at")
             _require_string(claim.get("evidence"), f"{location}.evidence")
-            if not {"group_path", "field_name"}.issubset(criteria):
-                raise EvidenceError(f"{location}.criteria must include exact group_path and field_name")
-            for identity in ("group_path", "field_name"):
-                _require_string(criteria[identity], f"{location}.criteria.{identity}")
+            if not isinstance(criteria.get("group_path"), str) or not criteria["group_path"]:
+                raise EvidenceError(f"{location}.criteria must include exact group_path")
+            has_field_name = "field_name" in criteria
+            if has_field_name == (template is not None):
+                raise EvidenceError(f"{location} must select exactly one of criteria.field_name or field_path_template")
+            if has_field_name:
+                _require_string(criteria["field_name"], f"{location}.criteria.field_name")
             applicability = claim.get("applicability")
             if not isinstance(applicability, dict):
                 raise EvidenceError(f"{location}.applicability must enforce export_ids and/or replay_builds")
@@ -166,6 +180,18 @@ def load_semantic_evidence(path: Path) -> dict:
 def _criterion_mask(column: pa.Array, expected: object) -> pa.Array:
     mask = pc.is_null(column) if expected is None else pc.equal(column, pa.scalar(expected))
     return pc.fill_null(mask, False)
+
+
+def _field_path_mask(column: pa.Array, template: str) -> pa.Array:
+    """Match a whole indexed path; template names are always literal."""
+    pieces = []
+    for segment in template.split("."):
+        indexed = segment.endswith("[]")
+        pieces.append(re.escape(segment[:-2] if indexed else segment) + (r"\[[0-9]+\]" if indexed else ""))
+    # Real exports dictionary-encode names. The string kernel requires their
+    # values rather than dictionary indices; \z excludes trailing newlines.
+    return pc.fill_null(pc.match_substring_regex(
+        pc.cast(column, pa.string()), r"\A" + r"\.".join(pieces) + r"\z"), False)
 
 
 def applicable_claims(directory: Path, claims: list[dict]) -> list[dict]:
@@ -211,6 +237,8 @@ def count_semantic_table(path: Path, claims: list[dict]) -> dict[str, object]:
         needed = set(VALUE_COLUMNS)
         for claim in reviewed:
             needed.update(claim["criteria"])
+            if "field_path_template" in claim:
+                needed.add("field_name")
         columns = sorted(needed)
         per_claim = {claim["id"]: 0 for claim in reviewed}
         reviewed_rows = reviewed_typed_rows = 0
@@ -221,6 +249,9 @@ def count_semantic_table(path: Path, claims: list[dict]) -> dict[str, object]:
                 matches = pa.array([True] * batch.num_rows)
                 for field, expected in claim["criteria"].items():
                     matches = pc.fill_null(pc.and_(matches, _criterion_mask(by_name[field], expected)), False)
+                if "field_path_template" in claim:
+                    matches = pc.fill_null(pc.and_(matches, _field_path_mask(
+                        by_name["field_name"], claim["field_path_template"])), False)
                 per_claim[claim["id"]] += pc.sum(pc.cast(matches, pa.int64())).as_py() or 0
                 union = pc.fill_null(pc.or_(union, matches), False)
             populated = pc.cast(pc.is_valid(by_name[VALUE_COLUMNS[0]]), pa.uint8())

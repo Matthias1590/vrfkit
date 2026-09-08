@@ -157,10 +157,20 @@ def build(export_dir: Path) -> dict:
 
     net = _read_columns(export_dir / "net_guids.parquet",
                         ["net_guid", "path", "outer_net_guid"])
-    path_of = {guid: path for guid, path in zip(net["net_guid"], net["path"])
-               if path}
-    outer_of = {guid: outer for guid, outer in zip(net["net_guid"], net["outer_net_guid"])
-                if outer is not None}
+    # A duplicate NetGUID with conflicting metadata is not a join key.  The
+    # replay table is normally consistent, but choosing the last physical row
+    # would make a reload/ammo relation depend on Parquet order.
+    path_values = defaultdict(set)
+    outer_values = defaultdict(set)
+    for guid, path, outer in zip(net["net_guid"], net["path"], net["outer_net_guid"]):
+        if path:
+            path_values[guid].add(path)
+        if outer is not None:
+            outer_values[guid].add(outer)
+    path_of = {guid: next(iter(values)) for guid, values in path_values.items()
+               if len(values) == 1}
+    outer_of = {guid: next(iter(values)) for guid, values in outer_values.items()
+                if len(values) == 1}
 
     events = _read_columns(export_dir / "events.parquet", ["group", "time1"])
     round_starts = sorted(time for group, time in zip(events["group"], events["time1"])
@@ -290,6 +300,25 @@ def build(export_dir: Path) -> dict:
                 ),
             })
 
+    # Positive magazine transitions are raw counter observations.  They are
+    # joined to reload *state intervals* below only through one non-null weapon
+    # outer GUID; they never make a completed-reload or shot event.
+    positive_magazine_by_weapon = defaultdict(list)
+    for component, samples in magazine.items():
+        weapon = outer_of.get(component)
+        if weapon is None:
+            continue
+        compact, _ = _collapse(samples)
+        for (before_ms, before_packet, before), (time_ms, packet_id, after) in zip(compact, compact[1:]):
+            reset = any(before_ms <= start <= time_ms for start in round_starts)
+            if before is not None and after is not None and after > before and not reset:
+                positive_magazine_by_weapon[weapon].append({
+                    "time_ms": time_ms, "packet_id": packet_id,
+                    "before_ms": before_ms, "before_packet_id": before_packet,
+                    "magazine_component_guid": component,
+                    "before": before, "after": after, "delta": after - before,
+                })
+
     equip_intervals = []
     ambiguous_inventory_packets = 0
     for (inventory_component, inventory_actor, source_field), samples in inventory.items():
@@ -315,48 +344,94 @@ def build(export_dir: Path) -> dict:
     for component, samples in state_machine.items():
         compact, ambiguous = _collapse(samples)
         ambiguous_reload_packets += ambiguous
-        open_start = None
-        open_state = None
-        for time_ms, _, state in compact:
-            if state is None:
-                if open_start is not None:
-                    reload_intervals.append({
-                        "state_machine_guid": component,
-                        "weapon_guid": outer_of.get(component),
-                        "state_guid": open_state,
-                        "from_ms": open_start,
-                        "to_ms": time_ms,
-                        "duration_ms": None,
-                        "closed_by_state_change": False,
-                        "end_boundary": "ambiguous_same_packet",
-                    })
-                    open_start = open_state = None
-                continue
-            is_reload = (path_of.get(state) or "").endswith("ReloadState")
-            if is_reload and open_start is None:
-                open_start, open_state = time_ms, state
-            elif not is_reload and open_start is not None:
-                reload_intervals.append({
-                    "state_machine_guid": component,
-                    "weapon_guid": outer_of.get(component),
-                    "state_guid": open_state,
-                    "from_ms": open_start,
-                    "to_ms": time_ms,
-                    "duration_ms": time_ms - open_start,
-                    "closed_by_state_change": True,
-                    "end_boundary": "state_change",
-                })
-                open_start = open_state = None
-        if open_start is not None:
+        open_start = open_state = None
+        left_censored = True
+        entry_boundary = "first_observation"
+        prior_boundary = "first_observation"
+        next_reset = 0
+
+        def close_interval(end_ms, end_packet, boundary):
+            nonlocal open_start, open_state
+            if open_start is None:
+                return
+            right_censored = boundary != "state_change"
+            observed_span = None if end_ms is None else end_ms - open_start[0]
             reload_intervals.append({
                 "state_machine_guid": component,
-                "weapon_guid": outer_of.get(component),
-                "state_guid": open_state,
-                "from_ms": open_start,
-                "to_ms": None,
-                "duration_ms": None,
-                "closed_by_state_change": False,
-                "end_boundary": "end_of_stream",
+                "weapon_guid": outer_of.get(component), "state_guid": open_state,
+                "from_ms": open_start[0], "from_packet_id": open_start[1],
+                "to_ms": end_ms, "to_packet_id": end_packet,
+                "observed_span_ms": observed_span,
+                "duration_ms": observed_span if not left_censored and not right_censored else None,
+                "closed_by_state_change": boundary == "state_change",
+                "start_boundary": entry_boundary,
+                "left_censored": left_censored, "right_censored": right_censored,
+                "end_boundary": boundary,
+            })
+            open_start = open_state = None
+
+        for time_ms, packet_id, state in compact:
+            # Round events have no packet identity. At equal timestamps their
+            # order relative to a state update is unknown, so reset the entry
+            # evidence before considering the update.
+            while next_reset < len(round_starts) and round_starts[next_reset] <= time_ms:
+                close_interval(round_starts[next_reset], None, "round_reset")
+                prior_boundary = "after_round_reset"
+                next_reset += 1
+            state_path = path_of.get(state) if state is not None else None
+            if state_path is None:
+                boundary = "unknown_state_path" if state is not None else "ambiguous_same_packet"
+                close_interval(time_ms, packet_id, boundary)
+                prior_boundary = "after_" + boundary
+                continue
+            is_reload = state_path.rsplit("/", 1)[-1] in {"ReloadState", "ReloadStateEmpty"}
+            if is_reload and open_start is None:
+                open_start, open_state = (time_ms, packet_id), state
+                entry_boundary = prior_boundary
+                left_censored = prior_boundary != "known_nonreload_transition"
+            elif not is_reload:
+                close_interval(time_ms, packet_id, "state_change")
+                prior_boundary = "known_nonreload_transition"
+        if open_start is not None:
+            if next_reset < len(round_starts):
+                close_interval(round_starts[next_reset], None, "round_reset")
+            else:
+                close_interval(None, None, "end_of_stream")
+
+    reload_magazine_increases = []
+    for interval in reload_intervals:
+        weapon = interval["weapon_guid"]
+        end = interval["to_ms"]
+        start_key = (interval["from_ms"], interval["from_packet_id"])
+        end_key = ((end, interval.get("to_packet_id")) if end is not None else None)
+        reset_crossed = interval["end_boundary"] == "round_reset"
+        evidence = []
+        if (weapon is not None and end_key is not None and not reset_crossed
+                and interval["end_boundary"] == "state_change"):
+            evidence = [change for change in positive_magazine_by_weapon[weapon]
+                        if start_key < (change["time_ms"], change["packet_id"]) < end_key]
+        interval["magazine_increase_count"] = len(evidence)
+        interval["magazine_increase_join"] = (
+            "same_weapon_outer_guid; observed_interval" if evidence else None
+        )
+        interval["reset_boundary_crossed"] = reset_crossed
+        for change in evidence:
+            reload_magazine_increases.append({
+                "state_machine_guid": interval["state_machine_guid"],
+                "weapon_guid": weapon,
+                "reload_from_ms": interval["from_ms"],
+                "reload_from_packet_id": interval["from_packet_id"],
+                "reload_to_ms": end,
+                "reload_to_packet_id": interval.get("to_packet_id"),
+                "magazine_component_guid": change["magazine_component_guid"],
+                "time_ms": change["time_ms"],
+                "packet_id": change["packet_id"],
+                "before_ms": change["before_ms"],
+                "before_packet_id": change["before_packet_id"],
+                "before": change["before"],
+                "after": change["after"],
+                "delta": change["delta"],
+                "evidence": "reload-state interval with same-weapon magazine increase",
             })
 
     progress_transitions = []
@@ -511,6 +586,7 @@ def build(export_dir: Path) -> dict:
         "ammo_changes": _stable_rows(ammo_changes),
         "equip_intervals": _stable_rows(equip_intervals),
         "reload_intervals": _stable_rows(reload_intervals),
+        "reload_magazine_increases": _stable_rows(reload_magazine_increases),
         "defuse_progress_transitions": _stable_rows(progress_transitions),
         "defuse_completions": [
             {"time_ms": time_ms, "source": "events.spikeDefused", "authoritative": True}

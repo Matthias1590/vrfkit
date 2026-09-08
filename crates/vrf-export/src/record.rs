@@ -193,6 +193,34 @@ pub struct NetGuidRecord {
     pub outer_net_guid: Option<u32>,
 }
 
+/// Identity shared by rows decoded from one checkpoint chunk.
+///
+/// The wire checkpoint id is not required to be unique, so consumers must use
+/// it together with the zero-based chunk index when joining checkpoint tables.
+#[derive(Debug, Clone)]
+pub struct CheckpointIdentity {
+    pub checkpoint_index: u32,
+    pub checkpoint_id: Arc<str>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CheckpointFieldRecord {
+    pub checkpoint: CheckpointIdentity,
+    pub field: FieldRecord,
+}
+
+#[derive(Debug, Clone)]
+pub struct CheckpointActorRecord {
+    pub checkpoint: CheckpointIdentity,
+    pub actor: ActorRecord,
+}
+
+#[derive(Debug, Clone)]
+pub struct CheckpointNetGuidRecord {
+    pub checkpoint: CheckpointIdentity,
+    pub net_guid: NetGuidRecord,
+}
+
 /// A single Event chunk ready for export.
 #[derive(Debug, Clone)]
 pub struct EventRecord {

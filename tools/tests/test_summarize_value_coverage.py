@@ -74,10 +74,10 @@ class PhysicalCoverageTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "missing value columns"):
             coverage.count_table(empty)
 
-    def evidence_catalog(self, claims):
+    def evidence_catalog(self, claims, schema_version=1):
         path = self.root / "semantic-evidence.json"
         path.write_text(json.dumps({
-            "schema_version": 1,
+            "schema_version": schema_version,
             "catalog_version": "review-2026-09-08",
             "sources": [{
                 "id": "wire-review",
@@ -87,6 +87,30 @@ class PhysicalCoverageTests(unittest.TestCase):
             "claims": claims,
         }), encoding="utf-8")
         return path
+
+    def write_path_rows(self, directory):
+        directory.mkdir(exist_ok=True)
+        pq.write_table(pa.table({
+            "group_path": pa.array(["/Game/Combat", "/Game/Combat", "/Game/Other", "/Game/Combat", "/Game/Combat", "/Game/Combat"]),
+            "field_name": pa.array([
+                "Rounds[0].Reports[12].Interactions[3].ParticipantSubject",
+                "Rounds[0].Reports[-1].Interactions[3].ParticipantSubject",
+                "Rounds[0].Reports[1].Interactions[2].ParticipantSubject",
+                "prefix.Rounds[0].Reports[1].Interactions[2].ParticipantSubject",
+                "Rounds[0].Reports[1].Interactions[2].ParticipantSubjectSuffix",
+                None,
+            ], type=pa.string()),
+            "value_i64": pa.array([1, 2, 3, 4, 5, 6], type=pa.int64()),
+            "value_f64": pa.array([None] * 6, type=pa.float64()),
+            "value_bool": pa.array([None] * 6, type=pa.bool_()),
+            "value_str": pa.array([None] * 6, type=pa.string()),
+        }), directory / "fields.parquet")
+
+        table = pq.read_table(directory / "fields.parquet")
+        for name in ("group_path", "field_name"):
+            table = table.set_column(table.schema.get_field_index(name), name,
+                                     table[name].dictionary_encode())
+        pq.write_table(table, directory / "fields.parquet")
 
     def test_reviewed_semantic_rows_need_catalog_criteria_and_keep_unknown_unknown(self):
         self.write(self.root / "one")
@@ -178,7 +202,7 @@ class PhysicalCoverageTests(unittest.TestCase):
             "evidence_status": "reviewed", "semantic_label": "bad", "reviewed_at": "2026-09-08",
             "evidence": "fixture", "criteria": {"value_i64": 0},
         }
-        with self.assertRaisesRegex(coverage.EvidenceError, "group_path and field_name"):
+        with self.assertRaisesRegex(coverage.EvidenceError, "exact group_path"):
             coverage.load_semantic_evidence(self.evidence_catalog([base]))
         base["criteria"] = {"group_path": "/Game/Test", "field_name": "ReviewedField", "value_f64": float("nan")}
         with self.assertRaisesRegex(coverage.EvidenceError, "JSON scalar"):
@@ -209,6 +233,54 @@ class PhysicalCoverageTests(unittest.TestCase):
         report = coverage.summarize(coverage.discover([self.root]), 1, scoped)
         table = report["semantic_evidence"]["tables"]["fields"]
         self.assertEqual((table["applicable_exports"], table["reviewed_rows"]), (0, 0))
+
+    def test_schema_two_indexed_path_selector_is_whole_path_group_scoped_and_null_safe(self):
+        self.write_path_rows(self.root / "one")
+        template = "Rounds[].Reports[].Interactions[].ParticipantSubject"
+        claims = [
+            {
+                "id": "path", "source_id": "wire-review", "table": "fields",
+                "evidence_status": "reviewed", "semantic_label": "participant subject",
+                "reviewed_at": "2026-09-08", "evidence": "fixture",
+                "applicability": {"export_ids": ["one"]},
+                "field_path_template": template,
+                "criteria": {"group_path": "/Game/Combat"},
+            },
+            {
+                "id": "path-overlap", "source_id": "wire-review", "table": "fields",
+                "evidence_status": "reviewed", "semantic_label": "same participant subject",
+                "reviewed_at": "2026-09-08", "evidence": "fixture",
+                "applicability": {"export_ids": ["one"]},
+                "field_path_template": template,
+                "criteria": {"group_path": "/Game/Combat"},
+            },
+        ]
+        catalog = self.evidence_catalog(claims, schema_version=2)
+        report = coverage.summarize(coverage.discover([self.root]), 1,
+                                    coverage.load_semantic_evidence(catalog))
+        table = report["semantic_evidence"]["tables"]["fields"]
+        self.assertTrue(report["complete"])
+        self.assertEqual(table["reviewed_rows"], 1)
+        self.assertEqual(table["claims"], [{"id": "path", "rows": 1}, {"id": "path-overlap", "rows": 1}])
+
+    def test_indexed_path_templates_reject_malformed_and_schema_one_selector(self):
+        base = {
+            "id": "path", "source_id": "wire-review", "table": "fields",
+            "evidence_status": "reviewed", "semantic_label": "path", "reviewed_at": "2026-09-08",
+            "evidence": "fixture", "applicability": {"export_ids": ["one"]},
+            "criteria": {"group_path": "/Game/Combat"},
+        }
+        for template in ("Rounds[0].Reports[]", "Rounds[].Bad-Name", "Rounds.*.Reports[]", "Plain.Field"):
+            with self.subTest(template=template):
+                claim = base | {"field_path_template": template}
+                with self.assertRaisesRegex(coverage.EvidenceError, "field_path_template"):
+                    coverage.load_semantic_evidence(self.evidence_catalog([claim], schema_version=2))
+        claim = base | {"field_path_template": "Rounds[].Reports[]"}
+        with self.assertRaisesRegex(coverage.EvidenceError, "requires schema_version 2"):
+            coverage.load_semantic_evidence(self.evidence_catalog([claim], schema_version=1))
+        claim = claim | {"criteria": {"group_path": "/Game/Combat", "field_name": "literal"}}
+        with self.assertRaisesRegex(coverage.EvidenceError, "exactly one"):
+            coverage.load_semantic_evidence(self.evidence_catalog([claim], schema_version=2))
 
 
 if __name__ == "__main__":

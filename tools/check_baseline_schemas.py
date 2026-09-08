@@ -12,9 +12,9 @@ from collections import Counter
 from pathlib import Path, PureWindowsPath
 
 if __package__:
-    from .check_export_baseline import CHECKPOINT_COUNTERS, COUNTERS, PARQUET_FILES
+    from .check_export_baseline import CHECKPOINT_COUNTERS, CHECKPOINT_PARQUET_FILES, COUNTERS, PARQUET_FILES
 else:  # direct script execution
-    from check_export_baseline import CHECKPOINT_COUNTERS, COUNTERS, PARQUET_FILES
+    from check_export_baseline import CHECKPOINT_COUNTERS, CHECKPOINT_PARQUET_FILES, COUNTERS, PARQUET_FILES
 
 REPO = Path(__file__).resolve().parent.parent
 BASELINES = REPO / "tools" / "baselines"
@@ -133,7 +133,7 @@ def validate_export_baseline(
         if not _nonnegative_int(value):
             problems.append(f"{path.name}: counters.{key} must be a non-negative integer")
 
-    expected_tables = set(MAIN_PARQUET) | ({"checkpoint_fields"} if checkpoint else set())
+    expected_tables = set(MAIN_PARQUET) | (set(CHECKPOINT_PARQUET_FILES) if checkpoint else set())
     parquet = data.get("parquet")
     if not isinstance(parquet, dict):
         problems.append(f"{path.name}: parquet must be an object")

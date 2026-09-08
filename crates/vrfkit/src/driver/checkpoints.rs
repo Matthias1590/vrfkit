@@ -7,19 +7,19 @@
 //! the snapshot's channel opens and archetype mappings leak into the ReplayData
 //! pass and corrupt it.
 //!
-//! Checkpoint fields go to their own table rather than into `fields.parquet`
-//! with a source column. Two reasons, in order: a column on 1.2M rows to mark
-//! 80k of them is the wrong shape, and `fields.parquet` is read by the valplay
-//! adapter, whose capture predicate keys on a row having no decoded value --
-//! changing that file's population risks the metric parity for no gain. The
-//! file is only created when the flag asks for it, so a default export is
-//! byte-identical to one from before this existed.
+//! Checkpoint rows go to separate tables because their packet, channel and
+//! NetGUID namespaces restart inside each snapshot. Keeping that context out
+//! of the main tables also leaves the default export byte-identical.
 
 use std::io::Write;
 
 use vrf_container::{decompress_checkpoint, parse_checkpoint_chunk};
 use vrf_decode::OverlayErrorReport;
-use vrf_export::{FieldWriter, PartialWriter};
+use vrf_export::{
+    CheckpointActorRecord, CheckpointActorWriter, CheckpointFieldRecord, CheckpointFieldWriter,
+    CheckpointIdentity, CheckpointNetGuidRecord, CheckpointNetGuidWriter, NetGuidRecord,
+    PartialWriter,
+};
 use vrf_frame::iter_demo_frames;
 use vrf_net::pipeline::ReplicationReader;
 use vrf_net::stats::NetStats;
@@ -49,14 +49,12 @@ pub(crate) struct CheckpointStats {
     pub frames: u64,
     pub packets: u64,
     pub field_rows: u64,
+    pub actor_rows_written: u64,
+    pub net_guid_rows_written: u64,
     pub partial_rows: u64,
     pub partial_bits: u64,
-    /// Actor opens and movement samples the snapshot produced. They are
-    /// counted and dropped, not written: a checkpoint re-opens a channel for
-    /// every actor alive at that instant, so folding them into
-    /// `actors.parquet` would triple its rows with re-opens that are not
-    /// spawns, and `movement.parquet` is a time series that a snapshot's
-    /// replayed samples would duplicate. Reported so the drop is visible.
+    /// Actor rows are written to their checkpoint-scoped table. This retained
+    /// counter remains explicit so a future discard path cannot be silent.
     pub actor_rows_dropped: u64,
     pub movement_rows_dropped: u64,
     /// Everything the checkpoint sinks counted.
@@ -79,6 +77,21 @@ pub(crate) struct CheckpointStats {
     pub net: NetStats,
 }
 
+pub(super) struct CheckpointWriters<W: Write + Send> {
+    pub fields: CheckpointFieldWriter<W>,
+    pub actors: CheckpointActorWriter<W>,
+    pub net_guids: CheckpointNetGuidWriter<W>,
+}
+
+impl<W: Write + Send> CheckpointWriters<W> {
+    pub fn finish(self) -> Result<(), CliError> {
+        self.fields.finish()?;
+        self.actors.finish()?;
+        self.net_guids.finish()?;
+        Ok(())
+    }
+}
+
 /// Everything about the replay that the checkpoint pass needs and cannot
 /// rediscover from the chunk alone.
 pub(super) struct ReplayContext<'a> {
@@ -96,7 +109,7 @@ pub(super) struct ReplayContext<'a> {
 pub(super) fn process_chunk<W: Write + Send, P: Write + Send>(
     payload: &[u8],
     ctx: &ReplayContext<'_>,
-    writer: &mut FieldWriter<W>,
+    writers: &mut CheckpointWriters<W>,
     stats: &mut CheckpointStats,
     error_report: &mut OverlayErrorReport,
     partial_writer: &mut PartialWriter<P>,
@@ -108,6 +121,12 @@ pub(super) fn process_chunk<W: Write + Send, P: Write + Send>(
     let mut cache = NetGuidCache::new();
     let tables = read_checkpoint_tables(&plain, &mut cache)
         .map_err(|e| CliError::Usage(format!("checkpoint {}: {e}", cp.id)))?;
+    let checkpoint_index = u32::try_from(stats.chunks)
+        .map_err(|_| CliError::Usage("too many checkpoint chunks to index".to_owned()))?;
+    let checkpoint = CheckpointIdentity {
+        checkpoint_index,
+        checkpoint_id: cp.id.clone().into(),
+    };
 
     let frame = &plain[tables.frame_offset..];
     let mut reader = ReplicationReader::new(ctx.branch)
@@ -131,10 +150,20 @@ pub(super) fn process_chunk<W: Write + Send, P: Write + Send>(
         }
         let result = (|| -> Result<(), CliError> {
             stats.field_rows += buffers.fields.len() as u64;
-            writer.push_batch(buffers.fields.drain(..))?;
-            stats.actor_rows_dropped += buffers.actors.len() as u64;
+            writers
+                .fields
+                .push_batch(buffers.fields.drain(..).map(|field| CheckpointFieldRecord {
+                    checkpoint: checkpoint.clone(),
+                    field,
+                }))?;
+            stats.actor_rows_written += buffers.actors.len() as u64;
+            writers
+                .actors
+                .push_batch(buffers.actors.drain(..).map(|actor| CheckpointActorRecord {
+                    checkpoint: checkpoint.clone(),
+                    actor,
+                }))?;
             stats.movement_rows_dropped += buffers.movement.len() as u64;
-            buffers.actors.clear();
             buffers.movement.clear();
             for mut record in buffers.partials.drain(..) {
                 stats.partial_rows += 1;
@@ -166,6 +195,24 @@ pub(super) fn process_chunk<W: Write + Send, P: Write + Send>(
     }
     let mut chunk_net = reader.stats().clone();
     stats.net.absorb(&mut chunk_net);
+
+    let mut guid_entries = cache.net_guid_entries();
+    guid_entries.sort_unstable_by_key(|entry| entry.net_guid);
+    stats.net_guid_rows_written += guid_entries.len() as u64;
+    writers
+        .net_guids
+        .push_batch(
+            guid_entries
+                .into_iter()
+                .map(|entry| CheckpointNetGuidRecord {
+                    checkpoint: checkpoint.clone(),
+                    net_guid: NetGuidRecord {
+                        net_guid: entry.net_guid,
+                        path: entry.path.to_owned(),
+                        outer_net_guid: entry.outer_net_guid,
+                    },
+                }),
+        )?;
 
     stats.chunks += 1;
     stats.guid_entries += u64::from(tables.guid_count);
