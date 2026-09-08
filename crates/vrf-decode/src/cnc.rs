@@ -39,18 +39,20 @@
 //! the **minimum** valid `function_count`, which is sufficient to decode the
 //! stream: every fc in the valid range produces identical RPC structure.
 //!
-//! # What the decoder does NOT name
+//! # Payload kind and inner structure
 //!
-//! The RPC payload itself does not parse as the standard RepLayout
-//! `FunctionParameters` grammar -- the function at handle 1 uses a
-//! class-specific serializer. This module recovers the outer RPC framing
-//! (handle, payload offset/size) and, for `AbilitiesAndBuffsComponent`,
-//! decomposes the inner payload into its deterministic structure (a flag bit
-//! followed by a little-endian `u32` stream; see
-//! `decode_abilities_and_buffs_inner`). What it does not do is assign
-//! authoritative semantic names to the later words: those (ability-class
-//! signature, effect specs) depend on game assets, so the raw bits are
-//! preserved alongside the recovered structure.
+//! ClassNetCache framing also carries custom-delta properties. The legacy
+//! `CncRpc` and `function_count` names do not establish that an entry is a
+//! function call. The C# reference reader dispatches custom-delta properties
+//! separately from `ReceivedRPC` after reading this shared outer framing.
+//!
+//! The measured `AbilitiesAndBuffsComponent` handle-1 body follows FastArray
+//! custom-delta framing: a support bit, four i32 header words, deleted item
+//! IDs, and changed items with packed handle/width property streams. The
+//! Python observation extractor validates that structure while retaining raw
+//! input windows. `decode_abilities_and_buffs_inner` is a legacy bit-slicing
+//! helper, not a semantic decoder: arbitrary words or a successful split do
+//! not identify an ability, effect, PredictionKey, or player action.
 
 use vrf_bitio::BitReader;
 
@@ -233,18 +235,14 @@ fn walk_cnc(payload: &[u8], bit_count: u32, function_count: u32) -> Option<Vec<C
 /// optional sub-32-bit trailing residual, and `bit_count == 1 + 32 * words +
 /// trailing` holds exactly on every payload.
 ///
-/// The first two words are a prediction-key `{Current, Base}` pair: `word0`
-/// is a per-actor strictly-monotonic counter, `word1` chains the previous
-/// `word0`, and their difference is a small constant (1 in ~78% of payloads).
-/// This stream is the Gameplay Ability System's state synchronization -- it
-/// fires on every ability-system state change, not once per ability cast, so a
-/// single actor emits hundreds to thousands of payloads. Every payload is
-/// therefore unique, and the pair does **not** discriminate or count ability
-/// casts; cast attribution must come from ability-actor spawns and the
-/// `UltimateActive` flag instead. The later words carry small constant fields
-/// followed, on the larger payloads, by opaque values whose meaning is
-/// game-asset-dependent (the authoritative C# parser does not model this
-/// stream at all), so they are exposed as a raw word list.
+/// Word positions are not semantic field declarations. A September 2026
+/// twelve-export audit observed increasing first words within actor/object/
+/// channel sequences, but the second word did not always equal the previously
+/// observed first word. Leading pairs also occurred on different identities.
+/// These observations do not establish an engine prediction-key type,
+/// gameplay state-sync event, cast identity, or buff meaning. The complete
+/// word list and residual remain available without assigning those roles;
+/// see `docs/GAS_AND_PATCHVOLUME_INVESTIGATION.md` for the evidence scope.
 #[derive(Debug, Clone)]
 pub struct AbilitiesActivation {
     /// The leading flag bit. Observed to be `1` on every payload; kept as a
@@ -259,12 +257,10 @@ pub struct AbilitiesActivation {
 }
 
 impl AbilitiesActivation {
-    /// The first two words -- a prediction-key `{Current, Base}` pair -- when
-    /// the payload carries at least two words.
+    /// Return the first two raw words when present.
     ///
-    /// These are a per-actor monotonic state-sync counter; every payload is
-    /// unique. They do not group payloads into ability casts (see the struct
-    /// docs).
+    /// The legacy accessor name does not establish a prediction-key type or
+    /// an identity suitable for joining ability casts.
     #[must_use]
     pub fn key_pair(&self) -> Option<(u32, u32)> {
         Some((*self.words.first()?, *self.words.get(1)?))

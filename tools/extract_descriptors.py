@@ -52,9 +52,9 @@ import sys
 from pathlib import Path
 from collections import Counter
 
-try:
+if __package__:
     from .atomic_io import atomic_write_text
-except ImportError:  # direct script execution
+else:  # direct script execution
     from atomic_io import atomic_write_text
 
 CSHARP_IDENTIFIER = r'[A-Za-z_]\w*'

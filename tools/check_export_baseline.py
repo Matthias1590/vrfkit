@@ -89,6 +89,8 @@ COUNTERS = {
     "movement_rows": r"Movement rows:\s+(\d+)",
     "net_guid_rows": r"NetGUID rows:\s+(\d+)",
     "event_rows": r"Event rows:\s+(\d+)",
+    "partial_rows": r"Partial raw rows:\s+(\d+)",
+    "partial_bits": r"Partial raw rows:\s+\d+ \((\d+) bits\)",
     "event_layout_mismatches": r"Event layout err:\s+(\d+)",
     "event_payloads_decoded": r"Event payloads:\s+(\d+) decoded",
     "event_payload_unknown_groups": r"Event payloads:\s+\d+ decoded / (\d+) unknown groups",
@@ -112,6 +114,13 @@ COUNTERS = {
     # (0 decoded, 0 failed) from reading the same as a clean one.
     "struct_blobs_decoded": r"Struct blobs:\s+(\d+) decoded",
     "struct_blobs_failed": r"Struct blobs:\s+\d+ decoded / (\d+) failed",
+    "targeting_world_locations_decoded": r"(?m)^\s*Target locations:\s+(\d+) array children\s*$",
+    # This is a measured opaque shape, not a decode-error counter: the main
+    # corpus is expected to contain it. Require its unconditional summary
+    # line and reconcile it with the manifest instead of requiring zero.
+    "tracked_rewards_opaque_empty_variants": (
+        r"(?m)^\s*Reward opaque:\s+(\d+) empty variants\s*$"
+    ),
 }
 PATTERNS = {k: re.compile(v) for k, v in COUNTERS.items()}
 
@@ -119,20 +128,39 @@ PATTERNS = {k: re.compile(v) for k, v in COUNTERS.items()}
 # default run must not record them as None and then diff that against a
 # baseline taken with the flag.
 CHECKPOINT_COUNTERS = {
+    "cp_partial_rows": r"Checkpoint partial raw:\s+(\d+) rows",
+    "cp_partial_bits": r"Checkpoint partial raw:\s+\d+ rows / (\d+) bits",
     "cp_chunks": r"Checkpoints:\s+(\d+)",
-    "cp_guid_entries": r"GUID entries:\s+(\d+)",
+    "cp_guid_entries": r"(?m)^\s*GUID entries:\s+(\d+)",
     "cp_group_records": r"Group records:\s+(\d+)",
     "cp_exported_fields": r"Exported fields:\s+(\d+)",
     "cp_frames": r"Frames:\s+(\d+)",
     "cp_frame_packets": r"Frame packets:\s+(\d+)",
     "cp_field_rows": r"Checkpoint rows:\s+(\d+)",
+    "cp_actor_rows_written": r"Checkpoint actors:\s*(\d+) rows",
+    "cp_net_guid_rows_written": r"Checkpoint GUID rows:\s+(\d+)",
+    "cp_block_rows_written": r"Checkpoint blocks:\s*(\d+) rows",
+    "cp_guid_entry_rows_written": r"Checkpoint GUID entries:\s*(\d+) rows",
+    "cp_export_group_rows_written": r"Checkpoint export groups:\s*(\d+) rows",
+    "cp_export_field_rows_written": r"Checkpoint export fields:\s*(\d+) rows",
+    "cp_literal_paths": r"(?m)^\s*GUID paths:\s+(\d+) literals / \d+ indices / \d+ resolved\s*$",
+    "cp_indexed_paths": r"(?m)^\s*GUID paths:\s+\d+ literals / (\d+) indices / \d+ resolved\s*$",
+    "cp_resolved_path_indices": r"(?m)^\s*GUID paths:\s+\d+ literals / \d+ indices / (\d+) resolved\s*$",
     # Deliberately a different label from the main block's "Struct blobs", so
     # these regexes cannot match each other's line.
     "cp_struct_blobs_decoded": r"Checkpoint blobs:\s+(\d+) decoded",
     "cp_struct_blobs_failed": r"Checkpoint blobs:\s+\d+ decoded / (\d+) failed",
+    "cp_targeting_world_locations_decoded": r"(?m)^\s*Checkpoint targets:\s+(\d+) array children\s*$",
+    "cp_tracked_rewards_opaque_empty_variants": (
+        r"(?m)^\s*Checkpoint reward opaque:\s+(\d+) empty variants\s*$"
+    ),
 }
 
-PARQUET_FILES = ("fields", "movement", "actors", "net_guids", "events")
+PARQUET_FILES = ("fields", "movement", "actors", "net_guids", "events", "partials")
+CHECKPOINT_PARQUET_FILES = (
+    "checkpoint_fields", "checkpoint_actors", "checkpoint_net_guids", "checkpoint_blocks",
+    "checkpoint_guid_entries", "checkpoint_export_groups", "checkpoint_export_fields",
+)
 
 
 def sha256_file(path: Path) -> str:
@@ -153,10 +181,16 @@ def cross_check_identities(counters: dict, parquet: dict) -> list:
     the fourth made it report a number it had not checked -- the same class of
     claim this whole script exists to catch.
     """
-    return [
+    identities = [
         ("NetGUID rows", counters.get("net_guid_rows"), parquet["net_guids"]["rows"]),
         ("Movement rows", counters.get("movement_rows"), parquet["movement"]["rows"]),
         ("Event rows", counters.get("event_rows"), parquet["events"]["rows"]),
+        (
+            "Partial raw rows (main + checkpoint)",
+            None if counters.get("partial_rows") is None or counters.get("cp_partial_rows", 0) is None
+            else counters["partial_rows"] + counters.get("cp_partial_rows", 0),
+            parquet["partials"]["rows"],
+        ),
         (
             "Actor opens + Actor closes",
             None
@@ -165,6 +199,30 @@ def cross_check_identities(counters: dict, parquet: dict) -> list:
             parquet["actors"]["rows"],
         ),
     ]
+    if "cp_actor_rows_written" in counters or "checkpoint_actors" in parquet:
+        identities.append(("Checkpoint actors", counters.get("cp_actor_rows_written"),
+                           parquet.get("checkpoint_actors", {}).get("rows")))
+    if "cp_net_guid_rows_written" in counters or "checkpoint_net_guids" in parquet:
+        identities.append(("Checkpoint GUID rows", counters.get("cp_net_guid_rows_written"),
+                           parquet.get("checkpoint_net_guids", {}).get("rows")))
+    if "cp_block_rows_written" in counters or "checkpoint_blocks" in parquet:
+        identities.append(("Checkpoint blocks", counters.get("cp_block_rows_written"),
+                           parquet.get("checkpoint_blocks", {}).get("rows")))
+    for label, written, parsed, table in (
+        ("Checkpoint GUID entries", "cp_guid_entry_rows_written", "cp_guid_entries",
+         "checkpoint_guid_entries"),
+        ("Checkpoint export groups", "cp_export_group_rows_written", "cp_group_records",
+         "checkpoint_export_groups"),
+        ("Checkpoint export fields", "cp_export_field_rows_written", "cp_exported_fields",
+         "checkpoint_export_fields"),
+    ):
+        if written in counters or parsed in counters or table in parquet:
+            actual = parquet.get(table, {}).get("rows")
+            identities.append((label, counters.get(written), actual))
+            # Compare the schema reader's independent count too: a writer that
+            # drops a record must fail even if its own printed count agrees.
+            identities.append((label + " parsed", counters.get(parsed), actual))
+    return identities
 
 
 def cross_checks(counters: dict, parquet: dict) -> list[str]:
@@ -180,6 +238,16 @@ def cross_checks(counters: dict, parquet: dict) -> list[str]:
             out.append(f"{label}: the export summary did not print it")
         elif printed != actual:
             out.append(f"{label}: summary says {printed}, Parquet holds {actual}")
+    if "cp_guid_entries" in counters:
+        required = ("cp_guid_entries", "cp_literal_paths", "cp_indexed_paths",
+                    "cp_resolved_path_indices")
+        missing = [key for key in required if counters.get(key) is None]
+        out.extend(f"{key}: the export summary did not print it" for key in missing)
+        if not missing:
+            if counters["cp_literal_paths"] + counters["cp_indexed_paths"] != counters["cp_guid_entries"]:
+                out.append("Checkpoint GUID paths: literals + indices do not equal GUID entries")
+            if counters["cp_resolved_path_indices"] != counters["cp_indexed_paths"]:
+                out.append("Checkpoint GUID paths: resolved indices do not equal indexed paths")
     return out
 
 
@@ -197,6 +265,83 @@ def unpinnable(current: dict) -> list[str]:
     return [f"{key}: the export summary did not print it"
             for key in sorted(current["counters"])
             if current["counters"][key] is None]
+
+
+def checkpoint_manifest_errors(out_dir: Path, counters: dict | None = None) -> list[str]:
+    """Checkpoint actor rows must be written, never silently dropped."""
+    try:
+        manifest = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))
+        checkpoints = manifest["quality"]["checkpoints"]
+        dropped = checkpoints["checkpoint_actor_rows_dropped"]
+        mode = checkpoints["checkpoint_path_resolution_mode"]
+        literals = checkpoints["checkpoint_literal_paths"]
+        indices = checkpoints["checkpoint_indexed_paths"]
+        resolved = checkpoints["checkpoint_resolved_path_indices"]
+        guid_entries = checkpoints["checkpoint_guid_entries"]
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        return [f"checkpoint manifest omits required checkpoint quality data: {exc}"]
+    if dropped != 0:
+        return [f"checkpoint manifest says checkpoint_actor_rows_dropped={dropped}, expected 0"]
+    errors = []
+    values = {"cp_literal_paths": literals, "cp_indexed_paths": indices,
+              "cp_resolved_path_indices": resolved, "cp_guid_entries": guid_entries}
+    if any(type(value) is not int or value < 0 for value in values.values()):
+        return ["checkpoint manifest GUID path counts must be nonnegative integers"]
+    if mode != "preceding_literal_zero_based":
+        errors.append(f"checkpoint manifest path resolution mode is {mode!r}")
+    if literals + indices != guid_entries:
+        errors.append("checkpoint manifest GUID paths: literals + indices do not equal GUID entries")
+    if resolved != indices:
+        errors.append("checkpoint manifest GUID paths: resolved indices do not equal indexed paths")
+    if counters is not None:
+        for key, value in values.items():
+            if counters.get(key) != value:
+                errors.append(f"checkpoint manifest {key}={value} disagrees with summary {counters.get(key)}")
+    return errors
+
+
+def reward_opaque_manifest_errors(
+    out_dir: Path, counters: dict, checkpoints: bool,
+) -> list[str]:
+    """The measured reward count must agree between CLI and manifest.
+
+    It is deliberately not folded into a decode-error-zero gate: the count
+    records a known opaque payload variant and can legitimately be nonzero.
+    """
+    try:
+        quality = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))["quality"]
+        main = quality["sink"]["tracked_rewards_opaque_empty_variants"]
+        checkpoint = (quality["checkpoints"]["sink"]
+                      ["tracked_rewards_opaque_empty_variants"]
+                      if checkpoints else None)
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        return [f"manifest omits tracked rewards opaque-empty quality data: {exc}"]
+    values = {"tracked_rewards_opaque_empty_variants": main}
+    if checkpoints:
+        values["cp_tracked_rewards_opaque_empty_variants"] = checkpoint
+    if any(type(value) is not int or value < 0 for value in values.values()):
+        return ["tracked rewards opaque-empty counts must be nonnegative integers"]
+    return [
+        f"manifest {key}={value} disagrees with summary {counters.get(key)}"
+        for key, value in values.items()
+        if counters.get(key) != value
+    ]
+
+
+def targeting_manifest_errors(out_dir: Path, counters: dict, checkpoints: bool) -> list[str]:
+    """Require the additive targeting count even when it is zero."""
+    key = "targeting_world_locations_decoded"
+    try:
+        quality = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))["quality"]
+        values = {key: quality["sink"][key]}
+        if checkpoints:
+            values["cp_" + key] = quality["checkpoints"]["sink"][key]
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        return [f"manifest omits targeting world-location quality data: {exc}"]
+    if any(type(value) is not int or value < 0 for value in values.values()):
+        return ["targeting world-location counts must be nonnegative integers"]
+    return [f"manifest {name}={value} disagrees with summary {counters.get(name)}"
+            for name, value in values.items() if counters.get(name) != value]
 
 
 def measure(exe: Path, replay: Path, out_dir: Path, checkpoints: bool = False) -> dict:
@@ -228,7 +373,7 @@ def measure(exe: Path, replay: Path, out_dir: Path, checkpoints: bool = False) -
     files = list(PARQUET_FILES)
     if checkpoints:
         patterns.update({k: re.compile(v) for k, v in CHECKPOINT_COUNTERS.items()})
-        files.append("checkpoint_fields")
+        files.extend(CHECKPOINT_PARQUET_FILES)
 
     counters = {}
     for key, pat in patterns.items():
@@ -245,6 +390,16 @@ def measure(exe: Path, replay: Path, out_dir: Path, checkpoints: bool = False) -
             "bytes": path.stat().st_size,
             "sha256": sha256_file(path),
         }
+
+    manifest_errors = (reward_opaque_manifest_errors(out_dir, counters, checkpoints)
+                       + targeting_manifest_errors(out_dir, counters, checkpoints))
+    if manifest_errors:
+        raise SystemExit("; ".join(manifest_errors))
+
+    if checkpoints:
+        manifest_errors = checkpoint_manifest_errors(out_dir, counters)
+        if manifest_errors:
+            raise SystemExit("; ".join(manifest_errors))
 
     return {"counters": counters, "parquet": parquet}
 

@@ -85,10 +85,14 @@
 #![forbid(unsafe_code)]
 
 mod decode;
+mod ftext;
 mod types;
 
 /// ClassNetCache payload brute-forcer for unresolved groups. See [`cnc`].
 pub mod cnc;
+
+/// Numeric FastArray headers, item IDs and raw property windows.
+pub mod fastarray;
 
 #[cfg(feature = "array")]
 mod array;
@@ -102,6 +106,8 @@ mod checksum_table;
 pub mod effect;
 #[cfg(feature = "overlay")]
 mod overlay;
+#[cfg(feature = "overlay")]
+mod scoped_types;
 #[cfg(feature = "structs")]
 pub mod structs;
 #[cfg(feature = "overlay")]
@@ -110,6 +116,9 @@ mod table;
 mod tests;
 
 pub use decode::{DecodeError, DecodedValue, FieldType, decode_field};
+pub use ftext::{
+    FTextArgument, FTextArgumentValue, FTextName, FTextTree, FTextTreeError, decode_ftext_tree,
+};
 pub use types::{FQuat, FRepMovement, FRotator, FTransform, FVector, RotatorQuantization};
 
 #[cfg(feature = "array")]
@@ -118,6 +127,7 @@ pub use array::{
     COMBAT_ROUNDS_SCHEMA, FlattenedField, LIFE_CHANGE_BY_SECTION_SCHEMA, LIFE_CHANGE_DAMAGE_SCHEMA,
     LIFE_CHANGE_SECTION_SCHEMA, MAX_ELEMENTS, MAX_FIELDS_PER_ELEMENT, MAX_RECURSION_DEPTH,
     decode_object_ref_array, decode_object_ref_array_with_stats, decode_struct_array,
+    decode_struct_array_exact,
 };
 #[cfg(feature = "overlay")]
 pub use checksum_table::CHECKSUM_TYPES;

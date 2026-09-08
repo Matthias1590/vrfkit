@@ -533,6 +533,18 @@ fn resolve_entry<'a>(
         return Some(hit);
     }
     let name = field_name?;
+    // Some replay groups flatten distinct properties to the same name. Their
+    // verified wire types are keyed by the complete group/name/checksum tuple,
+    // never donated globally or applied through a class alias. In particular,
+    // the byte-shaped B entries must not type the unrelated 32-bit B field.
+    if let Some(checksum) = checksum {
+        let scoped = &crate::scoped_types::SCOPED_TYPES;
+        if let Ok(index) = scoped.binary_search_by_key(&(name, group_path, checksum), |entry| {
+            (entry.0, entry.1, entry.2)
+        }) {
+            return Some((scoped[index].3, name));
+        }
+    }
     if ENGINE_OBJECT_REFS.contains(&name) {
         return Some((FieldType::ObjectNetGuid, name));
     }
@@ -559,7 +571,7 @@ fn resolve_entry<'a>(
 ///
 /// Narrow by construction: it only fires when the direct lookup already missed,
 /// and it can only hit an entry that the C# author spelled with the Unreal
-/// boolean prefix. Re-measured against the current 1,271-entry table by joining
+/// boolean prefix. Re-measured against the current 1,310-entry table by joining
 /// every distinct `(group, name)` 02d4d478 exports against it, RPC parameters
 /// under the group `sink/rpc.rs` actually asks with: 632 rows resolve this way
 /// and no others. They are ONE property name, arriving on two RPC groups --

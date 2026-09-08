@@ -193,6 +193,107 @@ pub struct NetGuidRecord {
     pub outer_net_guid: Option<u32>,
 }
 
+/// Identity shared by rows decoded from one checkpoint chunk.
+///
+/// The wire checkpoint id is not required to be unique, so consumers must use
+/// it together with the zero-based chunk index when joining checkpoint tables.
+#[derive(Debug, Clone)]
+pub struct CheckpointIdentity {
+    pub checkpoint_index: u32,
+    pub checkpoint_id: Arc<str>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CheckpointFieldRecord {
+    pub checkpoint: CheckpointIdentity,
+    pub field: FieldRecord,
+}
+
+#[derive(Debug, Clone)]
+pub struct CheckpointActorRecord {
+    pub checkpoint: CheckpointIdentity,
+    pub actor: ActorRecord,
+}
+
+#[derive(Debug, Clone)]
+pub struct CheckpointNetGuidRecord {
+    pub checkpoint: CheckpointIdentity,
+    pub net_guid: NetGuidRecord,
+}
+
+#[derive(Debug, Clone)]
+pub struct CheckpointGuidEntryRecord {
+    pub checkpoint: CheckpointIdentity,
+    pub ordinal: u32,
+    pub net_guid: u32,
+    pub outer_net_guid: u32,
+    pub path_is_string: bool,
+    pub literal_path: Option<String>,
+    pub name_index: Option<u32>,
+    pub flags: u8,
+}
+
+#[derive(Debug, Clone)]
+pub struct CheckpointExportGroupRecord {
+    pub checkpoint: CheckpointIdentity,
+    pub ordinal: u32,
+    pub path_name_index: u32,
+    pub group_path: String,
+    pub declared_slots: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct CheckpointExportFieldRecord {
+    pub checkpoint: CheckpointIdentity,
+    pub group_ordinal: u32,
+    pub path_name_index: u32,
+    pub slot: u32,
+    pub handle: u32,
+    pub compatible_checksum: u32,
+    pub rendered_name: String,
+    pub exported_flag: u8,
+    pub fname_kind: u8,
+    pub fname_base: Option<String>,
+    pub fname_index: Option<u32>,
+    pub fname_number: Option<i32>,
+}
+
+/// One checkpoint content block and the field rows emitted while walking it.
+#[derive(Debug, Clone)]
+pub struct CheckpointBlockRecord {
+    pub checkpoint: CheckpointIdentity,
+    pub block_index: u32,
+    pub time_ms: u32,
+    pub packet_id: u32,
+    pub channel_index: u32,
+    pub actor_net_guid: u32,
+    pub object_net_guid: Option<u32>,
+    pub class_net_guid: Option<u32>,
+    /// Effective outer from the parsed header. Present for every recognized
+    /// block; `Some(0)` preserves the invalid-GUID sentinel. The nullable type
+    /// leaves room for a future header form that carries no effective outer.
+    pub outer_net_guid: Option<u32>,
+    pub has_rep_layout: bool,
+    pub is_actor: bool,
+    pub is_deleted: bool,
+    pub is_stably_named: bool,
+    pub delete_flags: u8,
+    pub resolved_group_path: Arc<str>,
+    pub group_resolution_source: &'static str,
+    pub group_declared: bool,
+    pub resolution_memo_hit: bool,
+    pub function_count: u32,
+    pub function_count_source: &'static str,
+    pub actor_archetype_path: Option<String>,
+    pub actor_archetype_outer_path: Option<String>,
+    pub actor_guid_path: Option<String>,
+    pub class_guid_path: Option<String>,
+    pub object_guid_path: Option<String>,
+    pub object_outer_path: Option<String>,
+    pub field_row_start: u64,
+    pub field_row_count: u32,
+}
+
 /// A single Event chunk ready for export.
 #[derive(Debug, Clone)]
 pub struct EventRecord {
@@ -225,4 +326,31 @@ pub struct EventRecord {
     pub payload_name: Option<String>,
     /// Trailing f32 seconds value from a structurally validated inner payload.
     pub payload_seconds: Option<f32>,
+}
+
+#[derive(Debug, Clone)]
+pub struct PartialRecord {
+    pub source: &'static str,
+    pub checkpoint_id: Option<String>,
+    pub payload_kind: &'static str,
+    pub reason: &'static str,
+    pub source_packet_id: i32,
+    pub source_payload_bit_offset: i64,
+    pub rejection_packet_id: Option<i32>,
+    pub channel_index: u32,
+    pub channel_sequence: i32,
+    pub open: bool,
+    pub close: bool,
+    pub dormant: bool,
+    pub replication_paused: bool,
+    pub reliable: bool,
+    pub partial: bool,
+    pub partial_initial: bool,
+    pub partial_final: bool,
+    pub has_package_map_exports: bool,
+    pub has_must_be_mapped_guids: bool,
+    pub close_reason: u8,
+    pub source_payload_bit_count: i32,
+    pub bit_count: u64,
+    pub raw_bits: Vec<u8>,
 }

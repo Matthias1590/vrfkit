@@ -34,7 +34,9 @@ use vrf_container::{
 use vrf_container::{EventPayload, parse_event_payload};
 use vrf_decode::OverlayErrorReport;
 use vrf_export::{
-    ActorWriter, EventRecord, EventWriter, FieldRecord, FieldWriter, MovementRecord,
+    ActorWriter, CheckpointActorWriter, CheckpointBlockWriter, CheckpointExportFieldWriter,
+    CheckpointExportGroupWriter, CheckpointFieldWriter, CheckpointGuidEntryWriter,
+    CheckpointNetGuidWriter, EventRecord, EventWriter, FieldRecord, FieldWriter, MovementRecord,
     MovementWriter, NetGuidRecord, NetGuidWriter,
 };
 use vrf_frame::iter_demo_frames;
@@ -114,8 +116,23 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
     // Event chunks are a couple of hundred rows and are written inline for the
     // same reason `actors` is: the encoding cost is far below a thread's worth.
     let mut event_writer = EventWriter::new(create("events.parquet")?)?;
+    let mut partial_writer = vrf_export::PartialWriter::new(create("partials.parquet")?)?;
     let mut checkpoint_writer = if with_checkpoints {
-        Some(FieldWriter::new(create("checkpoint_fields.parquet")?)?)
+        Some(checkpoints::CheckpointWriters {
+            fields: CheckpointFieldWriter::new(create("checkpoint_fields.parquet")?)?,
+            actors: CheckpointActorWriter::new(create("checkpoint_actors.parquet")?)?,
+            net_guids: CheckpointNetGuidWriter::new(create("checkpoint_net_guids.parquet")?)?,
+            blocks: CheckpointBlockWriter::new(create("checkpoint_blocks.parquet")?)?,
+            guid_entries: CheckpointGuidEntryWriter::new(create(
+                "checkpoint_guid_entries.parquet",
+            )?)?,
+            export_groups: CheckpointExportGroupWriter::new(create(
+                "checkpoint_export_groups.parquet",
+            )?)?,
+            export_fields: CheckpointExportFieldWriter::new(create(
+                "checkpoint_export_fields.parquet",
+            )?)?,
+        })
     } else {
         None
     };
@@ -148,6 +165,8 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
     let mut buffers = RecordBuffers::default();
     let mut movement_rows: u64 = 0;
     let mut event_rows: u64 = 0;
+    let mut partial_rows: u64 = 0;
+    let mut partial_bits: u64 = 0;
     let mut event_trailing_bytes: u64 = 0;
     let mut replay_data_trailing_bytes: u64 = 0;
     let mut error_report = OverlayErrorReport::default();
@@ -239,6 +258,7 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
                     writer,
                     &mut cp_stats,
                     &mut error_report,
+                    &mut partial_writer,
                 )?;
             }
             continue;
@@ -272,6 +292,7 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
             // drained. The buffers outlive the sink; that is the point.
             {
                 let mut sink = ExportSink::new(packet_cache, &mut channel_state, &mut buffers);
+                sink.enable_measured_array_routes(ctx.branch);
                 sink.time_ms = pkt.time_ms;
                 sink.packet_id = pkt_id;
 
@@ -291,6 +312,12 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
                 // Drain actor lifecycle records to the inline writer.
                 for record in buffers.actors.drain(..) {
                     actor_writer.push(record)?;
+                }
+                for mut record in buffers.partials.drain(..) {
+                    partial_rows += 1;
+                    partial_bits += record.bit_count;
+                    record.source = "main";
+                    partial_writer.push(record)?;
                 }
                 Ok(())
             })();
@@ -319,8 +346,21 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
     // both results are checked.
     fields.finish()?;
     movement.finish()?;
+    // EOF can turn still-active reassemblies into preservation rows.
+    {
+        let mut sink = ExportSink::new(&mut cache, &mut channel_state, &mut buffers);
+        sink.enable_measured_array_routes(ctx.branch);
+        repl_reader.finish_with_sink(&mut sink);
+    }
+    for mut record in buffers.partials.drain(..) {
+        partial_rows += 1;
+        partial_bits += record.bit_count;
+        record.source = "main";
+        partial_writer.push(record)?;
+    }
     actor_writer.finish()?;
     event_writer.finish()?;
+    partial_writer.finish()?;
     if let Some(w) = checkpoint_writer.take() {
         w.finish()?;
     }
@@ -348,8 +388,6 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
     // accumulator is simply dropped and a partial bunch lost at EOF is
     // indistinguishable from one still legitimately in flight -- the counters
     // it feeds only exist if someone asks for them.
-    repl_reader.finish();
-
     let net_stats = repl_reader.stats();
     let elapsed = start.elapsed();
 
@@ -383,6 +421,8 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
             movement_rows,
             net_guid_rows,
             event_rows,
+            partial_rows,
+            partial_bits,
             event_trailing_bytes,
             replay_data_trailing_bytes,
             event_layout_mismatches,
@@ -420,6 +460,8 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
             movement_rows,
             net_guid_rows,
             event_rows,
+            partial_rows,
+            partial_bits,
             event_trailing_bytes,
             replay_data_trailing_bytes,
             elapsed,
@@ -473,7 +515,9 @@ mod tests {
                 cnc_rpcs_emitted: 8,
                 rep_layout_cnc_tails_decoded: 23,
                 rep_layout_cnc_tails_preserved: 24,
+                tracked_rewards_opaque_empty_variants: 25,
                 array_leaf_decode_errors: 22,
+                targeting_world_locations_decoded: 26,
                 ..crate::sink::ExportStats::default()
             };
             stats.overlay.decoded_ok = 9;
@@ -502,7 +546,9 @@ mod tests {
         assert_eq!(totals.cnc_rpcs_emitted, 16);
         assert_eq!(totals.rep_layout_cnc_tails_decoded, 46);
         assert_eq!(totals.rep_layout_cnc_tails_preserved, 48);
+        assert_eq!(totals.tracked_rewards_opaque_empty_variants, 50);
         assert_eq!(totals.array_leaf_decode_errors, 44);
+        assert_eq!(totals.targeting_world_locations_decoded, 52);
         assert_eq!(totals.overlay.decoded_ok, 18);
         assert_eq!(totals.overlay.decoded_err, 20);
         assert_eq!(totals.overlay.raw_or_skip, 22);

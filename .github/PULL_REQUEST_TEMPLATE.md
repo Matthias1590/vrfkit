@@ -14,6 +14,7 @@
 - [ ] `python -W error tools/check_ascii.py --check`
 - [ ] `python -W error tools/apply_type_corrections.py --check`
 - [ ] `python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check`
+- [ ] `python -W error tools/generate_scoped_types.py --check`
 - [ ] `python -W error tools/check_baseline_schemas.py`
 - [ ] `python -W error tools/check_docs.py` (not `--fast`: that skips the count check)
 - [ ] `python -W error -m unittest discover -s tools/tests -p "test_*.py"`
@@ -39,5 +40,5 @@ See CONTRIBUTING.md, "Replay evidence for parser changes". -->
 - [ ] Output is **byte-identical by committed SHA-256** on valid replays (or the measured baseline change is explained line by line).
 - [ ] No `unsafe` added.
 - [ ] No non-ASCII in Rust code or comments.
-- [ ] No generated file (`table.rs`, `checksum_table.rs`, `sbox.rs`, `golden_vectors.rs`, `equippable_table.py`) hand-edited.
+- [ ] No generated file (`table.rs`, `checksum_table.rs`, `scoped_types.rs`, `sbox.rs`, `golden_vectors.rs`, `equippable_table.py`) hand-edited. `scoped_types.rs` comes from `tools/generate_scoped_types.py`.
 - [ ] No new hardcoded display names in a Rust crate.

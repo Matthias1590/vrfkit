@@ -9,53 +9,27 @@
 //! is additive, exactly like the type overlay: a failure leaves `value_str`
 //! null, keeps the bits, and increments a counter.
 //!
-//! ## One RPC is deliberately excluded, and it is not excluded here
+//! ## Shot RPC and the Python consumer
 //!
-//! `ReplayPlayContinuousEffectAtLocation` -- the shot RPC -- is skipped by the
-//! caller. The reason is a property of the downstream Python consumer, not of
-//! this wire format, so the exclusion lives at the call site in `sink.rs`
-//! rather than in this module. See the comment on
-//! `effect_array_kind_for_param` there.
+//! `ReplayPlayContinuousEffectAtLocation` uses this same additive decode path.
+//! `tools/to_valplay_bundle.py` independently reads the preserved raw bytes for
+//! shot events and keeps the existing RPC wire-blob payload. An added JSON
+//! value therefore does not change the adapter's source or event contract.
 //!
-//! That RPC's blobs are still decoded, by the Python port in
-//! `tools/to_valplay_bundle.py` (`_decode_effect_blob` and friends), which
-//! reads the raw bits back out of `fields.parquet` after export.
+//! The Python decoder can return partially decoded elements on malformed
+//! input; this Rust decoder rejects the whole array, including underfilled
+//! member windows, missing terminators, nonzero trailing terminators and
+//! residual bits. The raw bytes remain available after either outcome.
 //!
-//! ## How this module's contract differs from the Python port
+//! On September 8, 2026, a differential over 91,827 actual shot-array blobs
+//! from eight exports (two each from 13.01, 13.02, 13.04 and 13.05) compared
+//! this strict decoder with the Python decoder: all structures, tags and
+//! numeric bit patterns matched, with zero Rust errors. That measured scope
+//! does not establish behavior on malformed input or future game builds.
 //!
-//! The two agree on every well-formed blob but their failure contracts differ:
-//! on a malformed blob this module returns `Err` and discards the whole array,
-//! while the Python port breaks out of its loop and returns the elements it had
-//! already decoded. A direct differential over 100,997 real blobs from 11
-//! replays, comparing floats as IEEE-754 bit patterns, found 0 disagreements,
-//! and a corpus census over 2,045,428 blobs found no input that reaches a
-//! branch where they could differ. The two therefore coexist without a
-//! reconciliation: they are never asked about the same rows.
-//!
-//! **That measurement predates four added rejections and has not been re-run.**
-//! This module now also refuses an `IntPacked` member that underfills its
-//! declared window, an array or element that ends without its terminator, a
-//! non-zero trailing terminator byte, and a residual of 1-7 bits (previously
-//! all four were accepted). Each is a branch where this module fails and the
-//! Python port still returns elements, so the "no input reaches a branch where
-//! they could differ" half of the claim is exactly what the changes put back in
-//! question. The reasoning says these fire on nothing well-formed -- an
-//! `IntPacked` is self-delimiting, and every pinned wire vector in
-//! the module's test fixtures still pass -- but that is an argument and a fixture set, not the
-//! census. `tools/check_effect_decoder.py` does NOT restore it: it has no
-//! corpus mode (it self-checks nine wire fixtures pinned from this module
-//! plus two from the C# reference bundle) and it deliberately never calls
-//! this Rust decoder at all -- it calls the Python port in
-//! `to_valplay_bundle.py`, which is the OTHER side of the comparison this
-//! paragraph is about. Restoring the claim needs a differential harness this
-//! repo does not currently have: something that runs *this* decoder and the
-//! Python port over the same corpus of real blobs and diffs their outputs,
-//! the way the original 100,997/2,045,428 measurement did.
-//!
-//! This module's own tests are the repo's only executable specification of this
-//! wire format: eight pinned hex vectors lifted from real packets, with values
-//! checked against the C# reference. `tools/` contains no test files, so
-//! deleting this would leave the format specified by prose alone.
+//! Pinned wire tests cover the Rust decoder; `tools/check_effect_decoder.py`
+//! checks the Python port against separate expected values. Neither fixture
+//! check substitutes for a differential over real replay payloads.
 //!
 //! # Purpose
 //!

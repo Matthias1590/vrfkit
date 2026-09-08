@@ -253,7 +253,7 @@ pub(super) struct BlockPathMemo {
     /// frame, without going through `ExportSink::register_path` -- the only
     /// place `resolution_generation` is bumped for a GUID registration.
     guid_generation: u64,
-    entries: FxHashMap<BlockKey, (Arc<str>, u32)>,
+    entries: FxHashMap<BlockKey, (Arc<str>, u32, &'static str, &'static str)>,
 }
 
 impl BlockPathMemo {
@@ -265,7 +265,7 @@ impl BlockPathMemo {
         schema: u64,
         resolution: u64,
         guid: u64,
-    ) -> Option<(Arc<str>, u32)> {
+    ) -> Option<(Arc<str>, u32, &'static str, &'static str)> {
         if self.schema_generation != schema
             || self.resolution_generation != resolution
             || self.guid_generation != guid
@@ -278,15 +278,64 @@ impl BlockPathMemo {
         }
         self.entries
             .get(key)
-            .map(|(path, count)| (Arc::clone(path), *count))
+            .map(|(path, count, group_source, count_source)| {
+                (Arc::clone(path), *count, *group_source, *count_source)
+            })
     }
 
-    fn insert(&mut self, key: BlockKey, path: Arc<str>, count: u32) {
-        self.entries.insert(key, (path, count));
+    fn insert(
+        &mut self,
+        key: BlockKey,
+        path: Arc<str>,
+        count: u32,
+        group_source: &'static str,
+        count_source: &'static str,
+    ) {
+        self.entries
+            .insert(key, (path, count, group_source, count_source));
     }
 }
 
 impl ExportSink<'_> {
+    pub(super) fn current_block_resolution_evidence(
+        &self,
+        channel_index: u32,
+        actor_guid: u32,
+        header: &ContentBlockHeader,
+    ) -> BlockResolutionEvidence {
+        let (actor_archetype_outer_path, actor_archetype_path) = if header.is_actor {
+            self.resolve_actor_package_and_archetype(channel_index, actor_guid)
+        } else {
+            (None, None)
+        };
+        let group_declared = self
+            .cache
+            .get_group_by_path(&self.current_group_path)
+            .is_some();
+        BlockResolutionEvidence {
+            group_resolution_source: self.current_group_resolution_source,
+            group_declared,
+            function_count_source: self.current_function_count_source,
+            resolution_memo_hit: self.current_resolution_memo_hit,
+            actor_archetype_path,
+            actor_archetype_outer_path,
+            actor_guid_path: self.cache.get_path_by_guid(actor_guid).map(str::to_owned),
+            class_guid_path: header
+                .has_class_net_guid
+                .then(|| self.cache.get_path_by_guid(header.class_net_guid.0))
+                .flatten()
+                .map(str::to_owned),
+            object_guid_path: (!header.is_actor)
+                .then(|| self.cache.get_path_by_guid(header.object_net_guid.0))
+                .flatten()
+                .map(str::to_owned),
+            object_outer_path: (!header.is_actor)
+                .then(|| self.cache.get_outer_path(header.object_net_guid.0))
+                .flatten()
+                .map(str::to_owned),
+        }
+    }
+
     /// Resolve one content block: set `current_group_path` and return the
     /// function-table capacity a ClassNetCache block's RPC handles are read
     /// against (0 for a RepLayout block, and 0 when the group is unresolved).
@@ -310,29 +359,41 @@ impl ExportSink<'_> {
         let schema = self.cache.schema_generation();
         let resolution = self.channel_state.resolution_generation;
         let guid = self.cache.guid_generation();
-        if let Some((path, count)) = self
+        if let Some((path, count, group_source, count_source)) = self
             .channel_state
             .block_paths
             .get(&key, schema, resolution, guid)
         {
             self.set_current_group_path(path);
+            self.current_group_resolution_source = group_source;
+            self.current_function_count_source = count_source;
+            self.current_resolution_memo_hit = true;
             return count;
         }
 
-        let path = self.resolve_group_path(channel_index, actor_net_guid.0, header);
+        let (path, mut group_source) =
+            self.resolve_group_path(channel_index, actor_net_guid.0, header);
         let interned = self.channel_state.names.intern(&path);
         self.set_current_group_path(interned);
         // A RepLayout block reads its handles against the group directly and
         // needs no function table, so the capacity question does not arise.
-        let count = if header.has_rep_layout {
-            0
+        let (count, count_source) = if header.has_rep_layout {
+            (0, "rep_layout_not_applicable")
         } else {
             // May replace `current_group_path`, which is why the memo stores
             // the pair and this line comes before the insert.
             self.resolve_function_count(header, channel_index, actor_net_guid.0)
         };
+        if count_source == "class_net_cache_instance_name" {
+            group_source = "class_net_cache_instance_name";
+        }
+        self.current_group_resolution_source = group_source;
+        self.current_function_count_source = count_source;
+        self.current_resolution_memo_hit = false;
         let resolved = Arc::clone(&self.current_group_path);
-        self.channel_state.block_paths.insert(key, resolved, count);
+        self.channel_state
+            .block_paths
+            .insert(key, resolved, count, group_source, count_source);
         count
     }
 
@@ -350,7 +411,7 @@ impl ExportSink<'_> {
         channel_index: u32,
         guid: u32,
         header: &ContentBlockHeader,
-    ) -> String {
+    ) -> (String, &'static str) {
         if header.is_actor {
             self.resolve_actor_group_path(channel_index, guid, header)
         } else {
@@ -373,7 +434,7 @@ impl ExportSink<'_> {
         channel_index: u32,
         actor_guid: u32,
         header: &ContentBlockHeader,
-    ) -> String {
+    ) -> (String, &'static str) {
         // Step 1: Determine the base "package or class" path.
         let (package_path, archetype_path) =
             self.resolve_actor_package_and_archetype(channel_index, actor_guid);
@@ -394,15 +455,15 @@ impl ExportSink<'_> {
         // Try combined path first (most specific), then the package path, then
         // the archetype path when it is not a CDO.
         if let Some(hit) = self.match_group(combined.as_deref(), want) {
-            return hit;
+            return (hit, "actor_archetype_combined");
         }
         if let Some(hit) = self.match_group(package_path.as_deref(), want) {
-            return hit;
+            return (hit, "actor_archetype_outer");
         }
         if let Some(arch) = archetype_path.as_deref() {
             if !is_class_default_object_path(arch) {
                 if let Some(hit) = self.match_group(Some(arch), want) {
-                    return hit;
+                    return (hit, "actor_archetype_path");
                 }
             }
         }
@@ -410,7 +471,7 @@ impl ExportSink<'_> {
         // Fallback: try actor GUID path directly.
         if let Some(actor_path) = self.cache.get_path_by_guid(actor_guid) {
             if let Some(hit) = self.match_group(Some(actor_path), want) {
-                return hit;
+                return (hit, "actor_guid_path");
             }
             // UniqueLeafMatch, exactly as the class path and the subobject path
             // already apply it below. A static actor arrives as a bare instance
@@ -433,7 +494,7 @@ impl ExportSink<'_> {
             // `_C`, so on a ClassNetCache block this call is inert.
             if let Some(g) = self.cache.unique_leaf_match(actor_path) {
                 if want.accepts(g) {
-                    return g.path.clone();
+                    return (g.path.clone(), "actor_guid_unique_leaf");
                 }
             }
             // Blueprint component name -> native parent class (see
@@ -442,44 +503,51 @@ impl ExportSink<'_> {
             // is the only way those property handles get names.
             if let Some(known) = resolve_known_subobject_class_path(actor_path, want) {
                 if let Some(hit) = self.match_group(Some(known), want) {
-                    return hit;
+                    return (hit, "actor_guid_known_remap");
                 }
             }
-            return actor_path.to_owned();
+            return (actor_path.to_owned(), "actor_guid_unresolved_fallback");
         }
 
         // Return the best candidate even if it doesn't match a group -- the
         // export format requires a path, and downstream still gets the raw bits.
-        combined
-            .or(package_path)
-            .unwrap_or_else(|| format!("<unknown:{actor_guid}>"))
+        if let Some(combined) = combined {
+            (combined, "actor_archetype_combined_unresolved_fallback")
+        } else if let Some(package_path) = package_path {
+            (package_path, "actor_archetype_outer_unresolved_fallback")
+        } else {
+            (format!("<unknown:{actor_guid}>"), "actor_unknown")
+        }
     }
 
     /// Subobject path resolution -- mirrors `ResolveSubobjectExportGroupPath` /
     /// `ResolveSubobjectClassPath` from C#.
-    fn resolve_subobject_group_path(&self, header: &ContentBlockHeader) -> String {
+    fn resolve_subobject_group_path(&self, header: &ContentBlockHeader) -> (String, &'static str) {
         let want = GroupKind::for_block(header);
 
         // Primary: use class_net_guid path.
         if header.class_net_guid.0 != 0 {
             if let Some(class_path) = self.cache.get_path_by_guid(header.class_net_guid.0) {
                 if let Some(hit) = self.match_group(Some(class_path), want) {
-                    return hit;
+                    return (hit, "subobject_class_guid_path");
                 }
                 // UniqueLeafMatch: if class_path is a bare name (no separators),
                 // try to find a group whose path ends with ".{class_path}".
                 // Mirrors C# ContentBlockPathResolver.UniqueLeafMatch.
                 if let Some(g) = self.cache.unique_leaf_match(class_path) {
                     if want.accepts(g) {
-                        return g.path.clone();
+                        return (g.path.clone(), "subobject_class_guid_unique_leaf");
                     }
                 }
                 if let Some(known) = resolve_known_subobject_class_path(class_path, want) {
                     if let Some(hit) = self.match_group(Some(known), want) {
-                        return hit;
+                        return (hit, "subobject_class_guid_known_remap");
                     }
                 }
-                return class_path.to_owned();
+                return (
+                    class_path.to_owned(),
+                    "subobject_class_guid_unresolved_fallback",
+                );
             }
         }
 
@@ -489,15 +557,15 @@ impl ExportSink<'_> {
                 // Try outer path (component -> owning class).
                 let outer = self.cache.get_outer_path(header.object_net_guid.0);
                 if let Some(hit) = self.match_group(outer, want) {
-                    return hit;
+                    return (hit, "subobject_object_outer_path");
                 }
                 if let Some(hit) = self.match_group(Some(obj_path), want) {
-                    return hit;
+                    return (hit, "subobject_object_guid_path");
                 }
                 // UniqueLeafMatch for object path.
                 if let Some(g) = self.cache.unique_leaf_match(obj_path) {
                     if want.accepts(g) {
-                        return g.path.clone();
+                        return (g.path.clone(), "subobject_object_guid_unique_leaf");
                     }
                 }
                 // Fallback: known subobject class path table. Blueprint component
@@ -506,10 +574,13 @@ impl ExportSink<'_> {
                 // blocks resolve to AresInventory.
                 if let Some(known) = resolve_known_subobject_class_path(obj_path, want) {
                     if let Some(hit) = self.match_group(Some(known), want) {
-                        return hit;
+                        return (hit, "subobject_object_guid_known_remap");
                     }
                 }
-                return obj_path.to_owned();
+                return (
+                    obj_path.to_owned(),
+                    "subobject_object_guid_unresolved_fallback",
+                );
             }
         }
 
@@ -518,7 +589,7 @@ impl ExportSink<'_> {
         } else {
             header.object_net_guid.0
         };
-        format!("<unknown:{fallback_guid}>")
+        (format!("<unknown:{fallback_guid}>"), "subobject_unknown")
     }
 
     /// Try every lookup key `candidate` generates and return the canonical path
@@ -616,11 +687,11 @@ impl ExportSink<'_> {
         header: &ContentBlockHeader,
         channel_index: u32,
         actor_guid: u32,
-    ) -> u32 {
+    ) -> (u32, &'static str) {
         // Fast path: current_group_path was already resolved to a CNC group.
         if let Some(group) = self.cache.get_group_by_path(&self.current_group_path) {
             if is_class_net_cache(group) {
-                return group.len();
+                return (group.len(), "current_resolved_group");
             }
         }
 
@@ -628,7 +699,7 @@ impl ExportSink<'_> {
         if header.class_net_guid.0 != 0 {
             if let Some(class_path) = self.cache.get_path_by_guid(header.class_net_guid.0) {
                 if let Some(len) = self.class_net_cache_len(class_path) {
-                    return len;
+                    return (len, "class_guid_path");
                 }
             }
         }
@@ -641,7 +712,7 @@ impl ExportSink<'_> {
                 self.create_combined_candidate(package_path.as_deref(), archetype_path.as_deref())
             {
                 if let Some(len) = self.class_net_cache_len(&combined) {
-                    return len;
+                    return (len, "actor_archetype_combined");
                 }
             }
         }
@@ -670,11 +741,11 @@ impl ExportSink<'_> {
                 // would emit handle-indexed names instead of proper field names.
                 let resolved = self.channel_state.names.intern(&group.path);
                 self.set_current_group_path(resolved);
-                return len;
+                return (len, "class_net_cache_instance_name");
             }
         }
 
-        0
+        (0, "unresolved_class_net_cache")
     }
 
     /// Declared length of the `_ClassNetCache` group `candidate` resolves to.
@@ -684,6 +755,19 @@ impl ExportSink<'_> {
             is_class_net_cache(group).then(|| group.len())
         })
     }
+}
+
+pub(super) struct BlockResolutionEvidence {
+    pub group_resolution_source: &'static str,
+    pub group_declared: bool,
+    pub function_count_source: &'static str,
+    pub resolution_memo_hit: bool,
+    pub actor_archetype_path: Option<String>,
+    pub actor_archetype_outer_path: Option<String>,
+    pub actor_guid_path: Option<String>,
+    pub class_guid_path: Option<String>,
+    pub object_guid_path: Option<String>,
+    pub object_outer_path: Option<String>,
 }
 
 /// Which family of export group a block may bind to.

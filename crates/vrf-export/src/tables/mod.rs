@@ -13,6 +13,8 @@
 
 #[cfg(feature = "actors")]
 pub mod actors;
+#[cfg(feature = "checkpoint-context")]
+pub mod checkpoints;
 #[cfg(feature = "events")]
 pub mod events;
 #[cfg(feature = "fields")]
@@ -21,3 +23,5 @@ pub mod fields;
 pub mod movement;
 #[cfg(feature = "net-guids")]
 pub mod net_guids;
+#[cfg(feature = "partials")]
+pub mod partials;

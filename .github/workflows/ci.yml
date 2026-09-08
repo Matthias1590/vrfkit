@@ -41,6 +41,8 @@ jobs:
             @("vrf-export", "fields"), @("vrf-export", "movement"),
             @("vrf-export", "actors"), @("vrf-export", "net-guids"),
             @("vrf-export", "events"), @("vrf-export", "snappy"),
+            @("vrf-export", "partials"),
+            @("vrf-export", "checkpoint-context"),
             @("vrf-net", ""), @("vrf-net", "diagnostics"),
             @("vrf-schema", ""), @("vrf-schema", "checkpoint")
           )
@@ -93,6 +95,8 @@ jobs:
         run: python -W error tools/apply_type_corrections.py --check
       - name: generated checksum guard
         run: python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
+      - name: generated scoped type guard
+        run: python -W error tools/generate_scoped_types.py --check
       - name: baseline schemas
         run: python -W error tools/check_baseline_schemas.py
       - name: docs self-check

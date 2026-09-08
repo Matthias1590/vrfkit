@@ -11,11 +11,15 @@ use smallvec::SmallVec;
 use vrf_bitio::BitReader;
 use vrf_decode::apply_overlay_with_checksum;
 use vrf_decode::cnc::decode_cnc_payload;
-use vrf_export::{ActorRecord, MovementRecord, UNRESOLVED_CLASS_NET_CACHE_PAYLOAD_FIELD_NAME};
+use vrf_export::{
+    ActorRecord, CheckpointBlockRecord, MovementRecord, PartialRecord,
+    UNRESOLVED_CLASS_NET_CACHE_PAYLOAD_FIELD_NAME,
+};
 use vrf_net::content::ContentBlockHeader;
 use vrf_net::field::FieldSink;
 use vrf_net::pipeline::{
-    ActorChannelState, RepLayoutTailOutcome, ReplicationSink, StreamFailure, StreamFailureCause,
+    ActorChannelState, PartialPayloadReason, RejectedPartialFragment, RepLayoutTailOutcome,
+    ReplicationSink, StreamFailure, StreamFailureCause,
 };
 use vrf_net::types::NetworkGuid;
 
@@ -41,6 +45,66 @@ fn copy_exact_raw_bits(mut reader: BitReader<'_>, bit_count: u32) -> Option<Smal
 }
 
 impl ExportSink<'_> {
+    fn record_checkpoint_block(
+        &mut self,
+        channel_index: u32,
+        actor_net_guid: NetworkGuid,
+        header: &ContentBlockHeader,
+        function_count: u32,
+        resolved: bool,
+    ) {
+        let Some((checkpoint, field_offset, block_offset)) = self.checkpoint_block_scope.clone()
+        else {
+            return;
+        };
+        let evidence =
+            self.current_block_resolution_evidence(channel_index, actor_net_guid.0, header);
+        let block_index = block_offset + self.records.checkpoint_blocks.len() as u32;
+        let field_row_start = field_offset + self.records.fields.len() as u64;
+        self.records.checkpoint_blocks.push(CheckpointBlockRecord {
+            checkpoint,
+            block_index,
+            time_ms: self.time_ms,
+            packet_id: self.packet_id,
+            channel_index,
+            actor_net_guid: actor_net_guid.0,
+            object_net_guid: (!header.is_actor).then_some(header.object_net_guid.0),
+            class_net_guid: header.has_class_net_guid.then_some(header.class_net_guid.0),
+            outer_net_guid: Some(header.outer_net_guid.0),
+            has_rep_layout: header.has_rep_layout,
+            is_actor: header.is_actor,
+            is_deleted: header.is_deleted,
+            is_stably_named: header.is_stably_named,
+            delete_flags: header.delete_flags,
+            resolved_group_path: if resolved {
+                Arc::clone(&self.current_group_path)
+            } else {
+                Arc::from("<not-resolved:deleted>")
+            },
+            group_resolution_source: if resolved {
+                evidence.group_resolution_source
+            } else {
+                "not_resolved_deleted"
+            },
+            group_declared: resolved && evidence.group_declared,
+            resolution_memo_hit: resolved && evidence.resolution_memo_hit,
+            function_count,
+            function_count_source: if resolved {
+                evidence.function_count_source
+            } else {
+                "not_applicable_deleted"
+            },
+            actor_archetype_path: evidence.actor_archetype_path,
+            actor_archetype_outer_path: evidence.actor_archetype_outer_path,
+            actor_guid_path: evidence.actor_guid_path,
+            class_guid_path: evidence.class_guid_path,
+            object_guid_path: evidence.object_guid_path,
+            object_outer_path: evidence.object_outer_path,
+            field_row_start,
+            field_row_count: 0,
+        });
+    }
+
     /// Resolve a field or function name from the current block's group.
     ///
     /// Interned: 429,637 property rows and 342,735 RPC rows on the reference
@@ -91,9 +155,9 @@ impl FieldSink for ExportSink<'_> {
 
         // Additive pass 1: a known DynamicArray is flattened into one row per
         // leaf. The parent row with the whole payload is still emitted below.
-        if self.is_known_array_field(field_name.as_deref()) {
+        if self.is_known_array_field(field_name.as_deref(), field_checksum) {
             if let Some(ref raw) = raw_bits {
-                self.emit_flattened_array(field_name.as_deref(), raw, bit_count);
+                self.emit_flattened_array(field_name.as_deref(), field_checksum, raw, bit_count);
             }
         }
 
@@ -323,19 +387,21 @@ impl ExportSink<'_> {
     /// determined empirically by brute-forcing fc 2-256 across 9,274 payloads
     /// from a reference replay: fc=34 is the minimum that walks **every**
     /// payload cleanly, and each payload contains exactly one RPC at handle 1.
-    /// The inner payload is not standard RepLayout `FunctionParameters`, but
-    /// it is not opaque either: it is a deterministic flag bit followed by a
-    /// little-endian `u32` stream (see `decode_abilities_and_buffs_inner`). It
-    /// is the GAS state-sync stream, not one row per ability cast, so the RPC's
-    /// raw bits are preserved as a row without further typed extraction.
+    /// The inner payload follows FastArray custom-delta framing, validated on
+    /// 2,882,152 inner windows across 714 accepted exports. The separate
+    /// `extract_fastarray_observations.py` tool recovers replication keys,
+    /// item IDs and raw field boundaries. CNC framing can carry custom-delta
+    /// properties as well as RPCs; this legacy method name does not establish
+    /// an ability cast. This sink retains the inner bits without typing them.
     ///
     /// A per-payload brute-force (trying each fc independently) was rejected
     /// because simple payloads can walk cleanly under smaller fc values,
     /// producing garbage handles. Using a single constant fc avoids that: every
-    /// payload gets the same handle width, and the 9274/9274 clean-walk rate
-    /// confirms the fc is correct for this group. If a game update changes the
-    /// function table, the walk will start failing and the preservation row
-    /// will be the only record -- the failure is visible, not silent.
+    /// payload gets the same handle width. The clean outer walk alone does
+    /// not prove that width or the unknown group's declaration; the subsequent
+    /// independent inner-grammar checks provide stronger evidence. An update
+    /// can fail this walk or accidentally fit it, so consumers must retain the
+    /// raw parent and independently validate the inner structure.
     ///
     /// Several adjacent fc values (34-65) produce the same 6-bit handle width
     /// for handle 1 and therefore identical walks. The constant is the minimum
@@ -388,6 +454,52 @@ impl ExportSink<'_> {
 }
 
 impl ReplicationSink for ExportSink<'_> {
+    fn on_rejected_partial(&mut self, p: RejectedPartialFragment<'_>) {
+        let reason = match p.reason {
+            PartialPayloadReason::MissingInitial => "missing_initial",
+            PartialPayloadReason::OverlappingInitial => "overlapping_initial",
+            PartialPayloadReason::MismatchedContinuation => "mismatched_continuation",
+            PartialPayloadReason::NonByteAlignedFragment => "non_byte_aligned_fragment",
+            PartialPayloadReason::ActiveStateLimit => "active_state_limit",
+            PartialPayloadReason::BufferedBitsLimit => "buffered_bits_limit",
+            PartialPayloadReason::AllocationFailure => "allocation_failure",
+            PartialPayloadReason::ChannelStateLimit => "channel_state_limit",
+            PartialPayloadReason::ChannelClosed => "channel_closed",
+            PartialPayloadReason::EndOfStream => "end_of_stream",
+        };
+        let mut raw_bits = p.payload.to_vec();
+        if p.bit_count % 8 != 0 {
+            if let Some(last) = raw_bits.last_mut() {
+                *last &= (1u8 << (p.bit_count % 8)) - 1;
+            }
+        }
+        let h = p.header;
+        self.records.partials.push(PartialRecord {
+            source: "",
+            checkpoint_id: None,
+            payload_kind: p.payload_kind,
+            reason,
+            source_packet_id: h.packet_id,
+            source_payload_bit_offset: h.payload_bit_offset,
+            rejection_packet_id: p.rejection_packet_id,
+            channel_index: h.ch_index,
+            channel_sequence: h.ch_sequence,
+            open: h.b_open,
+            close: h.b_close,
+            dormant: h.b_dormant,
+            replication_paused: h.b_is_replication_paused,
+            reliable: h.b_reliable,
+            partial: h.b_partial,
+            partial_initial: h.b_partial_initial,
+            partial_final: h.b_partial_final,
+            has_package_map_exports: h.b_has_package_map_exports,
+            has_must_be_mapped_guids: h.b_has_must_be_mapped_guids,
+            close_reason: h.close_reason as u8,
+            source_payload_bit_count: h.payload_bit_count,
+            bit_count: p.bit_count as u64,
+            raw_bits,
+        });
+    }
     fn on_actor_open(&mut self, state: &ActorChannelState) {
         self.stats.actor_opens += 1;
         // Track archetype GUID per channel so ClassNetCache path resolution can
@@ -540,7 +652,9 @@ impl ReplicationSink for ExportSink<'_> {
             && self.cache.get_path_by_guid(header.object_net_guid.0)
                 == Some(ABILITIES_AND_BUFFS_COMPONENT);
         self.stats.content_blocks += 1;
-        self.resolve_block(channel_index, actor_net_guid, header)
+        let function_count = self.resolve_block(channel_index, actor_net_guid, header);
+        self.record_checkpoint_block(channel_index, actor_net_guid, header, function_count, true);
+        function_count
     }
 
     fn on_rep_layout_tail(
@@ -627,11 +741,12 @@ impl ReplicationSink for ExportSink<'_> {
 
     fn on_deleted_block(
         &mut self,
-        _channel_index: u32,
-        _actor_net_guid: NetworkGuid,
-        _header: &ContentBlockHeader,
+        channel_index: u32,
+        actor_net_guid: NetworkGuid,
+        header: &ContentBlockHeader,
     ) {
         self.stats.content_blocks += 1;
+        self.record_checkpoint_block(channel_index, actor_net_guid, header, 0, false);
     }
 
     fn on_unresolved_class_net_cache_payload(&mut self, failure: StreamFailure, payload: &[u8]) {
@@ -710,7 +825,7 @@ impl ReplicationSink for ExportSink<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sink::{ChannelState, RecordBuffers};
+    use crate::sink::{ChannelState, ExportStats, RecordBuffers};
     use vrf_schema::NetGuidCache;
 
     /// Run one content block through the sink and report the subobject GUID it
@@ -1101,6 +1216,320 @@ mod tests {
         assert_eq!(sink.stats.truncated_rpcs, 0);
     }
 
+    fn targeting_rpc(
+        group: &str,
+        parent_handle: u32,
+        parent_name: &str,
+        parent_checksum: u32,
+        child_name: &str,
+        child_checksum: u32,
+        array_bits: &[bool],
+    ) -> (RecordBuffers, ExportStats) {
+        let mut cache = NetGuidCache::new();
+        cache
+            .add_export_group(vrf_schema::NetFieldExportGroup::new(group.into(), 7, 3))
+            .unwrap();
+        for (handle, name, checksum) in [
+            (parent_handle, parent_name, parent_checksum),
+            (1, child_name, child_checksum),
+        ] {
+            assert!(cache.set_field_on_group(
+                7,
+                vrf_schema::NetFieldExport {
+                    handle,
+                    compatible_checksum: checksum,
+                    name: name.into(),
+                },
+            ));
+        }
+        let mut rpc_bits = vec![false];
+        write_int_packed(&mut rpc_bits, parent_handle + 1);
+        write_int_packed(&mut rpc_bits, array_bits.len() as u32);
+        rpc_bits.extend_from_slice(array_bits);
+        write_int_packed(&mut rpc_bits, 0);
+        let bytes = bits_to_bytes(&rpc_bits);
+        let mut channel_state = ChannelState::new();
+        let mut records = RecordBuffers::default();
+        let mut sink = ExportSink::new(&mut cache, &mut channel_state, &mut records);
+        assert!(sink.try_parse_rpc_params(
+            3,
+            BitReader::with_bit_len(&bytes, rpc_bits.len() as u64).unwrap(),
+            Some("MulticastRespondToValidMapClick"),
+        ));
+        let stats = sink.stats.clone();
+        drop(sink);
+        (records, stats)
+    }
+
+    fn append_world_location(bits: &mut Vec<bool>, values: [f64; 3]) {
+        let payload = values.into_iter().flat_map(|value| {
+            value
+                .to_le_bytes()
+                .into_iter()
+                .flat_map(|byte| (0..8).map(move |bit| byte & (1 << bit) != 0))
+        });
+        write_int_packed(bits, 2);
+        write_int_packed(bits, 192);
+        bits.extend(payload);
+    }
+
+    fn world_locations(values: &[[f64; 3]]) -> Vec<bool> {
+        let mut bits = Vec::new();
+        write_int_packed(&mut bits, values.len() as u32);
+        for (index, values) in values.iter().copied().enumerate() {
+            write_int_packed(&mut bits, index as u32 + 1);
+            append_world_location(&mut bits, values);
+            write_int_packed(&mut bits, 0);
+        }
+        write_int_packed(&mut bits, 0);
+        bits
+    }
+
+    fn one_world_location(values: [f64; 3]) -> Vec<bool> {
+        world_locations(&[values])
+    }
+
+    #[test]
+    fn guarded_targeting_array_emits_vector_child_and_raw_parent() {
+        let array = one_world_location([12.5, -9.25, 3.0]);
+        let group =
+            "/Script/ShooterGame.MapTargetingStateComponent:MulticastRespondToValidMapClick";
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &array,
+        );
+        assert_eq!(records.fields.len(), 2);
+        assert_eq!(
+            records.fields[0].field_name.as_deref(),
+            Some("MulticastRespondToValidMapClick.WorldLocation[0].WorldLocation")
+        );
+        assert_eq!(records.fields[0].bit_count, 192);
+        assert_eq!(records.fields[0].handle, 3);
+        assert_eq!(
+            records.fields[0].value_str.as_deref(),
+            Some("(12.5,-9.25,3)")
+        );
+        let expected_raw: Vec<u8> = [12.5f64, -9.25, 3.0]
+            .into_iter()
+            .flat_map(f64::to_le_bytes)
+            .collect();
+        assert_eq!(
+            records.fields[0].raw_bits.as_deref(),
+            Some(expected_raw.as_slice())
+        );
+        assert_eq!(
+            records.fields[1].raw_bits.as_deref(),
+            Some(bits_to_bytes(&array).as_slice())
+        );
+        assert_eq!(stats.targeting_world_locations_decoded, 1);
+
+        let signed_zero = one_world_location([-0.0, 0.0, -0.0]);
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &signed_zero,
+        );
+        let expected_raw: Vec<u8> = [-0.0f64, 0.0, -0.0]
+            .into_iter()
+            .flat_map(f64::to_le_bytes)
+            .collect();
+        assert_eq!(
+            records.fields[0].raw_bits.as_deref(),
+            Some(expected_raw.as_slice())
+        );
+        assert_eq!(records.fields[0].handle, 3);
+        assert_eq!(stats.targeting_world_locations_decoded, 1);
+    }
+
+    #[test]
+    fn targeting_array_requires_exact_child_declaration_and_complete_grammar() {
+        let group =
+            "/Script/ShooterGame.MapTargetingStateComponent:MulticastRespondToValidMapClick";
+        let array = one_world_location([1.0, 2.0, 3.0]);
+        let empty = world_locations(&[]);
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &empty,
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert_eq!(stats.targeting_world_locations_decoded, 0);
+        assert_eq!(stats.array_leaf_decode_errors, 0);
+        for (name, checksum) in [("Other", 3965480401), ("WorldLocation", 7)] {
+            let (records, stats) = targeting_rpc(
+                group,
+                0,
+                "WorldLocation",
+                2052180909,
+                name,
+                checksum,
+                &array,
+            );
+            assert_eq!(records.fields.len(), 1);
+            assert_eq!(stats.targeting_world_locations_decoded, 0);
+        }
+        for (candidate_group, handle, name, checksum) in [
+            (group, 0, "WorldLocation", 7),
+            (group, 0, "Other", 2052180909),
+            (group, 2, "WorldLocation", 2052180909),
+            (
+                "/Script/ShooterGame.Other:MulticastRespondToValidMapClick",
+                0,
+                "WorldLocation",
+                2052180909,
+            ),
+        ] {
+            let (records, stats) = targeting_rpc(
+                candidate_group,
+                handle,
+                name,
+                checksum,
+                "WorldLocation",
+                3965480401,
+                &array,
+            );
+            assert_eq!(records.fields.len(), 1);
+            assert_eq!(stats.targeting_world_locations_decoded, 0);
+        }
+        let truncated = &array[..array.len() - 8];
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            truncated,
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert_eq!(stats.targeting_world_locations_decoded, 0);
+        assert!(
+            stats.array.errors > 0
+                || stats.array.unconsumed_root_bits > 0
+                || stats.array.implicit_terminations > 0
+        );
+
+        let mut residual = array.clone();
+        residual.push(true);
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &residual,
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert!(stats.array.unconsumed_root_bits > 0);
+
+        let wrong_handle = {
+            let mut bits = Vec::new();
+            for value in [1, 1, 3, 192] {
+                write_int_packed(&mut bits, value);
+            }
+            bits.extend(std::iter::repeat_n(false, 192));
+            write_int_packed(&mut bits, 0);
+            write_int_packed(&mut bits, 0);
+            bits
+        };
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &wrong_handle,
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert!(stats.array_leaf_decode_errors > 0);
+
+        let wrong_width = {
+            let mut bits = Vec::new();
+            for value in [1, 1, 2, 191] {
+                write_int_packed(&mut bits, value);
+            }
+            bits.extend(std::iter::repeat_n(false, 191));
+            write_int_packed(&mut bits, 0);
+            write_int_packed(&mut bits, 0);
+            bits
+        };
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &wrong_width,
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert!(stats.array_leaf_decode_errors > 0);
+
+        let nonfinite = one_world_location([f64::NAN, 0.0, -0.0]);
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &nonfinite,
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert!(stats.array_leaf_decode_errors > 0);
+
+        let mut duplicate_member = Vec::new();
+        write_int_packed(&mut duplicate_member, 1);
+        write_int_packed(&mut duplicate_member, 1);
+        append_world_location(&mut duplicate_member, [1.0, 2.0, 3.0]);
+        append_world_location(&mut duplicate_member, [4.0, 5.0, 6.0]);
+        write_int_packed(&mut duplicate_member, 0);
+        write_int_packed(&mut duplicate_member, 0);
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &duplicate_member,
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert!(stats.array_leaf_decode_errors > 0);
+
+        let mixed = world_locations(&[[1.0, 2.0, 3.0], [f64::NAN, 5.0, 6.0]]);
+        let (records, stats) = targeting_rpc(
+            group,
+            0,
+            "WorldLocation",
+            2052180909,
+            "WorldLocation",
+            3965480401,
+            &mixed,
+        );
+        assert_eq!(
+            records.fields.len(),
+            1,
+            "children are emitted transactionally"
+        );
+        assert!(stats.array_leaf_decode_errors > 0);
+    }
+
     /// Build an RPC payload of one parameter, the zero-handle terminator, and
     /// `suffix_bits` bits of whatever follows it.
     fn rpc_payload_with_suffix(suffix_bits: usize) -> Vec<bool> {
@@ -1289,14 +1718,14 @@ mod tests {
             "/Game/Characters/_Core/Comp_AbilityStatisticsReplicator.Comp_AbilityStatisticsReplicator_C",
         ));
         assert!(
-            sink.is_known_array_field(Some("AbilityCastsThisRound")),
+            sink.is_known_array_field(Some("AbilityCastsThisRound"), None),
             "should be known under AbilityStatisticsReplicator"
         );
 
         // Under an unrelated group: returns false.
         sink.set_current_group_path(Arc::from("/Script/ShooterGame.SomeOtherComponent"));
         assert!(
-            !sink.is_known_array_field(Some("AbilityCastsThisRound")),
+            !sink.is_known_array_field(Some("AbilityCastsThisRound"), None),
             "should NOT be known under an unrelated group"
         );
     }
@@ -1771,5 +2200,92 @@ mod tests {
 
         let players = sink.channel_state.players.clone();
         assert_eq!(players.get(&7).unwrap().character_net_guid, None);
+    }
+
+    #[test]
+    fn checkpoint_block_spans_include_every_emitted_child_and_empty_block() {
+        let mut cache = NetGuidCache::new();
+        cache
+            .add_export_group(vrf_schema::NetFieldExportGroup::new(
+                "ActorGroup".to_owned(),
+                1,
+                4,
+            ))
+            .unwrap();
+        cache.set_net_guid_path(9, "ActorGroup".to_owned(), None);
+        let mut state = ChannelState::new();
+        let mut records = RecordBuffers::default();
+        let mut sink = ExportSink::new(&mut cache, &mut state, &mut records);
+        sink.enable_checkpoint_block_context(
+            vrf_export::CheckpointIdentity {
+                checkpoint_index: 2,
+                checkpoint_id: Arc::from("duplicate-id"),
+            },
+            100,
+            7,
+        );
+        sink.time_ms = 12;
+        sink.packet_id = 3;
+        let header = ContentBlockHeader {
+            has_rep_layout: true,
+            is_actor: true,
+            ..Default::default()
+        };
+        sink.on_content_block(4, NetworkGuid(9), &header);
+        sink.push_field(FieldValues {
+            field_name: Some(Arc::from("raw-parent")),
+            bit_count: 8,
+            raw_bits: Some(SmallVec::from_slice(&[0xaa])),
+            ..Default::default()
+        });
+        sink.push_field(FieldValues {
+            field_name: Some(Arc::from("typed-child")),
+            value_i64: Some(5),
+            ..Default::default()
+        });
+        sink.on_content_block(4, NetworkGuid(9), &header);
+        assert_eq!(sink.records.checkpoint_blocks.len(), 2);
+        let first = &sink.records.checkpoint_blocks[0];
+        assert_eq!(
+            (
+                first.block_index,
+                first.field_row_start,
+                first.field_row_count
+            ),
+            (7, 100, 2)
+        );
+        assert_eq!(first.checkpoint.checkpoint_index, 2);
+        assert_eq!(first.group_resolution_source, "actor_guid_path");
+        assert!(!first.resolution_memo_hit);
+        let empty = &sink.records.checkpoint_blocks[1];
+        assert_eq!(
+            (
+                empty.block_index,
+                empty.field_row_start,
+                empty.field_row_count
+            ),
+            (8, 102, 0)
+        );
+        assert!(empty.resolution_memo_hit);
+        assert_eq!(empty.group_resolution_source, "actor_guid_path");
+        let explicit_delete = ContentBlockHeader {
+            is_deleted: true,
+            object_net_guid: NetworkGuid(10),
+            outer_net_guid: NetworkGuid(9),
+            ..Default::default()
+        };
+        sink.on_deleted_block(4, NetworkGuid(9), &explicit_delete);
+        let invalid_class_delete = ContentBlockHeader {
+            has_class_net_guid: true,
+            ..explicit_delete
+        };
+        sink.on_deleted_block(4, NetworkGuid(9), &invalid_class_delete);
+        assert_eq!(sink.records.checkpoint_blocks[2].class_net_guid, None);
+        assert_eq!(sink.records.checkpoint_blocks[3].class_net_guid, Some(0));
+        assert_eq!(
+            sink.records.fields[0].raw_bits.as_deref(),
+            Some(&[0xaa][..])
+        );
+        assert_eq!(sink.records.fields[1].value_i64, Some(5));
     }
 }

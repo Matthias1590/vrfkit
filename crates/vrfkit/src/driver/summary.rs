@@ -23,6 +23,8 @@ pub(super) struct RunTotals {
     pub movement_rows: u64,
     pub net_guid_rows: usize,
     pub event_rows: u64,
+    pub partial_rows: u64,
+    pub partial_bits: u64,
     /// Payload bytes an Event chunk declared that its own header layout does
     /// not reach. Zero across the corpus; counted rather than dropped in
     /// silence.
@@ -79,6 +81,10 @@ pub(super) fn print(
     eprintln!("  RPCs:             {}", net_stats.rpcs);
     eprintln!("  Actor opens:      {}", net_stats.actor_opens);
     eprintln!("  Actor closes:     {}", net_stats.actor_closes);
+    eprintln!(
+        "  Partial raw rows: {} ({} bits)",
+        totals.partial_rows, totals.partial_bits
+    );
     // The sink's own tally of the same five events, computed independently at
     // the vrfkit layer rather than the vrf-net framing layer above. Not
     // redundant to drop: a mismatch against the five lines above is a real
@@ -96,8 +102,22 @@ pub(super) fn print(
     eprintln!("  Bunches:          {}", net_stats.bunches);
     eprintln!("  Malformed pkts:   {}", net_stats.malformed_packets);
     eprintln!(
-        "  Partial bunches:  {} errors / {} fragments / {} completed",
-        net_stats.partial_errors, net_stats.partial_fragments, net_stats.partial_completed
+        "  Partial bunches:  {} attempted / {} errors / {} accepted fragments / {} completed",
+        net_stats.partial_bunches,
+        net_stats.partial_errors,
+        net_stats.partial_fragments,
+        net_stats.partial_completed
+    );
+    eprintln!(
+        "  Partial causes:   {} missing initial / {} overlapping initial / {} mismatched continuation / {} unaligned / {} channel close / {} resource limit / {} unclassified / {} overclassified",
+        net_stats.partial_missing_initial,
+        net_stats.partial_overlapping_initial,
+        net_stats.partial_mismatched_continuation,
+        net_stats.partial_non_byte_aligned,
+        net_stats.partial_channel_close,
+        net_stats.partial_resource_limit_failures,
+        net_stats.partial_unclassified_errors(),
+        net_stats.partial_overclassified_errors()
     );
     eprintln!("  Bunch header fails: {}", net_stats.bunch_header_failures);
     eprintln!(
@@ -203,6 +223,14 @@ pub(super) fn print(
         "  Array leaf errs:  {}",
         totals.sink.array_leaf_decode_errors
     );
+    eprintln!(
+        "  Target locations: {} array children",
+        totals.sink.targeting_world_locations_decoded
+    );
+    eprintln!(
+        "  Reward opaque:    {} empty variants",
+        totals.sink.tracked_rewards_opaque_empty_variants
+    );
     eprintln!("  Truncated RPCs:   {}", totals.sink.truncated_rpcs);
     eprintln!(
         "  RPC suffix bits:  {}",
@@ -253,20 +281,57 @@ fn print_checkpoints(cp: &CheckpointStats) {
     eprintln!();
     eprintln!("=== Checkpoints ===");
     eprintln!("  Checkpoints:      {}", cp.chunks);
+    eprintln!(
+        "  Checkpoint partial raw: {} rows / {} bits",
+        cp.partial_rows, cp.partial_bits
+    );
     eprintln!("  Trailing bytes:   {}", cp.trailing_bytes);
     eprintln!("  GUID entries:     {}", cp.guid_entries);
+    eprintln!(
+        "  GUID paths: {} literals / {} indices / {} resolved",
+        cp.literal_paths, cp.indexed_paths, cp.resolved_path_indices
+    );
     eprintln!("  Group records:    {}", cp.group_records);
     eprintln!("  Exported fields:  {}", cp.exported_fields);
     eprintln!("  Frames:           {}", cp.frames);
     eprintln!("  Frame packets:    {}", cp.packets);
     eprintln!("  Checkpoint rows:  {}", cp.field_rows);
+    eprintln!("  Checkpoint actors:{} rows", cp.actor_rows_written);
+    eprintln!("  Checkpoint GUID rows: {}", cp.net_guid_rows_written);
+    eprintln!("  Checkpoint blocks:{} rows", cp.block_rows_written);
+    eprintln!(
+        "  Checkpoint GUID entries: {} rows",
+        cp.guid_entry_rows_written
+    );
+    eprintln!(
+        "  Checkpoint export groups: {} rows",
+        cp.export_group_rows_written
+    );
+    eprintln!(
+        "  Checkpoint export fields: {} rows",
+        cp.export_field_rows_written
+    );
     eprintln!(
         "  Checkpoint net:   {} bunches / {} blocks / {} fields / {} RPCs",
         cp.net.bunches, cp.net.content_blocks, cp.net.fields, cp.net.rpcs
     );
     eprintln!(
-        "  Checkpoint partial:{} errors / {} fragments / {} completed",
-        cp.net.partial_errors, cp.net.partial_fragments, cp.net.partial_completed
+        "  Checkpoint partial:{} attempted / {} errors / {} accepted fragments / {} completed",
+        cp.net.partial_bunches,
+        cp.net.partial_errors,
+        cp.net.partial_fragments,
+        cp.net.partial_completed
+    );
+    eprintln!(
+        "  Checkpoint causes: {} missing initial / {} overlapping initial / {} mismatched continuation / {} unaligned / {} channel close / {} resource limit / {} unclassified / {} overclassified",
+        cp.net.partial_missing_initial,
+        cp.net.partial_overlapping_initial,
+        cp.net.partial_mismatched_continuation,
+        cp.net.partial_non_byte_aligned,
+        cp.net.partial_channel_close,
+        cp.net.partial_resource_limit_failures,
+        cp.net.partial_unclassified_errors(),
+        cp.net.partial_overclassified_errors()
     );
     eprintln!(
         "  Checkpoint loss:  {} malformed packets / {} bunch headers / {} malformed blocks / {} transform / {} field / {} RPC / {} unfinished partials ({} bits) / {} skipped bits",
@@ -312,11 +377,11 @@ fn print_checkpoints(cp: &CheckpointStats) {
         cp.net.diagnostics.len(),
         cp.net.diagnostics_dropped
     );
-    // Printed, not silent: a checkpoint re-opens every live actor and replays
-    // its state, so these two would corrupt the tables they would otherwise
-    // land in. See CheckpointStats.
+    // Movement remains a replayed snapshot sample rather than timeline data.
+    // Actor rows have a checkpoint-scoped destination; its dropped count must
+    // remain visible and zero.
     eprintln!(
-        "  Dropped:          {} actor / {} movement rows (snapshot re-opens)",
+        "  Dropped:          {} actor / {} movement rows (checkpoint snapshot)",
         cp.actor_rows_dropped, cp.movement_rows_dropped
     );
     eprintln!(
@@ -361,6 +426,14 @@ fn print_checkpoints(cp: &CheckpointStats) {
         cp.sink.array_leaf_decode_errors
     );
     eprintln!(
+        "  Checkpoint targets: {} array children",
+        cp.sink.targeting_world_locations_decoded
+    );
+    eprintln!(
+        "  Checkpoint reward opaque: {} empty variants",
+        cp.sink.tracked_rewards_opaque_empty_variants
+    );
+    eprintln!(
         "  Checkpoint movement: {} failures",
         cp.sink.movement_rpc_errors
     );
@@ -382,14 +455,22 @@ fn print_checkpoints(cp: &CheckpointStats) {
     );
 }
 
-/// The one table that is written only when `--checkpoints` is given.
-const CHECKPOINT_TABLE: &str = "checkpoint_fields.parquet";
+/// Tables written only when `--checkpoints` is given.
+const CHECKPOINT_TABLES: [&str; 7] = [
+    "checkpoint_fields.parquet",
+    "checkpoint_actors.parquet",
+    "checkpoint_net_guids.parquet",
+    "checkpoint_blocks.parquet",
+    "checkpoint_guid_entries.parquet",
+    "checkpoint_export_groups.parquet",
+    "checkpoint_export_fields.parquet",
+];
 
 /// A warning line when this run drops a checkpoint table an earlier run at
 /// this destination had.
 ///
 /// The five main tables and the manifest are recreated on every export, but
-/// [`CHECKPOINT_TABLE`] is only opened when the flag asks for it. Export
+/// [`CHECKPOINT_TABLES`] are only opened when the flag asks for them. Export
 /// replay A with checkpoints and replay B without, into the same directory,
 /// and `OutputTransaction::publish` atomically replaces the whole
 /// destination with B's staging -- A's checkpoint table is not merged in and
@@ -407,13 +488,21 @@ pub(super) fn stale_checkpoint_note(out_path: &Path, with_checkpoints: bool) -> 
     if with_checkpoints {
         return None;
     }
-    let path = out_path.join(CHECKPOINT_TABLE);
-    path.exists().then(|| {
+    let paths: Vec<_> = CHECKPOINT_TABLES
+        .iter()
+        .map(|name| out_path.join(name))
+        .filter(|path| path.exists())
+        .collect();
+    (!paths.is_empty()).then(|| {
         format!(
-            "{} from a previous export to this destination is being dropped: this run has no \
+            "{} from a previous export to this destination are being dropped: this run has no \
              --checkpoints, and publishing replaces the whole destination directory rather than \
              merging into it",
-            path.display()
+            paths
+                .iter()
+                .map(|path| path.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         )
     })
 }
@@ -436,8 +525,11 @@ fn print_file_sizes(
     eprintln!("  actors.parquet:   {} bytes", size("actors.parquet"));
     eprintln!("  net_guids.parquet:{} bytes", size("net_guids.parquet"));
     eprintln!("  events.parquet:   {} bytes", size("events.parquet"));
+    eprintln!("  partials.parquet: {} bytes", size("partials.parquet"));
     if with_checkpoints {
-        eprintln!("  {CHECKPOINT_TABLE}: {} bytes", size(CHECKPOINT_TABLE));
+        for table in CHECKPOINT_TABLES {
+            eprintln!("  {table}: {} bytes", size(table));
+        }
     }
     eprintln!("  manifest.json:    {}", manifest_path.display());
     if let Some(note) = stale_checkpoint_note {
@@ -538,7 +630,7 @@ fn display_tail(value: &str, width: usize) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{CHECKPOINT_TABLE, display_tail, stale_checkpoint_note};
+    use super::{CHECKPOINT_TABLES, display_tail, stale_checkpoint_note};
     use std::fs;
 
     fn temp_dir(tag: &str) -> std::path::PathBuf {
@@ -561,10 +653,10 @@ mod tests {
             "nothing to warn about in a clean directory"
         );
 
-        fs::write(dir.join(CHECKPOINT_TABLE), b"not really parquet").expect("write");
+        fs::write(dir.join(CHECKPOINT_TABLES[0]), b"not really parquet").expect("write");
         let note = stale_checkpoint_note(&dir, false).expect("the leftover must be reported");
         assert!(
-            note.contains(CHECKPOINT_TABLE),
+            note.contains(CHECKPOINT_TABLES[0]),
             "the warning must name the file: {note}"
         );
 

@@ -86,6 +86,15 @@ pub enum SchemaError {
         byte: u8,
     },
 
+    #[error(
+        "checkpoint guid entry {entry}: path index {index} exceeds {literals} preceding literals"
+    )]
+    CheckpointPathIndexOutOfBounds {
+        entry: u32,
+        index: u32,
+        literals: u32,
+    },
+
     /// A checkpoint export-group slot declared a handle other than its own
     /// index.
     ///

@@ -12,13 +12,15 @@ description = "Columnar (Parquet) output for decoded replay records"
 # arrow or parquet is behind `parquet`. A consumer that only drives the decode
 # pipeline -- `vrfkit validate` does exactly that -- takes --no-default-features
 # and arrow, parquet and zstd leave the dependency graph entirely.
-default = ["fields", "movement", "actors", "net-guids", "events"]
+default = ["fields", "movement", "actors", "net-guids", "events", "partials", "checkpoint-context"]
 parquet = ["dep:arrow-array", "dep:arrow-schema", "dep:parquet"]
 fields = ["parquet"]
 movement = ["parquet"]
 actors = ["parquet"]
 net-guids = ["parquet"]
 events = ["parquet"]
+partials = ["parquet"]
+checkpoint-context = ["parquet"]
 # Snappy is never selected by a writer -- every table compresses with ZSTD --
 # so it is opt-in, for consumers who want the codec available for reading.
 # ZSTD is deliberately NOT a feature: making it optional would let a build

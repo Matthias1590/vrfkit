@@ -48,7 +48,10 @@ use vrf_decode::{
     ArrayDecodeStats, GroupHashState, OVERLAY_HANDLE_TABLE, OVERLAY_TABLE, OverlayStats,
     OverlayTable, group_hash_state,
 };
-use vrf_export::{ActorRecord, FieldRecord, MovementRecord};
+use vrf_export::{
+    ActorRecord, CheckpointBlockRecord, CheckpointIdentity, FieldRecord, MovementRecord,
+    PartialRecord,
+};
 use vrf_net::net_guid::GuidPathSink;
 use vrf_net::types::NetworkGuid;
 use vrf_schema::{FxHashMap, NetGuidCache};
@@ -193,6 +196,9 @@ pub struct ExportStats {
     pub content_blocks: u64,
     pub overlay: OverlayStats,
     pub array: ArrayDecodeStats,
+    /// Exact 24-bit `TrackedRewards` windows with the measured opaque zero
+    /// byte. They preserve their parent raw row and emit no child rows.
+    pub tracked_rewards_opaque_empty_variants: u64,
     /// EffectContainer blobs turned into a `value_str` JSON array.
     ///
     /// Counted because nothing else moves when this decoder works. The overlay
@@ -288,6 +294,9 @@ pub struct ExportStats {
     /// decoder. Their raw leaf rows are still emitted; this counts the typed
     /// values that could not be recovered.
     pub array_leaf_decode_errors: u64,
+
+    /// Typed world-location children emitted from the guarded map-click array.
+    pub targeting_world_locations_decoded: u64,
 }
 
 impl ExportStats {
@@ -389,6 +398,8 @@ pub struct RecordBuffers {
     pub movement: Vec<MovementRecord>,
     /// Actor lifecycle records to be drained by the driver.
     pub actors: Vec<ActorRecord>,
+    pub partials: Vec<PartialRecord>,
+    pub checkpoint_blocks: Vec<CheckpointBlockRecord>,
 }
 
 /// The export sink. Receives decoded events from `vrf-net` and produces records
@@ -410,6 +421,9 @@ pub struct ExportSink<'a> {
     records: &'a mut RecordBuffers,
     /// Stats.
     pub stats: ExportStats,
+    /// Enables checksum routes measured on the named release families.
+    measured_array_routes: bool,
+    checkpoint_block_scope: Option<(CheckpointIdentity, u64, u32)>,
 
     // -- per-content-block context (set by on_content_block) ----------------
     current_channel: u32,
@@ -435,6 +449,9 @@ pub struct ExportSink<'a> {
     /// mismatching key, so the field degrades to `raw_bits` instead of decoding
     /// to a wrong type.
     current_group_hash: GroupHashState,
+    current_group_resolution_source: &'static str,
+    current_function_count_source: &'static str,
+    current_resolution_memo_hit: bool,
 }
 
 impl<'a> ExportSink<'a> {
@@ -451,6 +468,8 @@ impl<'a> ExportSink<'a> {
         records.fields.clear();
         records.movement.clear();
         records.actors.clear();
+        records.partials.clear();
+        records.checkpoint_blocks.clear();
         let current_group_path = empty_group_path();
         let current_group_hash = group_hash_state(&current_group_path);
         Self {
@@ -460,13 +479,38 @@ impl<'a> ExportSink<'a> {
             packet_id: 0,
             records,
             stats: ExportStats::default(),
+            measured_array_routes: false,
+            checkpoint_block_scope: None,
             current_channel: 0,
             current_actor_guid: 0,
             current_object_guid: None,
             current_is_abilities_and_buffs: false,
             current_group_path,
             current_group_hash,
+            current_group_resolution_source: "unset",
+            current_function_count_source: "unset",
+            current_resolution_memo_hit: false,
         }
+    }
+
+    pub(super) fn enable_measured_array_routes(&mut self, branch: &str) {
+        self.measured_array_routes = matches!(
+            branch,
+            "++Ares-Core+release-13.01"
+                | "++Ares-Core+release-13.02"
+                | "++Ares-Core+release-13.04"
+                | "++Ares-Core+release-13.05"
+        );
+    }
+
+    #[cfg(feature = "export")]
+    pub(super) fn enable_checkpoint_block_context(
+        &mut self,
+        checkpoint: CheckpointIdentity,
+        field_row_offset: u64,
+        block_index_offset: u32,
+    ) {
+        self.checkpoint_block_scope = Some((checkpoint, field_row_offset, block_index_offset));
     }
 
     /// Set `current_group_path` and refresh its cached overlay hash in one step.
@@ -508,6 +552,11 @@ impl<'a> ExportSink<'a> {
             value_bool: row.value_bool,
             value_str: row.value_str,
         });
+        if self.checkpoint_block_scope.is_some() {
+            if let Some(block) = self.records.checkpoint_blocks.last_mut() {
+                block.field_row_count += 1;
+            }
+        }
     }
 }
 

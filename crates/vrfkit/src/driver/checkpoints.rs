@@ -7,23 +7,27 @@
 //! the snapshot's channel opens and archetype mappings leak into the ReplayData
 //! pass and corrupt it.
 //!
-//! Checkpoint fields go to their own table rather than into `fields.parquet`
-//! with a source column. Two reasons, in order: a column on 1.2M rows to mark
-//! 80k of them is the wrong shape, and `fields.parquet` is read by the valplay
-//! adapter, whose capture predicate keys on a row having no decoded value --
-//! changing that file's population risks the metric parity for no gain. The
-//! file is only created when the flag asks for it, so a default export is
-//! byte-identical to one from before this existed.
+//! Checkpoint rows go to separate tables because their packet, channel and
+//! NetGUID namespaces restart inside each snapshot. Keeping that context out
+//! of the main tables also leaves the default export byte-identical.
 
 use std::io::Write;
 
 use vrf_container::{decompress_checkpoint, parse_checkpoint_chunk};
 use vrf_decode::OverlayErrorReport;
-use vrf_export::FieldWriter;
+use vrf_export::{
+    CheckpointActorRecord, CheckpointActorWriter, CheckpointBlockWriter,
+    CheckpointExportFieldRecord, CheckpointExportFieldWriter, CheckpointExportGroupRecord,
+    CheckpointExportGroupWriter, CheckpointFieldRecord, CheckpointFieldWriter,
+    CheckpointGuidEntryRecord, CheckpointGuidEntryWriter, CheckpointIdentity,
+    CheckpointNetGuidRecord, CheckpointNetGuidWriter, NetGuidRecord, PartialWriter,
+};
 use vrf_frame::iter_demo_frames;
 use vrf_net::pipeline::ReplicationReader;
 use vrf_net::stats::NetStats;
-use vrf_schema::{NetGuidCache, read_checkpoint_tables};
+use vrf_schema::{
+    CheckpointReadError, CheckpointTableSink, NetGuidCache, read_checkpoint_tables_with_sink,
+};
 
 use super::totals::SinkTotals;
 use crate::error::CliError;
@@ -42,6 +46,9 @@ pub(crate) struct CheckpointStats {
     /// pass.
     pub trailing_bytes: u64,
     pub guid_entries: u64,
+    pub literal_paths: u64,
+    pub indexed_paths: u64,
+    pub resolved_path_indices: u64,
     pub group_records: u64,
     pub exported_fields: u64,
     /// DemoFrames walked, as `iter_demo_frames` actually counted them -- not
@@ -49,12 +56,16 @@ pub(crate) struct CheckpointStats {
     pub frames: u64,
     pub packets: u64,
     pub field_rows: u64,
-    /// Actor opens and movement samples the snapshot produced. They are
-    /// counted and dropped, not written: a checkpoint re-opens a channel for
-    /// every actor alive at that instant, so folding them into
-    /// `actors.parquet` would triple its rows with re-opens that are not
-    /// spawns, and `movement.parquet` is a time series that a snapshot's
-    /// replayed samples would duplicate. Reported so the drop is visible.
+    pub actor_rows_written: u64,
+    pub net_guid_rows_written: u64,
+    pub block_rows_written: u64,
+    pub guid_entry_rows_written: u64,
+    pub export_group_rows_written: u64,
+    pub export_field_rows_written: u64,
+    pub partial_rows: u64,
+    pub partial_bits: u64,
+    /// Actor rows are written to their checkpoint-scoped table. This retained
+    /// counter remains explicit so a future discard path cannot be silent.
     pub actor_rows_dropped: u64,
     pub movement_rows_dropped: u64,
     /// Everything the checkpoint sinks counted.
@@ -77,6 +88,29 @@ pub(crate) struct CheckpointStats {
     pub net: NetStats,
 }
 
+pub(super) struct CheckpointWriters<W: Write + Send> {
+    pub fields: CheckpointFieldWriter<W>,
+    pub actors: CheckpointActorWriter<W>,
+    pub net_guids: CheckpointNetGuidWriter<W>,
+    pub blocks: CheckpointBlockWriter<W>,
+    pub guid_entries: CheckpointGuidEntryWriter<W>,
+    pub export_groups: CheckpointExportGroupWriter<W>,
+    pub export_fields: CheckpointExportFieldWriter<W>,
+}
+
+impl<W: Write + Send> CheckpointWriters<W> {
+    pub fn finish(self) -> Result<(), CliError> {
+        self.fields.finish()?;
+        self.actors.finish()?;
+        self.net_guids.finish()?;
+        self.blocks.finish()?;
+        self.guid_entries.finish()?;
+        self.export_groups.finish()?;
+        self.export_fields.finish()?;
+        Ok(())
+    }
+}
+
 /// Everything about the replay that the checkpoint pass needs and cannot
 /// rediscover from the chunk alone.
 pub(super) struct ReplayContext<'a> {
@@ -86,25 +120,152 @@ pub(super) struct ReplayContext<'a> {
     pub encrypted: bool,
 }
 
+struct DeclarationWriter<'a, W: Write + Send> {
+    checkpoint: CheckpointIdentity,
+    guid_entries: &'a mut CheckpointGuidEntryWriter<W>,
+    export_groups: &'a mut CheckpointExportGroupWriter<W>,
+    export_fields: &'a mut CheckpointExportFieldWriter<W>,
+    guid_rows: u64,
+    group_rows: u64,
+    field_rows: u64,
+}
+
+impl<W: Write + Send> CheckpointTableSink for DeclarationWriter<'_, W> {
+    type Error = vrf_export::ExportError;
+
+    fn on_guid_entry(
+        &mut self,
+        ordinal: u32,
+        guid: u32,
+        outer: u32,
+        path_is_string: bool,
+        literal_path: Option<&str>,
+        name_index: Option<u32>,
+        flags: u8,
+    ) -> Result<(), Self::Error> {
+        self.guid_entries.push(CheckpointGuidEntryRecord {
+            checkpoint: self.checkpoint.clone(),
+            ordinal,
+            net_guid: guid,
+            outer_net_guid: outer,
+            path_is_string,
+            literal_path: literal_path.map(Into::into),
+            name_index,
+            flags,
+        })?;
+        self.guid_rows += 1;
+        Ok(())
+    }
+
+    fn on_export_group(
+        &mut self,
+        ordinal: u32,
+        path_name_index: u32,
+        group_path: &str,
+        declared_slots: u32,
+    ) -> Result<(), Self::Error> {
+        self.export_groups.push(CheckpointExportGroupRecord {
+            checkpoint: self.checkpoint.clone(),
+            ordinal,
+            path_name_index,
+            group_path: group_path.into(),
+            declared_slots,
+        })?;
+        self.group_rows += 1;
+        Ok(())
+    }
+
+    fn on_export_field(
+        &mut self,
+        group_ordinal: u32,
+        path_name_index: u32,
+        slot: u32,
+        handle: u32,
+        checksum: u32,
+        rendered_name: &str,
+        exported_flag: u8,
+        fname_kind: u8,
+        base: Option<&str>,
+        index: Option<u32>,
+        number: Option<i32>,
+    ) -> Result<(), Self::Error> {
+        self.export_fields.push(CheckpointExportFieldRecord {
+            checkpoint: self.checkpoint.clone(),
+            group_ordinal,
+            path_name_index,
+            slot,
+            handle,
+            compatible_checksum: checksum,
+            rendered_name: rendered_name.into(),
+            exported_flag,
+            fname_kind,
+            fname_base: base.map(Into::into),
+            fname_index: index,
+            fname_number: number,
+        })?;
+        self.field_rows += 1;
+        Ok(())
+    }
+}
+
 /// Decode one Checkpoint chunk and write its field rows.
 ///
 /// `error_report` is the *shared* one: a decode error is a decode error
 /// wherever it happened, and the breakdown the summary prints is the only place
 /// a checkpoint-only failure would ever be seen.
-pub(super) fn process_chunk<W: Write + Send>(
+pub(super) fn process_chunk<W: Write + Send, P: Write + Send>(
     payload: &[u8],
     ctx: &ReplayContext<'_>,
-    writer: &mut FieldWriter<W>,
+    writers: &mut CheckpointWriters<W>,
     stats: &mut CheckpointStats,
     error_report: &mut OverlayErrorReport,
+    partial_writer: &mut PartialWriter<P>,
 ) -> Result<(), CliError> {
     let cp = parse_checkpoint_chunk(payload)?;
     stats.trailing_bytes += cp.trailing_bytes as u64;
     let plain = decompress_checkpoint(cp.archive, ctx.compressed, ctx.encrypted)?;
 
+    let checkpoint_index = u32::try_from(stats.chunks)
+        .map_err(|_| CliError::Usage("too many checkpoint chunks to index".to_owned()))?;
+    let checkpoint = CheckpointIdentity {
+        checkpoint_index,
+        checkpoint_id: cp.id.clone().into(),
+    };
     let mut cache = NetGuidCache::new();
-    let tables = read_checkpoint_tables(&plain, &mut cache)
-        .map_err(|e| CliError::Usage(format!("checkpoint {}: {e}", cp.id)))?;
+    let mut declarations = DeclarationWriter {
+        checkpoint: checkpoint.clone(),
+        guid_entries: &mut writers.guid_entries,
+        export_groups: &mut writers.export_groups,
+        export_fields: &mut writers.export_fields,
+        guid_rows: 0,
+        group_rows: 0,
+        field_rows: 0,
+    };
+    let tables = read_checkpoint_tables_with_sink(&plain, &mut cache, &mut declarations).map_err(
+        |error| match error {
+            CheckpointReadError::Schema(error) => {
+                CliError::Usage(format!("checkpoint {}: {error}", cp.id))
+            }
+            CheckpointReadError::Bit(error) => CliError::Usage(format!(
+                "checkpoint {}: {}",
+                cp.id,
+                vrf_schema::SchemaError::Bitio(error)
+            )),
+            CheckpointReadError::Sink(error) => CliError::Export(error),
+        },
+    )?;
+    if declarations.guid_rows != u64::from(tables.guid_count)
+        || declarations.group_rows != u64::from(tables.group_count)
+        || declarations.field_rows != u64::from(tables.exported_fields)
+    {
+        return Err(CliError::Usage(format!(
+            "checkpoint {} declaration row counts disagree with parsed tables",
+            cp.id
+        )));
+    }
+    stats.guid_entry_rows_written += declarations.guid_rows;
+    stats.export_group_rows_written += declarations.group_rows;
+    stats.export_field_rows_written += declarations.field_rows;
 
     let frame = &plain[tables.frame_offset..];
     let mut reader = ReplicationReader::new(ctx.branch)
@@ -112,6 +273,7 @@ pub(super) fn process_chunk<W: Write + Send>(
     let mut channels = ChannelState::new();
     let mut buffers = RecordBuffers::default();
     let mut packet_count = 0u64;
+    let mut block_count = 0u32;
     let mut packet_error = None;
     let (_, frame_count) = iter_demo_frames(frame, ctx.flags, &mut cache, |pkt, packet_cache| {
         if packet_error.is_some() {
@@ -119,6 +281,8 @@ pub(super) fn process_chunk<W: Write + Send>(
         }
         {
             let mut sink = ExportSink::new(packet_cache, &mut channels, &mut buffers);
+            sink.enable_measured_array_routes(ctx.branch);
+            sink.enable_checkpoint_block_context(checkpoint.clone(), stats.field_rows, block_count);
             sink.time_ms = pkt.time_ms;
             sink.packet_id = packet_count as u32;
             reader.process_packet(pkt.data, packet_count as i32, &mut sink);
@@ -127,12 +291,35 @@ pub(super) fn process_chunk<W: Write + Send>(
             stats.sink.absorb(&mut sink.stats, error_report);
         }
         let result = (|| -> Result<(), CliError> {
+            let packet_blocks = buffers.checkpoint_blocks.len() as u32;
+            stats.block_rows_written += u64::from(packet_blocks);
+            writers
+                .blocks
+                .push_batch(buffers.checkpoint_blocks.drain(..))?;
+            block_count += packet_blocks;
             stats.field_rows += buffers.fields.len() as u64;
-            writer.push_batch(buffers.fields.drain(..))?;
-            stats.actor_rows_dropped += buffers.actors.len() as u64;
+            writers
+                .fields
+                .push_batch(buffers.fields.drain(..).map(|field| CheckpointFieldRecord {
+                    checkpoint: checkpoint.clone(),
+                    field,
+                }))?;
+            stats.actor_rows_written += buffers.actors.len() as u64;
+            writers
+                .actors
+                .push_batch(buffers.actors.drain(..).map(|actor| CheckpointActorRecord {
+                    checkpoint: checkpoint.clone(),
+                    actor,
+                }))?;
             stats.movement_rows_dropped += buffers.movement.len() as u64;
-            buffers.actors.clear();
             buffers.movement.clear();
+            for mut record in buffers.partials.drain(..) {
+                stats.partial_rows += 1;
+                stats.partial_bits += record.bit_count;
+                record.source = "checkpoint";
+                record.checkpoint_id = Some(cp.id.clone());
+                partial_writer.push(record)?;
+            }
             Ok(())
         })();
         if let Err(error) = result {
@@ -143,12 +330,49 @@ pub(super) fn process_chunk<W: Write + Send>(
     if let Some(error) = packet_error {
         return Err(error);
     }
-    reader.finish();
+    {
+        let mut sink = ExportSink::new(&mut cache, &mut channels, &mut buffers);
+        sink.enable_measured_array_routes(ctx.branch);
+        sink.enable_checkpoint_block_context(checkpoint.clone(), stats.field_rows, block_count);
+        reader.finish_with_sink(&mut sink);
+    }
+    stats.block_rows_written += buffers.checkpoint_blocks.len() as u64;
+    writers
+        .blocks
+        .push_batch(buffers.checkpoint_blocks.drain(..))?;
+    for mut record in buffers.partials.drain(..) {
+        stats.partial_rows += 1;
+        stats.partial_bits += record.bit_count;
+        record.source = "checkpoint";
+        record.checkpoint_id = Some(cp.id.clone());
+        partial_writer.push(record)?;
+    }
     let mut chunk_net = reader.stats().clone();
     stats.net.absorb(&mut chunk_net);
 
+    let mut guid_entries = cache.net_guid_entries();
+    guid_entries.sort_unstable_by_key(|entry| entry.net_guid);
+    stats.net_guid_rows_written += guid_entries.len() as u64;
+    writers
+        .net_guids
+        .push_batch(
+            guid_entries
+                .into_iter()
+                .map(|entry| CheckpointNetGuidRecord {
+                    checkpoint: checkpoint.clone(),
+                    net_guid: NetGuidRecord {
+                        net_guid: entry.net_guid,
+                        path: entry.path.to_owned(),
+                        outer_net_guid: entry.outer_net_guid,
+                    },
+                }),
+        )?;
+
     stats.chunks += 1;
     stats.guid_entries += u64::from(tables.guid_count);
+    stats.literal_paths += u64::from(tables.literal_paths);
+    stats.indexed_paths += u64::from(tables.hardcoded_paths);
+    stats.resolved_path_indices += u64::from(tables.resolved_path_indices);
     stats.group_records += u64::from(tables.group_count);
     stats.exported_fields += u64::from(tables.exported_fields);
     // The actual DemoFrame count `iter_demo_frames` walked, not an assumed
@@ -159,4 +383,63 @@ pub(super) fn process_chunk<W: Write + Send>(
     stats.frames += u64::from(frame_count);
     stats.packets += packet_count;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::io::{self, Write};
+
+    use super::*;
+
+    struct FailAfterHeader {
+        remaining: usize,
+    }
+
+    impl Write for FailAfterHeader {
+        fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+            if self.remaining == 0 {
+                return Err(io::Error::other("intentional writer failure"));
+            }
+            let written = bytes.len().min(self.remaining);
+            self.remaining -= written;
+            Ok(written)
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn declaration_callback_rows_propagate_the_underlying_writer_failure() {
+        let writer = |remaining| FailAfterHeader { remaining };
+        let mut guid_entries =
+            CheckpointGuidEntryWriter::with_row_group_size(writer(4), 1).unwrap();
+        let mut export_groups =
+            CheckpointExportGroupWriter::with_row_group_size(writer(usize::MAX), 1).unwrap();
+        let mut export_fields =
+            CheckpointExportFieldWriter::with_row_group_size(writer(usize::MAX), 1).unwrap();
+        let mut declarations = DeclarationWriter {
+            checkpoint: CheckpointIdentity {
+                checkpoint_index: 0,
+                checkpoint_id: "cp".into(),
+            },
+            guid_entries: &mut guid_entries,
+            export_groups: &mut export_groups,
+            export_fields: &mut export_fields,
+            guid_rows: 0,
+            group_rows: 0,
+            field_rows: 0,
+        };
+
+        declarations
+            .on_guid_entry(0, 1, 0, true, Some("path"), None, 0)
+            .unwrap();
+        assert_eq!(declarations.guid_rows, 1);
+        drop(declarations);
+        let error = guid_entries
+            .finish()
+            .expect_err("finalizing the callback row must return the Parquet sink failure");
+        assert!(error.to_string().contains("intentional writer failure"));
+    }
 }

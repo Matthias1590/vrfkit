@@ -279,6 +279,7 @@ pub fn run(path: &str, diagnostics: bool) -> Result<Verdict, CliError> {
 
         iter_demo_frames(&decompressed, flags, &mut cache, |pkt, packet_cache| {
             let mut sink = ExportSink::new(packet_cache, &mut channel_state, &mut buffers);
+            sink.enable_measured_array_routes(branch);
             sink.time_ms = pkt.time_ms;
             sink.packet_id = total_packets;
             repl_reader.process_packet(pkt.data, total_packets as i32, &mut sink);
@@ -314,8 +315,22 @@ pub fn run(path: &str, diagnostics: bool) -> Result<Verdict, CliError> {
     println!("    Deleted:            {deleted}");
     println!("    Malformed packets:  {}", stats.malformed_packets);
     println!(
-        "    Partial bunches:    {} errors / {} fragments / {} completed",
-        stats.partial_errors, stats.partial_fragments, stats.partial_completed
+        "    Partial bunches:    {} attempted / {} errors / {} accepted fragments / {} completed",
+        stats.partial_bunches,
+        stats.partial_errors,
+        stats.partial_fragments,
+        stats.partial_completed
+    );
+    println!(
+        "    Partial causes:     {} missing initial / {} overlapping initial / {} mismatched continuation / {} unaligned / {} channel close / {} resource limit / {} unclassified / {} overclassified",
+        stats.partial_missing_initial,
+        stats.partial_overlapping_initial,
+        stats.partial_mismatched_continuation,
+        stats.partial_non_byte_aligned,
+        stats.partial_channel_close,
+        stats.partial_resource_limit_failures,
+        stats.partial_unclassified_errors(),
+        stats.partial_overclassified_errors()
     );
     println!("    Bunch header failed:{}", stats.bunch_header_failures);
     println!("    Malformed framing:  {malformed}");

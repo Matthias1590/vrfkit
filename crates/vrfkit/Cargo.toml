@@ -27,6 +27,8 @@ export = [
     "vrf-export/actors",
     "vrf-export/net-guids",
     "vrf-export/events",
+    "vrf-export/partials",
+    "vrf-export/checkpoint-context",
 ]
 
 [dependencies]

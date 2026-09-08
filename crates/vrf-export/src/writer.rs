@@ -102,6 +102,14 @@ pub trait Table {
     /// but the tables pin it explicitly so the intent is in the source.
     const DICTIONARY_COLUMNS: &'static [&'static str];
 
+    /// Optional retained-row byte budget. Zero leaves row-count batching unchanged.
+    const MAX_BUFFERED_BYTES: usize = 0;
+
+    /// Bytes retained outside the row struct itself for budgeted tables.
+    fn retained_bytes(_row: &Self::Row) -> usize {
+        0
+    }
+
     /// The Arrow schema. Must match [`Self::build_batch`]'s column order:
     /// `RecordBatch::try_new` only checks types, so swapping two same-typed
     /// columns would pass and silently corrupt the export.
@@ -149,6 +157,7 @@ pub struct TableWriter<T: Table, W: Write + Send> {
     /// row-group size, so a caller asking for tiny row groups still gets them.
     batch_rows: usize,
     finished: bool,
+    buffered_bytes: usize,
     _table: PhantomData<fn() -> T>,
 }
 
@@ -186,6 +195,7 @@ impl<T: Table, W: Write + Send> TableWriter<T, W> {
             buffer: Vec::with_capacity(T::initial_capacity(batch_rows)),
             batch_rows,
             finished: false,
+            buffered_bytes: 0,
             _table: PhantomData,
         })
     }
@@ -194,8 +204,12 @@ impl<T: Table, W: Write + Send> TableWriter<T, W> {
     /// full; the row group is closed by `ArrowWriter`, not here.
     pub fn push(&mut self, record: T::Row) -> Result<(), ExportError> {
         self.guard_open()?;
+        self.flush_for_byte_budget(&record)?;
+        self.buffered_bytes = self
+            .buffered_bytes
+            .saturating_add(T::retained_bytes(&record));
         self.buffer.push(record);
-        self.flush_if_full()
+        self.flush_if_full_or_oversized()
     }
 
     /// Push a batch of records. Cheaper than repeated single pushes because the
@@ -206,8 +220,12 @@ impl<T: Table, W: Write + Send> TableWriter<T, W> {
     ) -> Result<(), ExportError> {
         self.guard_open()?;
         for record in records {
+            self.flush_for_byte_budget(&record)?;
+            self.buffered_bytes = self
+                .buffered_bytes
+                .saturating_add(T::retained_bytes(&record));
             self.buffer.push(record);
-            self.flush_if_full()?;
+            self.flush_if_full_or_oversized()?;
         }
         Ok(())
     }
@@ -241,9 +259,26 @@ impl<T: Table, W: Write + Send> TableWriter<T, W> {
         Ok(())
     }
 
-    fn flush_if_full(&mut self) -> Result<(), ExportError> {
-        if self.buffer.len() >= self.batch_rows {
+    fn flush_for_byte_budget(&mut self, record: &T::Row) -> Result<(), ExportError> {
+        let incoming = T::retained_bytes(record);
+        if T::MAX_BUFFERED_BYTES != 0
+            && !self.buffer.is_empty()
+            && self.buffered_bytes.saturating_add(incoming) > T::MAX_BUFFERED_BYTES
+        {
             self.flush_buffer()?;
+            self.writer.flush()?;
+        }
+        Ok(())
+    }
+
+    fn flush_if_full_or_oversized(&mut self) -> Result<(), ExportError> {
+        if self.buffer.len() >= self.batch_rows
+            || (T::MAX_BUFFERED_BYTES != 0 && self.buffered_bytes >= T::MAX_BUFFERED_BYTES)
+        {
+            self.flush_buffer()?;
+            if T::MAX_BUFFERED_BYTES != 0 {
+                self.writer.flush()?;
+            }
         }
         Ok(())
     }
@@ -274,6 +309,7 @@ impl<T: Table, W: Write + Send> TableWriter<T, W> {
         // Dropping the rows before handing the batch to the encoder also keeps
         // the records and the arrays from being live at the same time.
         self.buffer.clear();
+        self.buffered_bytes = 0;
         self.writer.write(&batch)?;
         Ok(())
     }

@@ -15,9 +15,9 @@ import re
 import sys
 from pathlib import Path
 
-try:
+if __package__:
     from .atomic_io import atomic_write_text
-except ImportError:  # direct script execution
+else:  # direct script execution
     from atomic_io import atomic_write_text
 
 EXPECTED_BRANCHES = (

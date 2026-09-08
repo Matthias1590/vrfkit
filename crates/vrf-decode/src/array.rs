@@ -162,6 +162,7 @@ pub struct ArrayDecodeStats {
 /// `declared` and `output`/`stats` are the same for every level; bundling them
 /// keeps the recursive calls to three arguments instead of seven.
 struct Walk<'a, 'd> {
+    allow_trailing_int_packed: bool,
     /// Names the REPLAY declares for this group's handles, indexed by handle.
     declared: &'a [Option<&'d str>],
     /// Path under construction, reused across every leaf.
@@ -189,11 +190,37 @@ pub fn decode_struct_array(
     declared: &[Option<&str>],
     stats: &mut ArrayDecodeStats,
 ) -> Vec<FlattenedField> {
+    decode_struct_array_window(data, bit_count, schema, declared, stats, true)
+}
+
+/// Walk a flat struct array without accepting the legacy optional trailer.
+///
+/// Newly measured array routes have an explicit index terminator and no
+/// trailer. Remaining bits are reported in `unconsumed_root_bits`; callers
+/// must check all diagnostics before accepting the returned leaves.
+pub fn decode_struct_array_exact(
+    data: &[u8],
+    bit_count: u32,
+    declared: &[Option<&str>],
+    stats: &mut ArrayDecodeStats,
+) -> Vec<FlattenedField> {
+    decode_struct_array_window(data, bit_count, None, declared, stats, false)
+}
+
+fn decode_struct_array_window(
+    data: &[u8],
+    bit_count: u32,
+    schema: Option<&ArrayFieldSchema>,
+    declared: &[Option<&str>],
+    stats: &mut ArrayDecodeStats,
+    allow_trailing_int_packed: bool,
+) -> Vec<FlattenedField> {
     let Ok(mut reader) = BitReader::with_bit_len(data, u64::from(bit_count)) else {
         stats.errors += 1;
         return Vec::new();
     };
     let mut walk = Walk {
+        allow_trailing_int_packed,
         declared,
         path: String::with_capacity(64),
         output: Vec::with_capacity(INITIAL_FIELD_CAPACITY),
@@ -409,7 +436,9 @@ fn decode_array_level(
             match probe.read_int_packed() {
                 Ok(0) => {
                     *reader = probe;
-                    consume_optional_trailing_int_packed(reader, stats);
+                    if walk.allow_trailing_int_packed {
+                        consume_optional_trailing_int_packed(reader, stats);
+                    }
                 }
                 Ok(_) => {
                     stats.truncations += 1;
@@ -425,7 +454,9 @@ fn decode_array_level(
         };
 
         if encoded_index == 0 {
-            consume_optional_trailing_int_packed(reader, stats);
+            if walk.allow_trailing_int_packed {
+                consume_optional_trailing_int_packed(reader, stats);
+            }
             break;
         }
 

@@ -187,10 +187,10 @@ impl RawPacketReader {
     /// | bHasPackageMapExports : 1 bit                                |
     /// | bHasMustBeMappedGUIDs : 1 bit                                |
     /// | bPartial           : 1 bit                                   |
+    /// | <VALORANT>         : 1 bit (meaning unknown; discarded)      |
     /// | [if bPartial]                                                |
     /// |   bPartialInitial  : 1 bit                                   |
     /// |   bPartialFinal    : 1 bit                                   |
-    /// | <VALORANT>         : 1 bit (read and discarded)              |
     /// | [if bReliable || bOpen]                                      |
     /// |   ChName           : FName (1 bit isHardcoded + IntPacked)   |
     /// | PayloadBitCount    : SerializedInt(16384)                    |
@@ -243,13 +243,15 @@ impl RawPacketReader {
             header.ch_sequence = packet_id;
         }
 
+        // An extra bit is unconditionally present after bPartial in observed
+        // VALORANT packets. Its meaning is not established. Keeping it
+        // unnamed is deliberate; only its wire position is corpus-verified.
+        let _valorant_bit = reader.read_bit()?;
+
         if header.b_partial {
             header.b_partial_initial = reader.read_bit()?;
             header.b_partial_final = reader.read_bit()?;
         }
-
-        // VALORANT-specific bit: always present, always discarded.
-        let _valorant_bit = reader.read_bit()?;
 
         // Channel name (FName): present when reliable or opening.
         if header.b_reliable || header.b_open {
@@ -567,6 +569,35 @@ mod tests {
     }
 
     #[test]
+    fn captured_partial_headers_assign_boundary_bits_in_wire_order() {
+        // Literal header prefixes from packets 790-792 of replay
+        // 00e5adab... (13.05). The initial prefix is also byte-identical in
+        // packet 1 of replay 02d4d478... (13.01). These bytes were captured
+        // before this parser interprets them; the fixture is intentionally not
+        // produced by the synthetic header writer below.
+        let fixtures = [
+            (&[0x10, 0xa0, 0x90, 0x7b][..], true, false, 15_816),
+            (&[0x10, 0x20, 0x90, 0x7b][..], false, false, 15_816),
+            (&[0x10, 0x20, 0x67, 0x93][..], false, true, 2_483),
+        ];
+
+        for (packet_id, (bytes, initial, is_final, payload_bits)) in
+            (790..).zip(fixtures.into_iter())
+        {
+            let mut bits = BitReader::with_bit_len(bytes, 31).unwrap();
+            let mut packet_reader = RawPacketReader::new();
+            let header = packet_reader
+                .parse_bunch_header(&mut bits, packet_id)
+                .unwrap();
+            assert!(header.b_partial);
+            assert_eq!(header.b_partial_initial, initial);
+            assert_eq!(header.b_partial_final, is_final);
+            assert_eq!(header.payload_bit_count, payload_bits);
+            assert_eq!(header.payload_bit_offset, 31);
+        }
+    }
+
+    #[test]
     fn partial_initial_then_final_completes() {
         let mut bits = Vec::new();
         // First: partial initial, reliable
@@ -577,9 +608,9 @@ mod tests {
         write_bit(&mut bits, false);
         write_bit(&mut bits, false);
         write_bit(&mut bits, true); // bPartial
+        write_bit(&mut bits, false); // VALORANT
         write_bit(&mut bits, true); // bPartialInitial
         write_bit(&mut bits, false); // bPartialFinal
-        write_bit(&mut bits, false); // VALORANT
         write_fname(&mut bits, 1);
         write_payload_size(&mut bits, 8);
         for _ in 0..8 {
@@ -593,9 +624,9 @@ mod tests {
         write_bit(&mut bits, false);
         write_bit(&mut bits, false);
         write_bit(&mut bits, true); // bPartial
+        write_bit(&mut bits, false); // VALORANT
         write_bit(&mut bits, false); // bPartialInitial
         write_bit(&mut bits, true); // bPartialFinal
-        write_bit(&mut bits, false); // VALORANT
         write_fname(&mut bits, 1);
         write_payload_size(&mut bits, 4);
         for _ in 0..4 {
@@ -630,9 +661,9 @@ mod tests {
         write_bit(&mut bits, false);
         write_bit(&mut bits, false);
         write_bit(&mut bits, true); // bPartial
+        write_bit(&mut bits, false); // VALORANT
         write_bit(&mut bits, false); // not initial
         write_bit(&mut bits, true); // final
-        write_bit(&mut bits, false); // VALORANT
         write_fname(&mut bits, 1);
         write_payload_size(&mut bits, 0);
         let packet = build_packet(&bits);
@@ -655,9 +686,9 @@ mod tests {
         write_bit(&mut bits, false);
         write_bit(&mut bits, false);
         write_bit(&mut bits, true);
+        write_bit(&mut bits, false); // VALORANT
         write_bit(&mut bits, true); // initial
         write_bit(&mut bits, false);
-        write_bit(&mut bits, false); // VALORANT
         write_fname(&mut bits, 1);
         write_payload_size(&mut bits, 0);
         // Continuation: NOT reliable
@@ -668,9 +699,9 @@ mod tests {
         write_bit(&mut bits, false);
         write_bit(&mut bits, false);
         write_bit(&mut bits, true);
+        write_bit(&mut bits, false); // VALORANT
         write_bit(&mut bits, false); // not initial
         write_bit(&mut bits, true); // final
-        write_bit(&mut bits, false); // VALORANT
         write_payload_size(&mut bits, 0);
         let packet = build_packet(&bits);
 

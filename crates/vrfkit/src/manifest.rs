@@ -36,6 +36,8 @@ pub(crate) struct ManifestQuality<'a> {
     pub movement_rows: u64,
     pub net_guid_rows: usize,
     pub event_rows: u64,
+    pub partial_rows: u64,
+    pub partial_bits: u64,
     pub event_trailing_bytes: u64,
     pub replay_data_trailing_bytes: u64,
     pub event_layout_mismatches: u64,
@@ -428,6 +430,18 @@ fn quality_json(quality: &ManifestQuality<'_>) -> String {
     wkv(&mut out, "event_rows", &quality.event_rows.to_string(), 2);
     wkv(
         &mut out,
+        "partial_rows",
+        &quality.partial_rows.to_string(),
+        2,
+    );
+    wkv(
+        &mut out,
+        "partial_bits",
+        &quality.partial_bits.to_string(),
+        2,
+    );
+    wkv(
+        &mut out,
         "event_trailing_bytes",
         &quality.event_trailing_bytes.to_string(),
         2,
@@ -488,6 +502,30 @@ fn quality_json(quality: &ManifestQuality<'_>) -> String {
             out.push_str("    \"checkpoints\": {\n");
             wkv(
                 &mut out,
+                "checkpoint_path_resolution_mode",
+                &json_str("preceding_literal_zero_based"),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_literal_paths",
+                &checkpoints.literal_paths.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_indexed_paths",
+                &checkpoints.indexed_paths.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_resolved_path_indices",
+                &checkpoints.resolved_path_indices.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
                 "checkpoint_chunks",
                 &checkpoints.chunks.to_string(),
                 3,
@@ -526,6 +564,54 @@ fn quality_json(quality: &ManifestQuality<'_>) -> String {
                 &mut out,
                 "checkpoint_field_rows",
                 &checkpoints.field_rows.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_actor_rows_written",
+                &checkpoints.actor_rows_written.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_net_guid_rows_written",
+                &checkpoints.net_guid_rows_written.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_block_rows_written",
+                &checkpoints.block_rows_written.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_guid_entry_rows_written",
+                &checkpoints.guid_entry_rows_written.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_export_group_rows_written",
+                &checkpoints.export_group_rows_written.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_export_field_rows_written",
+                &checkpoints.export_field_rows_written.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_partial_rows",
+                &checkpoints.partial_rows.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_partial_bits",
+                &checkpoints.partial_bits.to_string(),
                 3,
             );
             wkv(
@@ -666,6 +752,14 @@ fn write_sink_quality(
             sink.array.implicit_terminations,
         ),
         ("array_leaf_decode_errors", sink.array_leaf_decode_errors),
+        (
+            "targeting_world_locations_decoded",
+            sink.targeting_world_locations_decoded,
+        ),
+        (
+            "tracked_rewards_opaque_empty_variants",
+            sink.tracked_rewards_opaque_empty_variants,
+        ),
         ("truncated_rpcs", sink.truncated_rpcs),
         ("rpc_suffix_bits_dropped", sink.rpc_suffix_bits_dropped),
         ("cnc_rpcs_emitted", sink.cnc_rpcs_emitted),
@@ -824,6 +918,8 @@ mod tests {
             movement_rows: 0,
             net_guid_rows: 0,
             event_rows: 0,
+            partial_rows: 0,
+            partial_bits: 0,
             event_trailing_bytes: 0,
             replay_data_trailing_bytes: 0,
             event_layout_mismatches: 0,
@@ -896,6 +992,7 @@ mod tests {
             "array_unconsumed_root_bits",
             "array_implicit_terminations",
             "array_leaf_decode_errors",
+            "tracked_rewards_opaque_empty_variants",
             "truncated_rpcs",
             "rpc_suffix_bits_dropped",
             "cnc_rpcs_emitted",
@@ -915,12 +1012,22 @@ mod tests {
             "event_payloads_decoded",
             "event_payload_unknown_groups",
             "checkpoint_chunks",
+            "checkpoint_path_resolution_mode",
+            "checkpoint_literal_paths",
+            "checkpoint_indexed_paths",
+            "checkpoint_resolved_path_indices",
             "checkpoint_guid_entries",
             "checkpoint_group_records",
             "checkpoint_exported_fields",
             "checkpoint_frames",
             "checkpoint_packets",
             "checkpoint_field_rows",
+            "checkpoint_actor_rows_written",
+            "checkpoint_net_guid_rows_written",
+            "checkpoint_block_rows_written",
+            "checkpoint_guid_entry_rows_written",
+            "checkpoint_export_group_rows_written",
+            "checkpoint_export_field_rows_written",
             "checkpoint_actor_rows_dropped",
             "checkpoint_movement_rows_dropped",
         ] {
@@ -981,6 +1088,7 @@ mod tests {
                 "array_unconsumed_root_bits",
                 "array_implicit_terminations",
                 "array_leaf_decode_errors",
+                "tracked_rewards_opaque_empty_variants",
                 "truncated_rpcs",
                 "rpc_suffix_bits_dropped",
                 "cnc_rpcs_emitted",
@@ -1002,7 +1110,7 @@ mod tests {
     }
 
     #[test]
-    fn rep_layout_tail_counters_publish_main_and_checkpoint_values() {
+    fn tail_and_guid_path_counters_publish_measured_values() {
         let net = NetStats::default();
         let sink = SinkTotals {
             rep_layout_cnc_tails_decoded: 2,
@@ -1012,6 +1120,9 @@ mod tests {
         let mut checkpoints = CheckpointStats::default();
         checkpoints.sink.rep_layout_cnc_tails_decoded = 5;
         checkpoints.sink.rep_layout_cnc_tails_preserved = 7;
+        checkpoints.literal_paths = 17;
+        checkpoints.indexed_paths = 11;
+        checkpoints.resolved_path_indices = 11;
         let errors = OverlayErrorReport::default();
         let json = quality_json(&ManifestQuality {
             chunks_processed: 0,
@@ -1019,6 +1130,8 @@ mod tests {
             movement_rows: 0,
             net_guid_rows: 0,
             event_rows: 0,
+            partial_rows: 0,
+            partial_bits: 0,
             event_trailing_bytes: 0,
             replay_data_trailing_bytes: 0,
             event_layout_mismatches: 0,
@@ -1036,6 +1149,10 @@ mod tests {
             "\"rep_layout_cnc_tails_preserved\": 3",
             "\"rep_layout_cnc_tails_decoded\": 5",
             "\"rep_layout_cnc_tails_preserved\": 7",
+            "\"checkpoint_path_resolution_mode\": \"preceding_literal_zero_based\"",
+            "\"checkpoint_literal_paths\": 17",
+            "\"checkpoint_indexed_paths\": 11",
+            "\"checkpoint_resolved_path_indices\": 11",
         ] {
             assert!(json.contains(expected), "missing {expected}: {json}");
         }
@@ -1070,6 +1187,8 @@ mod tests {
             movement_rows: 0,
             net_guid_rows: 0,
             event_rows: 0,
+            partial_rows: 0,
+            partial_bits: 0,
             event_trailing_bytes: 0,
             replay_data_trailing_bytes: 0,
             event_layout_mismatches: 0,

@@ -15,6 +15,128 @@
 use arrow_schema::{DataType, Field, Schema};
 use std::sync::Arc;
 
+fn checkpoint_schema(base: Schema) -> Schema {
+    let mut fields = Vec::with_capacity(base.fields().len() + 2);
+    fields.push(Field::new("checkpoint_index", DataType::UInt32, false));
+    fields.push(Field::new("checkpoint_id", DataType::Utf8, false));
+    fields.extend(base.fields().iter().map(|field| field.as_ref().clone()));
+    Schema::new(fields)
+}
+
+pub fn checkpoint_fields_schema() -> Schema {
+    checkpoint_schema(fields_schema())
+}
+
+pub fn checkpoint_fields_schema_ref() -> Arc<Schema> {
+    Arc::new(checkpoint_fields_schema())
+}
+
+pub fn checkpoint_actors_schema() -> Schema {
+    checkpoint_schema(actors_schema())
+}
+
+pub fn checkpoint_actors_schema_ref() -> Arc<Schema> {
+    Arc::new(checkpoint_actors_schema())
+}
+
+pub fn checkpoint_net_guids_schema() -> Schema {
+    checkpoint_schema(net_guids_schema())
+}
+
+pub fn checkpoint_net_guids_schema_ref() -> Arc<Schema> {
+    Arc::new(checkpoint_net_guids_schema())
+}
+
+pub fn checkpoint_blocks_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("checkpoint_index", DataType::UInt32, false),
+        Field::new("checkpoint_id", DataType::Utf8, false),
+        Field::new("block_index", DataType::UInt32, false),
+        Field::new("time_ms", DataType::UInt32, false),
+        Field::new("packet_id", DataType::UInt32, false),
+        Field::new("channel_index", DataType::UInt32, false),
+        Field::new("actor_net_guid", DataType::UInt32, false),
+        Field::new("object_net_guid", DataType::UInt32, true),
+        Field::new("class_net_guid", DataType::UInt32, true),
+        Field::new("outer_net_guid", DataType::UInt32, true),
+        Field::new("has_rep_layout", DataType::Boolean, false),
+        Field::new("is_actor", DataType::Boolean, false),
+        Field::new("is_deleted", DataType::Boolean, false),
+        Field::new("is_stably_named", DataType::Boolean, false),
+        Field::new("delete_flags", DataType::UInt8, false),
+        Field::new("resolved_group_path", DataType::Utf8, false),
+        Field::new("group_resolution_source", DataType::Utf8, false),
+        Field::new("group_declared", DataType::Boolean, false),
+        Field::new("resolution_memo_hit", DataType::Boolean, false),
+        Field::new("function_count", DataType::UInt32, false),
+        Field::new("function_count_source", DataType::Utf8, false),
+        Field::new("actor_archetype_path", DataType::Utf8, true),
+        Field::new("actor_archetype_outer_path", DataType::Utf8, true),
+        Field::new("actor_guid_path", DataType::Utf8, true),
+        Field::new("class_guid_path", DataType::Utf8, true),
+        Field::new("object_guid_path", DataType::Utf8, true),
+        Field::new("object_outer_path", DataType::Utf8, true),
+        Field::new("field_row_start", DataType::UInt64, false),
+        Field::new("field_row_count", DataType::UInt32, false),
+    ])
+}
+
+pub fn checkpoint_blocks_schema_ref() -> Arc<Schema> {
+    Arc::new(checkpoint_blocks_schema())
+}
+
+pub fn checkpoint_guid_entries_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("checkpoint_index", DataType::UInt32, false),
+        Field::new("checkpoint_id", DataType::Utf8, false),
+        Field::new("ordinal", DataType::UInt32, false),
+        Field::new("net_guid", DataType::UInt32, false),
+        Field::new("outer_net_guid", DataType::UInt32, false),
+        Field::new("path_is_string", DataType::Boolean, false),
+        Field::new("literal_path", DataType::Utf8, true),
+        Field::new("name_index", DataType::UInt32, true),
+        Field::new("flags", DataType::UInt8, false),
+    ])
+}
+pub fn checkpoint_guid_entries_schema_ref() -> Arc<Schema> {
+    Arc::new(checkpoint_guid_entries_schema())
+}
+
+pub fn checkpoint_export_groups_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("checkpoint_index", DataType::UInt32, false),
+        Field::new("checkpoint_id", DataType::Utf8, false),
+        Field::new("ordinal", DataType::UInt32, false),
+        Field::new("path_name_index", DataType::UInt32, false),
+        Field::new("group_path", DataType::Utf8, false),
+        Field::new("declared_slots", DataType::UInt32, false),
+    ])
+}
+pub fn checkpoint_export_groups_schema_ref() -> Arc<Schema> {
+    Arc::new(checkpoint_export_groups_schema())
+}
+
+pub fn checkpoint_export_fields_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("checkpoint_index", DataType::UInt32, false),
+        Field::new("checkpoint_id", DataType::Utf8, false),
+        Field::new("group_ordinal", DataType::UInt32, false),
+        Field::new("path_name_index", DataType::UInt32, false),
+        Field::new("slot", DataType::UInt32, false),
+        Field::new("handle", DataType::UInt32, false),
+        Field::new("compatible_checksum", DataType::UInt32, false),
+        Field::new("rendered_name", DataType::Utf8, false),
+        Field::new("exported_flag", DataType::UInt8, false),
+        Field::new("fname_kind", DataType::UInt8, false),
+        Field::new("fname_base", DataType::Utf8, true),
+        Field::new("fname_index", DataType::UInt32, true),
+        Field::new("fname_number", DataType::Int32, true),
+    ])
+}
+pub fn checkpoint_export_fields_schema_ref() -> Arc<Schema> {
+    Arc::new(checkpoint_export_fields_schema())
+}
+
 /// Schema for the `fields` table (long format).
 ///
 /// Most rows represent one decoded field. A whole ClassNetCache block whose
@@ -253,4 +375,35 @@ pub fn events_schema() -> Schema {
 /// Convenience: wrap events schema in an Arc.
 pub fn events_schema_ref() -> Arc<Schema> {
     Arc::new(events_schema())
+}
+
+pub fn partials_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("source", DataType::Utf8, false),
+        Field::new("checkpoint_id", DataType::Utf8, true),
+        Field::new("payload_kind", DataType::Utf8, false),
+        Field::new("reason", DataType::Utf8, false),
+        Field::new("source_packet_id", DataType::Int32, false),
+        Field::new("source_payload_bit_offset", DataType::Int64, false),
+        Field::new("rejection_packet_id", DataType::Int32, true),
+        Field::new("channel_index", DataType::UInt32, false),
+        Field::new("channel_sequence", DataType::Int32, false),
+        Field::new("open", DataType::Boolean, false),
+        Field::new("close", DataType::Boolean, false),
+        Field::new("dormant", DataType::Boolean, false),
+        Field::new("replication_paused", DataType::Boolean, false),
+        Field::new("reliable", DataType::Boolean, false),
+        Field::new("partial", DataType::Boolean, false),
+        Field::new("partial_initial", DataType::Boolean, false),
+        Field::new("partial_final", DataType::Boolean, false),
+        Field::new("has_package_map_exports", DataType::Boolean, false),
+        Field::new("has_must_be_mapped_guids", DataType::Boolean, false),
+        Field::new("close_reason", DataType::UInt8, false),
+        Field::new("source_payload_bit_count", DataType::Int32, false),
+        Field::new("bit_count", DataType::UInt64, false),
+        Field::new("raw_bits", DataType::Binary, false),
+    ])
+}
+pub fn partials_schema_ref() -> Arc<Schema> {
+    Arc::new(partials_schema())
 }

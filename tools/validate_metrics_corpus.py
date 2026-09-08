@@ -31,9 +31,9 @@ import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 
-try:
+if __package__:
     from .atomic_io import atomic_write_text, remove_tree, require_descendant
-except ImportError:  # direct script execution
+else:  # direct script execution
     from atomic_io import atomic_write_text, remove_tree, require_descendant
 
 REPO = Path(__file__).resolve().parent.parent

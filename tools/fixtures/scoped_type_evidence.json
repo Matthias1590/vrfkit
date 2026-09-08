@@ -1,0 +1,241 @@
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "group": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+      "field": "B",
+      "checksum": 379198054,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 31133 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+      "field": "B",
+      "checksum": 1496132153,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 87755 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+      "field": "B",
+      "checksum": 1616558706,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 8867 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+      "field": "B",
+      "checksum": 1791482677,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 47818 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+      "field": "B",
+      "checksum": 2893950696,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 8038 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+      "field": "B",
+      "checksum": 3408280827,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 163 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+      "field": "B",
+      "checksum": 3409458939,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 6779 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+      "field": "B",
+      "checksum": 3944193776,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 219 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits/Swiftplay_EoRCredits_PlayerState.Swiftplay_EoRCredits_PlayerState_C",
+      "field": "B",
+      "checksum": 379198054,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 459 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits/Swiftplay_EoRCredits_PlayerState.Swiftplay_EoRCredits_PlayerState_C",
+      "field": "B",
+      "checksum": 1496132153,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 1393 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits/Swiftplay_EoRCredits_PlayerState.Swiftplay_EoRCredits_PlayerState_C",
+      "field": "B",
+      "checksum": 1616558706,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 134 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits/Swiftplay_EoRCredits_PlayerState.Swiftplay_EoRCredits_PlayerState_C",
+      "field": "B",
+      "checksum": 1791482677,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 636 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits/Swiftplay_EoRCredits_PlayerState.Swiftplay_EoRCredits_PlayerState_C",
+      "field": "B",
+      "checksum": 2893950696,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 101 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits/Swiftplay_EoRCredits_PlayerState.Swiftplay_EoRCredits_PlayerState_C",
+      "field": "B",
+      "checksum": 3408280827,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.02"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 9 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits/Swiftplay_EoRCredits_PlayerState.Swiftplay_EoRCredits_PlayerState_C",
+      "field": "B",
+      "checksum": 3409458939,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 51 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits/Swiftplay_EoRCredits_PlayerState.Swiftplay_EoRCredits_PlayerState_C",
+      "field": "B",
+      "checksum": 3944193776,
+      "type": "Byte",
+      "observed_builds": [
+        "++Ares-Core+release-13.02"
+      ],
+      "evidence": "714-export main/checkpoint raw audit, 2026-09-08 at f22e2de. 9 rows, exactly 8 bits each; unsigned byte extraction consumes all bits. Scope is wire value only; no color-setting purpose asserted. Distinct checksum 943211507 is 32 bits and excluded."
+    },
+    {
+      "group": "/Script/ShooterGame.MapTargetingStateComponent",
+      "field": "CursorWorldLocation",
+      "checksum": 3280594315,
+      "type": "VectorDouble",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export exact-route audit at bb5e155: 291883 main plus 7547 checkpoint rows, all exactly 192 bits and all three little-endian f64 components finite. Geometry association is corroboration only."
+    },
+    {
+      "group": "/Script/ShooterGame.MapTargetingStateComponent:MulticastRespondToValidSingleMapClick",
+      "field": "ClickedLocation",
+      "checksum": 975869058,
+      "type": "VectorDouble",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export exact-route audit at bb5e155: 13715 main rows, all exactly 192 bits and all three little-endian f64 components finite. 7201 exact XY pairs with prior same-object cursor and 646 independent marker positions corroborate geometry only."
+    },
+    {
+      "group": "/Script/ShooterGame.DamageableComponent:MulticastNotifyHeal",
+      "field": "HealCauser",
+      "checksum": 546618027,
+      "type": "ObjectNetGuid",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05"
+      ],
+      "evidence": "714-export exact-route audit at bb5e155: 1518207 main rows, each fully consumed as low-bit-continuation packed u32 and each resolved to an actor in the same export. No checkpoint value rows; no heal-attribution meaning asserted."
+    }
+  ]
+}

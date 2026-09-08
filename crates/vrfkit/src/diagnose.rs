@@ -74,7 +74,9 @@ struct DiagSinkTotals {
     multi_contents_items_emitted: u64,
     movement_rpc_errors: u64,
     array: ArrayDecodeStats,
+    tracked_rewards_opaque_empty_variants: u64,
     array_leaf_decode_errors: u64,
+    targeting_world_locations_decoded: u64,
     truncated_rpcs: u64,
     rpc_suffix_bits_dropped: u64,
     cnc_rpcs_emitted: u64,
@@ -107,7 +109,9 @@ impl DiagSinkTotals {
         self.array.unconsumed_nested_bits += stats.array.unconsumed_nested_bits;
         self.array.implicit_terminations += stats.array.implicit_terminations;
         self.array.unconsumed_root_bits += stats.array.unconsumed_root_bits;
+        self.tracked_rewards_opaque_empty_variants += stats.tracked_rewards_opaque_empty_variants;
         self.array_leaf_decode_errors += stats.array_leaf_decode_errors;
+        self.targeting_world_locations_decoded += stats.targeting_world_locations_decoded;
         self.truncated_rpcs += stats.truncated_rpcs;
         self.rpc_suffix_bits_dropped += stats.rpc_suffix_bits_dropped;
         self.cnc_rpcs_emitted += stats.cnc_rpcs_emitted;
@@ -206,6 +210,7 @@ pub fn run(path: &str, json_path: Option<&str>, include_payloads: bool) -> Resul
                     {
                         let mut sink =
                             ExportSink::new(packet_cache, &mut channel_state, &mut buffers);
+                        sink.enable_measured_array_routes(&branch);
                         sink.time_ms = pkt.time_ms;
                         sink.packet_id = pkt_id;
                         repl_reader.process_packet(pkt.data, pkt_id as i32, &mut sink);
@@ -233,7 +238,7 @@ pub fn run(path: &str, json_path: Option<&str>, include_payloads: bool) -> Resul
     let main_failures = channel_state.take_failure_aggregate();
     let mut json = String::with_capacity(1 << 16);
     json.push_str("{\n");
-    json.push_str("  \"schema_version\": 2,\n");
+    json.push_str("  \"schema_version\": 3,\n");
     json.push_str("  \"tool\": \"vrfkit diag\",\n");
     json.push_str("  \"file\": ");
     push_json_string(&mut json, path);
@@ -448,6 +453,7 @@ fn process_checkpoint_chunk(
     let (_, frame_count) = iter_demo_frames(frame, flags, &mut cache, |pkt, packet_cache| {
         {
             let mut sink = ExportSink::new(packet_cache, &mut channels, &mut buffers);
+            sink.enable_measured_array_routes(branch);
             sink.time_ms = pkt.time_ms;
             sink.packet_id = packet_count as u32;
             reader.process_packet(pkt.data, packet_count as i32, &mut sink);
@@ -517,6 +523,44 @@ fn push_net_stats(out: &mut String, s: &NetStats) {
         ("malformed_packets", s.malformed_packets.to_string()),
         ("bunches", s.bunches.to_string()),
         ("partial_errors", s.partial_errors.to_string()),
+        ("partial_bunches", s.partial_bunches.to_string()),
+        (
+            "partial_missing_initial",
+            s.partial_missing_initial.to_string(),
+        ),
+        (
+            "partial_missing_initial_final",
+            s.partial_missing_initial_final.to_string(),
+        ),
+        (
+            "partial_missing_initial_reliable",
+            s.partial_missing_initial_reliable.to_string(),
+        ),
+        (
+            "partial_missing_initial_bits",
+            s.partial_missing_initial_bits.to_string(),
+        ),
+        (
+            "partial_overlapping_initial",
+            s.partial_overlapping_initial.to_string(),
+        ),
+        (
+            "partial_mismatched_continuation",
+            s.partial_mismatched_continuation.to_string(),
+        ),
+        (
+            "partial_non_byte_aligned",
+            s.partial_non_byte_aligned.to_string(),
+        ),
+        ("partial_channel_close", s.partial_channel_close.to_string()),
+        (
+            "partial_unclassified_errors",
+            s.partial_unclassified_errors().to_string(),
+        ),
+        (
+            "partial_overclassified_errors",
+            s.partial_overclassified_errors().to_string(),
+        ),
         ("partial_fragments", s.partial_fragments.to_string()),
         ("partial_completed", s.partial_completed.to_string()),
         ("unfinished_partials", s.unfinished_partials.to_string()),
@@ -637,6 +681,14 @@ fn push_sink_totals(out: &mut String, s: &DiagSinkTotals) {
         (
             "array_leaf_decode_errors",
             s.array_leaf_decode_errors.to_string(),
+        ),
+        (
+            "targeting_world_locations_decoded",
+            s.targeting_world_locations_decoded.to_string(),
+        ),
+        (
+            "tracked_rewards_opaque_empty_variants",
+            s.tracked_rewards_opaque_empty_variants.to_string(),
         ),
         ("truncated_rpcs", s.truncated_rpcs.to_string()),
         (

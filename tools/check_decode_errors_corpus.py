@@ -110,6 +110,7 @@ NO_FIELD_NAME = re.compile(r"No field name:\s+(\d+)")
 ROWS_OFFERED = re.compile(r"Rows offered:\s+(\d+)")
 STRUCT_DECODED = re.compile(r"Struct blobs:\s+(\d+) decoded")
 STRUCT_FAILED = re.compile(r"Struct blobs:\s+\d+ decoded / (\d+) failed")
+REWARD_OPAQUE = re.compile(r"(?m)^\s*Reward opaque:\s+(\d+) empty variants\s*$")
 
 
 #: `(key, regex)` for every counter read off the export summary. `no_field_name`
@@ -128,6 +129,7 @@ COUNTERS = (
     ("rows_offered", ROWS_OFFERED),
     ("struct_blobs_decoded", STRUCT_DECODED),
     ("struct_blobs_failed", STRUCT_FAILED),
+    ("tracked_rewards_opaque_empty_variants", REWARD_OPAQUE),
 )
 
 #: Counters a replay MUST report for its run to mean anything. `decoded_ok` and
@@ -147,6 +149,7 @@ REQUIRED = (
     ("rows_offered", "Rows offered"),
     ("struct_blobs_decoded", "Struct blobs ... decoded"),
     ("struct_blobs_failed", "Struct blobs ... failed"),
+    ("tracked_rewards_opaque_empty_variants", "Reward opaque"),
 )
 
 #: Corpus totals that cannot legitimately stay at zero, and the label to name
@@ -184,6 +187,8 @@ CHECKPOINT_OVERLAY = re.compile(
 CHECKPOINT_BLOBS = re.compile(r"Checkpoint blobs:\s+(\d+) decoded / (\d+) failed")
 CHECKPOINT_FAILS = re.compile(
     r"Checkpoint fails:\s+(\d+) array / (\d+) truncated RPC / (\d+) movement")
+CHECKPOINT_REWARD_OPAQUE = re.compile(
+    r"(?m)^\s*Checkpoint reward opaque:\s+(\d+) empty variants\s*$")
 
 #: `(key, regex, group)` for every checkpoint counter. Only consulted when the
 #: caller asks `read_counters` for `require_checkpoints=True` -- a summary from
@@ -203,6 +208,7 @@ CHECKPOINT_COUNTERS = (
     ("checkpoint_fail_array", CHECKPOINT_FAILS, 1),
     ("checkpoint_fail_truncated_rpc", CHECKPOINT_FAILS, 2),
     ("checkpoint_fail_movement", CHECKPOINT_FAILS, 3),
+    ("checkpoint_tracked_rewards_opaque_empty_variants", CHECKPOINT_REWARD_OPAQUE, 1),
 )
 
 #: Every checkpoint counter is REQUIRED, on the same reasoning as `REQUIRED`
@@ -225,6 +231,7 @@ CHECKPOINT_REQUIRED = (
     ("checkpoint_fail_array", "Checkpoint fails ... array"),
     ("checkpoint_fail_truncated_rpc", "Checkpoint fails ... truncated RPC"),
     ("checkpoint_fail_movement", "Checkpoint fails ... movement"),
+    ("checkpoint_tracked_rewards_opaque_empty_variants", "Checkpoint reward opaque"),
 )
 
 #: Checkpoint corpus totals that cannot legitimately stay at zero once
@@ -417,7 +424,8 @@ def main() -> int:
     checkpoint_offenders: list[tuple[str, int]] = []
     totals = {"decode_errors": 0, "decoded_ok": 0, "raw_skip": 0,
               "not_in_table": 0, "no_field_name": 0, "rows_offered": 0,
-              "struct_blobs_decoded": 0, "struct_blobs_failed": 0}
+              "struct_blobs_decoded": 0, "struct_blobs_failed": 0,
+              "tracked_rewards_opaque_empty_variants": 0}
     if args.checkpoints:
         totals.update({key: 0 for key, _pattern, _group in CHECKPOINT_COUNTERS})
     done = 0
@@ -466,6 +474,8 @@ def main() -> int:
     print(f"rows offered      : {totals['rows_offered']:,}")
     print(f"struct blobs      : {totals['struct_blobs_decoded']:,} decoded / "
           f"{totals['struct_blobs_failed']:,} failed")
+    print(f"reward opaque     : {totals['tracked_rewards_opaque_empty_variants']:,} "
+          f"empty variants")
     if args.checkpoints:
         # Unconditional, zeros included, on the same reasoning as every other
         # line here: a conditional line could not tell "the checkpoint pass
@@ -482,6 +492,9 @@ def main() -> int:
         print(f"checkpoint fails  : {totals['checkpoint_fail_array']:,} array / "
               f"{totals['checkpoint_fail_truncated_rpc']:,} truncated RPC / "
               f"{totals['checkpoint_fail_movement']:,} movement")
+        print("checkpoint reward opaque: "
+              f"{totals['checkpoint_tracked_rewards_opaque_empty_variants']:,} "
+              "empty variants")
 
     if unreadable:
         print(f"\nFAILED: {len(unreadable)} replay(s) did not report the counter",

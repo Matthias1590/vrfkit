@@ -17,6 +17,63 @@ const SWIFT_GS: &str = "/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits
 const SWIFT_PS: &str = "/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits\
 /Swiftplay_EoRCredits_PlayerState.Swiftplay_EoRCredits_PlayerState_C";
 
+#[test]
+fn scoped_types_require_the_exact_group_name_and_checksum() {
+    let table = OverlayTable::new(&OVERLAY_TABLE);
+    for group in [BOMB_PS, SWIFT_PS] {
+        assert_eq!(
+            resolve_field_type_with_checksum(&table, group, Some("B"), None, Some(379198054)),
+            Some(FieldType::Byte)
+        );
+        for checksum in [None, Some(943211507), Some(1)] {
+            assert_eq!(
+                resolve_field_type_with_checksum(&table, group, Some("B"), None, checksum),
+                None
+            );
+        }
+    }
+    for (group, name) in [("/Unobserved", "B"), (BOMB_PS, "Unobserved")] {
+        assert_eq!(
+            resolve_field_type_with_checksum(&table, group, Some(name), None, Some(379198054)),
+            None
+        );
+    }
+}
+
+#[test]
+fn scoped_bytes_decode_exactly_and_reject_a_wider_payload() {
+    let table = OverlayTable::new(&OVERLAY_TABLE);
+    let mut stats = OverlayStats::default();
+    let value = crate::apply_overlay_with_checksum(
+        &table,
+        BOMB_PS,
+        group_hash_state(BOMB_PS),
+        Some("B"),
+        39,
+        Some(379198054),
+        Some(&[255]),
+        8,
+        &mut stats,
+    )
+    .expect("scoped byte is attempted");
+    assert_eq!(value.value_i64, Some(255));
+    let rejected = crate::apply_overlay_with_checksum(
+        &table,
+        BOMB_PS,
+        group_hash_state(BOMB_PS),
+        Some("B"),
+        39,
+        Some(379198054),
+        Some(&[255, 0, 0, 0]),
+        32,
+        &mut stats,
+    )
+    .expect("known type reports a rejected width");
+    assert_eq!(rejected.value_i64, None);
+    assert_eq!(stats.decoded_ok, 1);
+    assert_eq!(stats.decoded_err, 1);
+}
+
 /// A Bomb class is already canonical and must not be rewritten.
 #[test]
 fn canonical_group_leaves_a_bomb_class_alone() {
@@ -25,6 +82,62 @@ fn canonical_group_leaves_a_bomb_class_alone() {
     assert_eq!(
         canonical_group("/Game/Whatever.Whatever_C"),
         "/Game/Whatever.Whatever_C"
+    );
+}
+
+#[test]
+fn bomb_player_crosshair_fields_are_typed_without_the_colliding_b() {
+    const GROUP: &str = "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C";
+    let table = OverlayTable::new(&OVERLAY_TABLE);
+    for field in [
+        "bHasOutline",
+        "bDisplayCenterDot",
+        "bShowLines",
+        "bUseAdvancedOptions",
+    ] {
+        assert_eq!(table.lookup(GROUP, field), Some(FieldType::Bool), "{field}");
+    }
+    for field in ["OutlineThickness", "CenterDotSize", "LineLength", "Opacity"] {
+        assert_eq!(
+            table.lookup(GROUP, field),
+            Some(FieldType::Float),
+            "{field}"
+        );
+    }
+    for field in ["G", "R"] {
+        assert_eq!(table.lookup(GROUP, field), Some(FieldType::Byte), "{field}");
+    }
+    assert_eq!(table.lookup(GROUP, "ProfileName"), Some(FieldType::FString));
+    assert_eq!(
+        table.lookup(GROUP, "B"),
+        None,
+        "B has both 8- and 32-bit wire fields"
+    );
+}
+
+#[test]
+fn tidal_wave_rpc_parameters_are_typed() {
+    const CHUNK: &str = "/Game/Characters/Mage/S0/Ability_X/GameObject_Mage_X_TidalWave_Chunk.GameObject_Mage_X_TidalWave_Chunk_C";
+    let table = OverlayTable::new(&OVERLAY_TABLE);
+    let initialize = format!("{CHUNK}:MulticastInitialize");
+    for (field, field_type) in [
+        ("ChunkIndex", FieldType::Int32),
+        ("ChunkSpacing", FieldType::Float),
+        ("Velocity In", FieldType::Double),
+        ("PreviousChunk", FieldType::ObjectNetGuid),
+    ] {
+        assert_eq!(
+            table.lookup(&initialize, field),
+            Some(field_type),
+            "{field}"
+        );
+    }
+    assert_eq!(
+        table.lookup(
+            &format!("{CHUNK}:MulticastWallStartLinger"),
+            "FinalEndpointReached"
+        ),
+        Some(FieldType::Bool)
     );
 }
 
@@ -221,6 +334,35 @@ fn equippable_used_is_an_object_net_guid() {
             "EquippableUsed must decode as a net GUID in {group}",
         );
     }
+}
+
+#[test]
+fn transition_context_is_an_object_net_guid() {
+    let table = OverlayTable::new(&OVERLAY_TABLE);
+    assert_eq!(
+        table.lookup(
+            "/Script/ShooterGame.EquippableStateMachineComponent",
+            "TransitionContext"
+        ),
+        Some(FieldType::ObjectNetGuid)
+    );
+}
+
+#[test]
+fn hawk_flash_post_control_velocity_is_vector_double_only_on_its_exact_group() {
+    let table = OverlayTable::new(&OVERLAY_TABLE);
+    let group = "/Game/Characters/Guide/S0/Ability_E/Projectile_Guide_E_HawkFlash.Projectile_Guide_E_HawkFlash_C";
+    assert_eq!(
+        table.lookup(group, "PostControlVelocity"),
+        Some(FieldType::VectorDouble)
+    );
+    assert_ne!(
+        table.lookup(
+            "/Script/ShooterGame.EquippableStateMachineComponent",
+            "PostControlVelocity"
+        ),
+        Some(FieldType::VectorDouble)
+    );
 }
 
 #[test]
@@ -1372,6 +1514,45 @@ fn the_random_number_generator_seed_is_typed() {
         ),
         Some(FieldType::Int32)
     );
+}
+
+#[test]
+fn targeting_vectors_and_heal_causer_require_exact_scoped_checksums() {
+    let table = OverlayTable::new(&OVERLAY_TABLE);
+    let cases = [
+        (
+            "/Script/ShooterGame.MapTargetingStateComponent",
+            "CursorWorldLocation",
+            3280594315,
+            FieldType::VectorDouble,
+        ),
+        (
+            "/Script/ShooterGame.MapTargetingStateComponent:MulticastRespondToValidSingleMapClick",
+            "ClickedLocation",
+            975869058,
+            FieldType::VectorDouble,
+        ),
+        (
+            "/Script/ShooterGame.DamageableComponent:MulticastNotifyHeal",
+            "HealCauser",
+            546618027,
+            FieldType::ObjectNetGuid,
+        ),
+    ];
+    for (group, field, checksum, expected) in cases {
+        assert_eq!(
+            resolve_field_type_with_checksum(&table, group, Some(field), None, Some(checksum)),
+            Some(expected)
+        );
+        assert_eq!(
+            resolve_field_type_with_checksum(&table, group, Some(field), None, Some(checksum ^ 1)),
+            None
+        );
+        assert_eq!(
+            resolve_field_type_with_checksum(&table, "/wrong", Some(field), None, Some(checksum)),
+            None
+        );
+    }
 }
 
 /// The life-change array walks into its four members, on real wire bytes.

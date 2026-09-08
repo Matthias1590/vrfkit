@@ -1,13 +1,39 @@
 # Extractable data
 
-What you can get out of a VALORANT replay with vrfkit. The export is six
-Parquet tables plus `manifest.json`. Unknown property payloads and unresolved
+What you can get out of a VALORANT replay with vrfkit. With checkpoints the
+export is thirteen Parquet tables plus `manifest.json`. Unknown property payloads and unresolved
 whole RPCs retain raw bytes, but successfully decoded movement and synthesized
 child rows may not duplicate their input bytes. "Untyped" is not synonymous
 with "lost"; check stream-loss counters separately.
 
 Legend: ✅ typed (value decoded) · ◐ raw or derivable · ❌ unavailable in the
 stated observation scope. Absence in a sample is not proof of format-wide absence.
+
+The current 714-replay field measurement is recorded in
+[TARGETING_AND_HEAL_VALUES.md](TARGETING_AND_HEAL_VALUES.md): physical
+typed-value presence is 71.2336% main, 77.3065% checkpoint, and 72.5608%
+combined, counted directly from all four value columns. These physical row
+ratios are not semantic completeness. Both corpus guards and the independent
+before/after comparison pass on all 714 inputs.
+RequestedIgnoreActors, TransitionContext and the measured HawkFlash velocity now expose typed reference/vector values.
+Qualified HealCauser actor references and map-targeting cursor/click vectors
+also expose values. Multi-click arrays retain raw parents and add vector children.
+Qualified reward names now retain complete text histories, string-table keys and format arguments. [KillData observations](KILL_OBSERVATIONS.md) preserve partial updates and scoped references.
+
+The [kill ledger](KILL_LEDGER.md) combines component-local KillData base/revision
+state with character-death events through validated PlayerState identities and
+rounds. Checkpoint repeats and unmatched events remain separate populations.
+The earlier partial-header correction is recorded in
+[PARTIAL_HEADER_CORRECTION.md](PARTIAL_HEADER_CORRECTION.md), and crosshair/Tidal
+Wave additions in [SCHEMA_EXPANSION.md](SCHEMA_EXPANSION.md).
+
+Checkpoint-scoped actor/GUID output, reviewed CombatReport participant identity,
+and reload observation boundaries are described in
+[SEMANTIC_CONTEXT_EXPANSION.md](SEMANTIC_CONTEXT_EXPANSION.md).
+Checkpoint-local GUID path reconstruction and its evidence boundary are
+described in [CHECKPOINT_PATH_RESOLUTION.md](CHECKPOINT_PATH_RESOLUTION.md).
+Its 72.4914% combined ratio predates the structured-array expansion and is
+historical rather than a current coverage figure.
 
 ---
 
@@ -19,7 +45,8 @@ stated observation scope. Absence in a sample is not proof of format-wide absenc
 | Character NetGUID | `manifest.players.character_net_guid` / `SpawnedCharacter` | ✅ joins movement 10/10 on 71 of 71 replays |
 | Agent (characterId) | `manifest` game_specific_data.playerLoadouts | ✅ |
 | Two players on the same agent | disambiguated by `subject` (characterId alone can't) | ✅ |
-| Display name | — | ❌ replays carry no display names, only the subject UUID |
+| Display name / Riot ID | — | ❌ not established by the available evidence |
+| `ProfileName` | PlayerState replicated FString | ✅ exact string decoded; its purpose is not established as a display name or Riot ID |
 
 That 10/10 was not free, and it is worth knowing why it can break.
 `SpawnedCharacter` is replicated a second time as 0 when a player disconnects,
@@ -75,36 +102,36 @@ requires corroborating credit changes; state rows alone are not that ledger.
 |---|---|---|
 | Damage dealt / received | CombatReport `DamageDealt` / `DamageReceived` | ✅ |
 | Regional damage (head/body/leg) | `Interactions[].Regions[].Hits/Damage` | ✅ multiset-identical (on 13.01) |
-
-**Every "vs C#" claim in this file was measured on build 13.01 or earlier.**
-The reference parser registers payload transforms for 12.10, 12.11, 13.00 and
-13.01 only, so it refuses a 13.02 replay outright -- which is every demo the
-local machine now records. The comparisons still run against the preserved
-13.01 fixture, and `tools/compare_combat_report.py` still reports every
-interesting shape identical there. They cannot currently be re-run on 13.02 by
-anyone, so read them as fixed to the build they were taken on.
 | Wallbang | `bIsWallPen` | ✅ |
 | Damage source (weapon, location, bone) | `MulticastNotifyDamage` (EquippableUsed, ImpactLocation, ImpactBone) | ✅ |
 | ADR | derived from CombatReport | ◐ +0.1–0.2 vs trackers (wire damage is fractional; not a bug) |
-| Health / armour / overheal, absolute | `DamageableComponent` RPCs → `LifeChangeEvents[]` / `LifeChangeBySection[]` | ◐ **raw** — decodes cleanly, see below |
+| Health / armour / overheal, absolute | `DamageableComponent` RPCs → `LifeChangeEvents[]` / `LifeChangeBySection[]` | ✅ typed section updates; actor/section timelines require joins, see below |
+
+**The historical "vs C#" figures here were measured on build 13.01 or earlier.**
+They describe the preserved comparison fixtures, not current upstream parser
+compatibility. A result from that fixture does not establish agreement on a
+newer build; a fresh comparison needs its own replay and implementation evidence.
 
 ### Health is absolute, not a subtraction
 
 The `DamageableComponent` RPCs carry an array whose elements hold
 `ChangedComponent` (which damage section), `LifeResult` (**the absolute value
 after the change**), `DeltaLife`, and `bAliveAfterChange`. Nothing has to be
-accumulated. The array is still `raw_bits` -- typing it is listed under What's
-next -- but it walks with the ordinary RepLayout dynamic-array framing, and the
-decoded handles are the manifest handles with no offset.
+accumulated to read a reported section result. The parent array remains in
+`raw_bits`, and its decoded members are emitted as typed child rows. The array
+uses ordinary RepLayout dynamic-array framing; its inner handles come from
+the corresponding parameter-group declaration.
 
 **The four members are now typed, so this section is checkable.** `vrfkit
 export` emits one row per member beside the parent blob row, named
 `<Function>.LifeChangeEvents[i].LifeResult` and so on. The figures below were
 originally taken with an ad-hoc walker that is not in the repo, so they carry
 their own provenance -- but the same joins now run against the exported
-columns, and they reproduce: on one replay `sum(DeltaLife)` equals the RPC's
-own scalar total on 3,389 of 3,389 calls and `ChangedComponent` resolves
-through `net_guids` on 6,232 of 6,232.
+columns. The historical one-replay report recorded scalar agreement on 3,389
+of 3,389 observations and resolved `ChangedComponent` references on 6,232 of
+6,232. Its original wording omitted the route-dependent sign: damage compares
+the negative delta sum, while healing and decay compare the positive sum.
+Neither count establishes independently identified gameplay calls.
 
 Two things to know before joining on them. The local handles differ per RPC --
 the same four members sit at 10-13, 1-4 or 2-5 depending on which function
@@ -112,21 +139,46 @@ carries them -- and `MulticastNotifyHeal` and `MulticastNotifyOverhealDecay`
 name their array `LifeChangeBySection`, not `LifeChangeEvents`. A filter on the
 array's name alone silently drops more than half the calls.
 
+For a retained healing view, use `tools/extract_healing_observations.py`.
+It keeps serialized amounts, section state and identity corroboration separate;
+see [HEALING_OBSERVATIONS.md](HEALING_OBSERVATIONS.md) for its measured coverage
+and the distinction between serialized amounts and effective HP restored.
+
+For all five routes, use `tools/extract_section_observations.py`; see
+[SECTION_OBSERVATIONS.md](SECTION_OBSERVATIONS.md). It preserves raw evidence,
+parentless amounts, unresolved section references and separate checkpoint rows.
+The historical measurements below do not replace its current raw validation
+or establish player attribution and continuous health timelines.
+
+`tools/extract_section_timeline.py` adds exact observed predecessors and
+explicit ordering/lifetime gaps; see [SECTION_TIMELINE.md](SECTION_TIMELINE.md).
+Its comparison eligibility does not establish a game life, component life,
+effective HP or player credit.
+
+`tools/extract_section_packet_timeline.py` retains that strict view and adds
+packet-ordered comparisons. Distinct main packets can resolve some observations
+that share a millisecond timestamp; same-packet ties and unresolved actor/channel
+instances still prevent links. See [SECTION_PACKET_TIMELINE.md](SECTION_PACKET_TIMELINE.md)
+for evidence, arithmetic disagreements and the separate interpretation limits.
+
 Verified over 69 replays on build 13.02: 377,487 elements, zero parse errors,
-zero residual bits, and every element carrying exactly four members (these RPC
-parameters never send partial elements). Corroborated against separate decode
-paths -- `sum(DeltaLife)` equals the RPC's own `DamageTaken`/`HealTaken`/
-`DecayApplied` on 230,855 of 230,855, and `bAliveAfterChange` agrees with
-`bAliveAfterDamage` on 61,045 of 61,045.
+zero residual bits, and every observed element carrying exactly four members
+in that measurement. Corroborated against separate decode
+paths -- the historical report recorded scalar agreement on 230,855 of 230,855
+and alive-flag agreement on 61,045 of 61,045. The scalar relation requires the
+damage sign correction above. It also requires an explicit accumulation rule:
+f64 accumulation rounded once and iterative f32 addition can disagree. These
+historical totals are not a fresh whole-corpus transition verification.
 
-Three conventions a consumer has to get right, each found by a check failing:
+Three observations from that historical 69-replay comparison:
 
-- **Death is `bAliveAfterChange == False`, not `LifeResult == 0`.** Deduplicated
-  per `(victim, RespawnNumber)` the first matches `events.characterDeath`
-  9,362/9,362 across all 69 replays; the second misses on two, because a
+- **The alive flag needs separate death-event corroboration.** Deduplicated
+  per `(victim, RespawnNumber)`, a false flag matched `events.characterDeath`
+  9,362/9,362 across all 69 replays; a zero-value rule missed on two, because a
   character really can sit at exactly 0 health and be alive (65 cases, all
   KAY-O). The flag is also re-reported after death, hence the RespawnNumber
-  dedup.
+  dedup. This historical join does not authorize substituting RPC
+  `RespawnNumber` for `VictimRespawnNumber`; the two differ in current data.
 - **Armour is `AttachedDamageSection`, not `ShieldDamageSection`.** The latter
   is an empty shell -- 67,316 elements, every `LifeResult` 0. The real armour
   section's outer is a `HeavyArmorItem_C` / `LightArmorItem_C` /
@@ -138,11 +190,13 @@ Three conventions a consumer has to get right, each found by a check failing:
   chain only closes if the sign is flipped. `life += DeltaLife` runs overheal
   backwards.
 
-Round starts anchor at 100: `LifeResult - DeltaLife == 100` on the first health
+The historical round-start comparison found `LifeResult - DeltaLife == 100` on the first health
 event of 10,981 of 10,996 lives. The 15 exceptions all read 200 and are all
 Phoenix -- Run It Back, not a decode fault. On the reset broadcast
 (`MulticastSectionLifeChange`) the `LifeResult` is trustworthy and the
-`DeltaLife` is not an edge delta; ignore it there.
+`DeltaLife` is not an established edge delta. Preserve both reported values,
+but do not use reset DeltaLife as an accumulated change or fill unknown starts
+with 100.
 
 ## Abilities
 
@@ -151,10 +205,10 @@ Phoenix -- Run It Back, not a decode fault. On the reset broadcast
 | Ultimate cast corroboration | `events.characterUltimateUsed` (word0 resolves to a character on 15,699/15,768 rows) | ◐ do not count Event rows as casts: they outnumber `UltimateActive` False→True transitions by 51.5%; use the transition as authority and Event only as a ±100 ms cross-check |
 | Cooldown / start time | `Comp_Ability_CooldownComponent` | ✅ Double |
 | Ability cast observations | `Comp_AbilityStatisticsReplicator.AbilityCastsThisRound[]` — `Player` (subject UUID), `Slot`, `Round`, `RoundPhase`, `CastTime`, `CastLocation` | ✅ cast records repeated in array snapshots; deduplicate by cast identity before counting. In the reference sample, `Player` matches a manifest subject 352/352. |
-| Ability state stream | `AbilitiesAndBuffsComponent` (`_cnc_h1`) | ◐ fc=34 brute-forced, inner decomposed (flag + u32 stream); semantics need game assets |
-| GAS owner / avatar / attribute sets | `AresAbilitySystemComponent` (OwnerActor, AvatarActor, SpawnedAttributes, CachedAttributeSet) | ✅ via AbilitiesAndBuffsComponent->AresAbilitySystemComponent remap |
+| Ability state stream | `AbilitiesAndBuffsComponent` (`_cnc_h1`) | ◐ FastArray numeric structure exactly consumed on all 2,882,152 inner windows in 714 exports: replication keys, deleted/changed item IDs and raw field boundaries. Available through `extract_fastarray_observations.py`; ability/effect names and field meanings remain unverified. |
+| GAS owner / avatar / attribute sets | `AresAbilitySystemComponent` (OwnerActor, AvatarActor, SpawnedAttributes, CachedAttributeSet) | ◐ Component remap exposes these names. OwnerActor/AvatarActor remain raw: all 629,578 measured packed values equal the enclosing actor GUID, not a separately established player owner. See [the reference audit](GAS_AND_PATCHVOLUME_INVESTIGATION.md). |
 | Status effects on a player (nearsight / slow / detain / ...) | `EffectManagerComponent:MulticastPlayContinuousEffect` + `MulticastStopContinuousEffect`, on the **affected** player's actor | ✅ named, with start and end — see below |
-| Active gameplay effects (GAS array) | `AresAbilitySystemComponent.ActiveGameplayEffects` | ❌ **No named property rows observed.** The 714-file audit (2026-09-08, checkpoints included) found none in the property group. Entries with the same name and child handles occur under `AresAbilitySystemComponent_ClassNetCache` (49,076 rows); these do not establish that the property array was decoded. The function payload's meaning remains unverified. |
+| Active gameplay effects (GAS array) | `AresAbilitySystemComponent.ActiveGameplayEffects` | ◐ No named rows in the ordinary property group in the 714-file audit (2026-09-08, checkpoints included). Entries with that name and child handles occur under `AresAbilitySystemComponent_ClassNetCache` (49,076 rows). CNC framing can carry custom-delta properties as well as RPCs, so this location does not prove a function or an absent replicated array. This named array's item decoding remains unverified. |
 | GAS attribute values | `AresAttributeSet.{BaseValue,CurrentValue}` per handle | ◐ **checkpoints only.** The live stream sends each attribute once when the channel opens and never updates it; `CurrentValue` does move (Reyna's ultimate puts handles at 1.1/0.9) but only checkpoint snapshots show it, and those are written at round transitions, so transient debuffs are gone by then |
 | Persistent effect position (smoke/wall/molly/slow/trap) | `actors.parquet` class_path + spawn xyz | ✅ every spawned effect actor |
 | Persistent effect lifetime | `actors.time_ms` paired across `event` `open`/`close` (non-fuel; a `dormant` event does not end the instance); `CurrentFuelLevel`+`WallActivated` (Viper) | ✅ |
@@ -502,10 +556,11 @@ guessing -- which is the only reason the failure was findable.
   group, so `function_count` is brute-forced (fc=34). The outer RPC framing is
   fully recovered, and the inner payload is decomposed (a flag bit followed by a
   little-endian `u32` stream -- not the opaque blob it was once assumed to be).
-  The stream is the GAS state-sync feed, not one RPC per ability cast, so it
-  cannot attribute or count casts (use ability-actor spawns + `UltimateActive`
-  for that). The later words' meaning is game-asset-dependent (the authoritative
-  C# parser does not model this stream), so they stay in `raw_bits`.
+  The word decomposition does not establish a function name, prediction-key
+  type, cast, or buff event. A leading pair can recur across actor/object
+  identities, and the second word does not always equal the previously observed
+  first word. The words stay in `raw_bits`; see the dated
+  [inner-stream and reference audit](GAS_AND_PATCHVOLUME_INVESTIGATION.md).
 - **FName instance numbers are part of the name.** Unreal stores an FName as a
   string plus a number, where number 0 means "no suffix" and number N means the
   displayed suffix N-1. Both the schema readers and `decode_fname` used to drop

@@ -1,3 +1,4 @@
+import base64
 import contextlib
 import io
 import json
@@ -473,6 +474,73 @@ class EffectBlobBitLengthTests(unittest.TestCase):
         self.assertEqual(blob.bit_count, 9)
         with self.assertRaises(TypeError):
             bundle._EffectBlob(b"\x00\x01")  # bit_count is not optional
+
+
+class ShotEffectRawSourceTests(unittest.TestCase):
+    """An additive Rust JSON overlay must not replace the shot wire source."""
+
+    SHOT_RPC = "/Script/ShooterGame.ShooterCharacter_ClassNetCache"
+
+    def convert_rows(self, tmp: str, rows: list[dict]) -> dict:
+        root = Path(tmp)
+        export = root / "export"
+        export.mkdir()
+        write_fields_parquet(export / "fields.parquet", rows)
+        return bundle.convert(export, root / "bundle")
+
+    @staticmethod
+    def events_of(tmp: str, event_type: str) -> list[dict]:
+        events = [json.loads(line) for line in (Path(tmp) / "bundle" / "events.ndjson").read_text(encoding="utf-8").splitlines()]
+        return [event for event in events if event["type"] == event_type]
+
+    def rows(self, typed_json: bool = False, **typed) -> list[dict]:
+        values = (
+            ("FloatValues", EffectBlobBitLengthTests.BLOB),
+            ("ObjectValues", b"\x00"),
+            ("VectorValues", b"\x00"),
+        )
+        return [{
+            "time_ms": 30, "packet_id": 3, "actor": 2, "object": 22,
+            "channel_index": 1, "group_path": self.SHOT_RPC, "handle": 9,
+            "field_name": f"ReplayPlayContinuousEffectAtLocation.{name}",
+            "bit_count": len(raw) * 8, "raw_bits": raw,
+            **({"value_str": "[]"} if typed_json else {}), **typed,
+        } for name, raw in values]
+
+    def shot_and_rpc(self, rows: list[dict]) -> tuple[dict, dict, dict]:
+        with tempfile.TemporaryDirectory() as tmp:
+            summary = self.convert_rows(tmp, rows)
+            shot = self.events_of(tmp, "valorant_shot_received")
+            rpc = self.events_of(tmp, "rpc_received")
+        self.assertEqual(len(shot), 1)
+        self.assertEqual(len(rpc), 1)
+        return summary, shot[0], rpc[0]
+
+    def test_typed_json_overlay_keeps_raw_shot_and_rpc_payload(self):
+        raw_summary, raw_shot, raw_rpc = self.shot_and_rpc(self.rows())
+        typed_summary, typed_shot, typed_rpc = self.shot_and_rpc(
+            self.rows(typed_json=True)
+        )
+        self.assertEqual(typed_shot, raw_shot)
+        self.assertEqual(typed_rpc, raw_rpc)
+        for name, raw, bits in (("FloatValues", EffectBlobBitLengthTests.BLOB, 400),
+                                ("ObjectValues", b"\x00", 8), ("VectorValues", b"\x00", 8)):
+            with self.subTest(name=name):
+                self.assertEqual(typed_rpc["payload"][name], raw_rpc["payload"][name])
+                self.assertEqual(typed_rpc["payload"][name], {
+                    "BitCount": bits,
+                    "Data": base64.b64encode(raw).decode("ascii"),
+                })
+        self.assertEqual(typed_summary["tally"]["multi_typed_rows"], raw_summary["tally"]["multi_typed_rows"])
+
+    def test_malformed_typed_overlay_still_uses_raw_and_keeps_counter(self):
+        _raw_summary, raw_shot, raw_rpc = self.shot_and_rpc(self.rows())
+        summary, shot, rpc = self.shot_and_rpc(
+            self.rows(value_i64=7, value_str="not-json")
+        )
+        self.assertEqual(shot, raw_shot)
+        self.assertEqual(rpc, raw_rpc)
+        self.assertEqual(summary["tally"]["multi_typed_rows"], 3)
 
 class BlockPayloadExclusionTests(unittest.TestCase):
     marker = "__vrfkit_unresolved_class_net_cache_payload__"

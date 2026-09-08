@@ -18,11 +18,19 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Current state:** `cargo +1.86.0 test --workspace --locked` **623 passing**,
-`tools/tests` **583 passing** -- see [Status](#status) for the rest.
+**Verified state:** Rust has **699 passing** tests; Python has **796 passing**
+tests. The full 714-file comparison and corpus guards passed; see
+[current status](docs/CURRENT_STATUS.md) for the current evidence boundary.
 
 - Run it: [`docs/USAGE.md`](docs/USAGE.md)
 - What's extractable: [`docs/DATA.md`](docs/DATA.md)
+- Current corpus status and remaining work: [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md)
+- Latest parser corpus results: [`docs/TARGETING_AND_HEAL_VALUES.md`](docs/TARGETING_AND_HEAL_VALUES.md)
+- Character-death and KillData state: [`docs/KILL_LEDGER.md`](docs/KILL_LEDGER.md)
+- Damage, healing, decay and reset observations: [`docs/SECTION_OBSERVATIONS.md`](docs/SECTION_OBSERVATIONS.md)
+- Observed section timelines and explicit continuity gaps: [`docs/SECTION_TIMELINE.md`](docs/SECTION_TIMELINE.md)
+- Packet-ordered section comparisons: [`docs/SECTION_PACKET_TIMELINE.md`](docs/SECTION_PACKET_TIMELINE.md)
+- Numeric FastArray observations and remaining item semantics: [`docs/GAS_AND_PATCHVOLUME_INVESTIGATION.md`](docs/GAS_AND_PATCHVOLUME_INVESTIGATION.md)
 - Build it, test it, open a PR: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Working conventions (for an AI agent): [`CLAUDE.md`](CLAUDE.md)
 
@@ -64,9 +72,9 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
   column helps distinguish untyped fields from fields lacking a descriptor.
 - **Self-describing stream** — field names come from the replay itself
   (`NetFieldExportGroup`); no hardcoded agent or map names in the parser.
-- **Six Parquet tables + manifest** — `fields`, `movement`, `actors`,
-  `net_guids`, `events`, `checkpoint_fields`, ready for polars / pandas /
-  DuckDB.
+- **Main and checkpoint Parquet output** — six main tables are always written;
+  `--checkpoints` adds seven checkpoint tables. All are ready for polars,
+  pandas, or DuckDB.
 - **Spike state** — plant site A/B (`PlantedAtSite` + position), defuser
   (`CurrentDefuser`), timer, and the canonical detonation signal.
 - **Combat & abilities** — per-player economy, magazine and reserve ammo,
@@ -75,6 +83,11 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Ability observations** — cast time/location and replicated ability
   statistics can be joined to actors and rounds. Repeated snapshots require
   deduplication; unresolved ownership and incomplete effect pairs remain gaps.
+- **Numeric FastArray observations** — the standalone GAS extractor retains
+  replication keys, deleted/changed item IDs and raw property boundaries.
+  All 2,882,152 measured inner windows close exactly; property names and
+  gameplay meanings remain unverified. This output is separate from Parquet
+  typed-value coverage.
 - **Status-effect observations** — nearsight, slow, detain and suppress can
   arrive on affected actors. Matched start/stop records support intervals;
   unmatched records must not be assigned an invented duration.
@@ -93,7 +106,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **623 tests** plus a layered validation suite (framing / bytes / decode
+- **699 Rust tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -142,21 +155,30 @@ A binary built without `export` **refuses the subcommand rather than failing
 silently** -- a subcommand that printed nothing and exited 0 would be
 indistinguishable from one that wrote the files.
 
-On `02d4d478` (48,215,213 bytes, build 13.01), `export` takes ~0.79 s and
-produces seven files:
+On `02d4d478` (48,215,213 bytes, build 13.01), `export` produces thirteen
+Parquet files plus a manifest when checkpoints are included:
 
 | File | Rows | Bytes |
 |---|---|---|
-| `fields.parquet` | 1,277,983 | 16,119,220 |
-| `movement.parquet` | 1,839,607 | 31,835,557 |
+| `fields.parquet` | 1,296,660 | 16,455,045 |
+| `movement.parquet` | 1,844,147 | 31,886,449 |
 | `actors.parquet` | 3,827 | 87,281 |
 | `net_guids.parquet` | 16,167 | 153,606 |
 | `events.parquet` | 195 | 13,411 |
-| `checkpoint_fields.parquet` | 78,924 | 234,673 |
+| `partials.parquet` | 0 | 2,505 |
+| `checkpoint_fields.parquet` | 352,089 | 1,219,312 |
+| `checkpoint_actors.parquet` | 3,014 | 27,118 |
+| `checkpoint_net_guids.parquet` | 74,270 | 277,718 |
+| `checkpoint_blocks.parquet` | 22,247 | 175,103 |
+| `checkpoint_guid_entries.parquet` | 74,270 | 928,714 |
+| `checkpoint_export_groups.parquet` | 8,307 | 27,041 |
+| `checkpoint_export_fields.parquet` | 49,314 | 287,130 |
 | `manifest.json` |  | ~660,030 |
 
-`checkpoint_fields.parquet` requires `--checkpoints`; with or without it, **the
-other five tables are byte-for-byte identical.**
+`checkpoint_fields.parquet` requires `--checkpoints`. The partials row above
+shows the default main-only export; both modes currently contain zero
+rejected partial rows and occupy 2,505 bytes. The five original main tables remain
+byte-for-byte identical across the checkpoint flag.
 
 Two things about `movement.parquet` worth knowing up front: `timestamp` is the
 128.0 Hz server tick and **resets each round** -- use `time_ms` for a global
@@ -168,8 +190,9 @@ timeline; and posture detail lives in `bCrouchHeld`, not in `movement_state`.
 
 ## Output
 
-Six Parquet tables plus `manifest.json`. String columns are dictionary-encoded
-with ZSTD.
+The main export writes six Parquet tables plus `manifest.json`.
+`--checkpoints` adds seven checkpoint tables, for thirteen Parquet files in
+total. String columns are dictionary-encoded with ZSTD.
 
 ### `fields.parquet` -- replicated properties and RPC parameters
 
@@ -266,15 +289,44 @@ in `raw_payload`, so a future layout change is preserved losslessly.
 
 ### `checkpoint_fields.parquet` -- snapshot
 
-Same schema as `fields.parquet`. A Checkpoint is a full-state snapshot at one
-instant and **is not redundant**: against the last ReplayData value at the same
-timestamp in the exported parquet, about 1.4-1.6% of keys disagree (of which
-~0.4% differ in value, the rest in bit-width) and about 0.4% of keys are
-absent from ReplayData entirely. Results are identical for 13.01 and 13.02.
-The earlier 6-11% figures were raw live-wire measurements; export's byte-width
-normalization collapses them to ~1.4% (see `docs/archive/PROJECT_STATUS.md`
-section 22-I; byte-level format in
-[`docs/archive/CHECKPOINT_SPEC.md`](docs/archive/CHECKPOINT_SPEC.md)).
+The field columns are preceded by `checkpoint_index` and `checkpoint_id`.
+Separate `checkpoint_actors.parquet` and `checkpoint_net_guids.parquet` preserve
+the snapshot's actor and GUID context with the same identity columns.
+`checkpoint_blocks.parquet` links each content block to its field rows and
+preserves class GUIDs and the path used to resolve the group name. Join
+within that checkpoint: its packet, channel and GUID state is independent of
+the main stream. A snapshot actor open is not a new timeline spawn.
+
+`checkpoint_export_groups.parquet` and `checkpoint_export_fields.parquet`
+preserve the checkpoint's schema declarations, sparse field slots, checksums,
+and raw FName components. `checkpoint_guid_entries.parquet` preserves the
+initial GUID entries, their order, path representation, and raw flags.
+Name indices in that initial stream resolve against the zero-based table of
+literal paths that precede them in the same checkpoint. The existing GUID
+table remains the resolved cache after the frame walk. The manifest records
+the mode and literal/index/resolved counts. See
+[declaration columns and join rules](docs/USAGE.md#checkpoint-schema-declarations).
+The [schema preservation report](docs/CHECKPOINT_SCHEMA_PRESERVATION.md)
+separates the added registry evidence from gameplay interpretation, and the
+[path-resolution report](docs/CHECKPOINT_PATH_RESOLUTION.md) gives the rule and
+its validation boundary.
+
+See [checkpoint output](docs/USAGE.md#checkpoint_fieldsparquet) and
+[current semantic evidence](docs/SEMANTIC_CONTEXT_EXPANSION.md). Older comparisons
+that joined checkpoint and main GUIDs by number do not establish actor identity.
+
+### `partials.parquet` -- unresolved transport payloads
+
+Rejected partial fragments and abandoned accumulators retain their exact raw
+bits in this separate table. Rows record the source stream and checkpoint ID,
+source packet and payload bit offset, channel and sequence, original header
+flags, rejection position and reason. `current_fragment` and
+`accumulated_payload` are distinct: an accumulator's source header describes
+its first fragment, while its `bit_count` describes the assembled raw buffer.
+These rows are preserved evidence, not successfully reconstructed RPCs.
+With `--checkpoints`, both streams share this table and remain distinguishable
+by `source` and `checkpoint_id`. CLI and manifest counters report each stream's
+preserved rows and bits separately.
 
 ### `manifest.json`
 
@@ -299,8 +351,8 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**623 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
-and `check_ascii` on 122 files. The Python suite in `tools/tests` has 583 tests.
+**699 passing**; the full Python suite also has **796 passing** tests. The
+all-corpus guards, all-file comparison, and full documentation check pass.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
 from the table below on purpose -- they go stale, and re-measuring is one line.
@@ -394,7 +446,7 @@ parser.
 
 **Movement -- effectively bit-identical.** Over a 50,000-row join (99.98%
 matched), the maximum position error is 0.0005 (float rounding); yaw, pitch,
-and velocity error is exactly 0. Row counts are 1,837,220 (C#) versus 1,839,607
+and velocity error is exactly 0. In that earlier comparison, row counts were 1,837,220 (C#) versus 1,839,607
 (ours) -- the gap is the C# limitation of "emit only the last move of each
 update"; we additionally recover 2,387 intermediate moves.
 
@@ -491,11 +543,13 @@ The September 2026 follow-up re-exported and retained all 714 replays
 ReplayData block validation passes on every file. Separate main/checkpoint
 diagnostics reduce block loss from 240,679 / 53,582 to zero by recovering or
 preserving post-RepLayout tails. Unknown payloads remain explicitly raw.
-This is not end-to-end losslessness: 125,037 main and 835,967 checkpoint partial
-reassembly rejections discard payloads before content-block framing and are
-excluded from that block score. Their successful-fragment counters are zero.
+The subsequent [partial-header correction](docs/PARTIAL_HEADER_CORRECTION.md)
+reassembles all 125,037 main and 835,967 checkpoint fragments into 293,720
+complete bunches. The earlier missing-initial conclusion was a header-order
+error; unknown inner payloads still remain explicitly preserved.
 
-Main physical typed coverage increases from 66.18% to **69.92%**; checkpoint
+In that earlier tail-preservation run, main physical typed coverage increased
+from 66.18% to **69.92%**; checkpoint
 from 41.24% to **41.30%**. These percentages count non-null value columns, not
 game facts understood. The time fields add 37,601,710 typed rows across the
 two streams. Three analysis helpers expose physical coverage, the observed
@@ -600,7 +654,7 @@ cannot be expanded into fields, so it emits one preservation row (`handle` =
 diagnostic rather than pretending the properties were decoded.
 
 The overlay table is extracted mechanically from the C# descriptors
-(`tools/extract_descriptors.py`) -- 199 groups, 1,271 entries, 84 handles.
+(`tools/extract_descriptors.py`) -- 215 groups, 1,310 entries, 84 handles.
 Nothing is transcribed by hand, for the same reason S-boxes and golden vectors
 are not: it is the kind of constant where a typo is invisible in review.
 
@@ -615,18 +669,18 @@ groups no replay has spawned yet. In the historical 215-replay release-13.01
 export sweep, it typed 6,048 further rows with decode errors still at zero.
 
 `02d4d478` (`02d4d478-1dfb-4412-9a77-29ca29105a9d.vrf`), as recorded by the
-committed export baseline `tools/baselines/export_02d4d478.json` (pinned in
-`ee34e9a`) -- not retyped from a console:
+committed export baseline `tools/baselines/export_02d4d478.json` after the
+partial-header and shot-array corrections:
 
 ```
-Decoded OK:   789,029      Decode errors:      0
-Raw/Skip:      31,793      Not in table: 166,134
-No field name:  2,027      Typed:          79.8%
-Effect blobs:  53,908
+Decoded OK:   796,804      Decode errors:      0
+Raw/Skip:      26,507      Not in table: 163,650
+No field name:  2,034      Typed:          80.6%
+Effect blobs:  61,617
 ```
 
-The four buckets partition `Rows offered` exactly (789,029 + 31,793 + 166,134 +
-2,027 = 988,983), and `Typed` is `Decoded OK / Rows offered`. The figures this
+The four buckets partition `Rows offered` exactly (796,804 + 26,507 + 163,650 +
+2,034 = 988,995), and `Typed` is `Decoded OK / Rows offered`. The figures this
 block held until 2026-08-30 partitioned the same 988,983 rows differently -- they
 were an older snapshot, taken before overlay entries that moved rows out of `Not
 in table`, and they contradicted the baseline this repo commits for the same
@@ -637,7 +691,7 @@ counters against that baseline so the same drift cannot go unreported again.
 buckets are settled before the effect pass, so rows that gained a value from an
 effect are still counted under `Not in table`; merging them into `Decoded OK`
 would double-count and move the baseline for unrelated reasons. `Effect blobs`
-is reported separately -- without it, 53,908 rows gain a value yet the summary
+is reported separately -- without it, 61,617 rows gain a value yet the summary
 prints identically. (The bucket counts themselves do move as overlay entries
 are added, which is exactly how the figures above went stale once; they are
 whatever `tools/baselines/export_02d4d478.json` currently records.)
@@ -645,9 +699,22 @@ whatever `tools/baselines/export_02d4d478.json` currently records.)
 Physical value coverage is the fraction of `fields.parquet` rows with at
 least one non-null `value_*` column. It cannot be computed by adding overlay,
 effect-blob or struct counters: these count different units and may describe
-parent/child expansions of the same input. The post-time-typing baseline has
-887,592 typed rows out of 1,277,983 (69.45%), measured directly from its columns.
+parent/child expansions of the same input. The current reference
+baseline has 914,001 typed rows out of 1,296,660 (70.49%), measured directly
+from its columns.
+Adding raw child windows changes this denominator even when every old typed
+value survives; compare raw preservation and newly typed values separately.
 That snapshot is not a fraction of all game information understood.
+
+The historical [array and checkpoint expansion](docs/ARRAY_CONTEXT_EXPANSION.md)
+predates the [structured-array expansion](docs/STRUCTURED_ARRAY_EXPANSION.md),
+which adds 75,275,443 raw child windows and 3,510,015 typed reward windows in
+the completed export. Both 714-file corpus guards pass; its all-file comparison
+passed on all 714 files.
+
+The earlier [714-replay schema expansion](docs/SCHEMA_EXPANSION.md) independently
+verified 6,805,323 additional typed values, with physical coverage of 69.98%
+main and 52.90% checkpoint. Raw field columns and non-field exports are unchanged.
 
 Measure the files you actually use, with checkpoint rows reported separately:
 
@@ -691,7 +758,7 @@ checkpoint decode failures. This separate check exists because `vrfkit
 validate` does not print overlay counters, so `validate_corpus.py` alone cannot
 see a wrong type. Reaching zero found three places where the wire disagreed
 with the C# declarations; they are recorded with evidence in
-`tools/apply_type_corrections.py` (147 corrections, verified with `--check`).
+`tools/apply_type_corrections.py` (187 corrections, verified with `--check`).
 
 | Symptom | Actual | Evidence |
 |---|---|---|
@@ -834,7 +901,7 @@ that way is a trap:
   rows cannot yet be split into named properties. `Malformed framing`,
   `Transform failed`, and `RPC payload lost` must remain zero; a non-zero
   `RPC unresolved/raw` count describes preserved, uninterpreted data.
-- The **~79.8% `Typed`** ratio reads low because of the *RPC-parameter
+- The **~80.6% `Typed`** ratio reads low because of the *RPC-parameter
   denominator* -- most of `Not in table` is RPC parameters with no C#
   descriptor. A low ratio is uninterpreted, not lost: those rows still carry
   `raw_bits`, and additive decoders (effects, structs, the economy typing)
@@ -846,8 +913,9 @@ Five files in the tree are generated and must never be edited by hand:
 
 | Generated file | Generator | Notes |
 |---|---|---|
-| `crates/vrf-decode/src/table.rs` | `tools/extract_descriptors.py` then `tools/apply_type_corrections.py` | The overlay table (1,271 entries, 199 groups, 84 handles) and handle table |
+| `crates/vrf-decode/src/table.rs` | `tools/extract_descriptors.py` then `tools/apply_type_corrections.py` | The overlay table (1,310 entries, 215 groups, 84 handles) and handle table |
 | `crates/vrf-decode/src/checksum_table.rs` | `tools/extract_checksum_types.py` | Replay-observed checksum-to-type propagation table; conflicting donors are omitted |
+| `crates/vrf-decode/src/scoped_types.rs` | `tools/generate_scoped_types.py` | Exact group/name/checksum primitive types for ambiguous field names; no cross-group propagation |
 | `crates/vrf-transform/src/sbox.rs` | `tools/extract_sboxes.py` | 768-byte S-box, shared across builds |
 | `crates/vrf-transform/tests/data/golden_vectors.rs` | `tools/extract_golden.py` | Per-build golden test vectors |
 | `tools/equippable_table.py` | `tools/extract_equippables.py` | Weapon class path to display name |

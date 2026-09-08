@@ -49,6 +49,28 @@ class BaselineSchemaTests(unittest.TestCase):
 
         self.assertTrue(any("sha256" in problem for problem in problems), problems)
 
+    def test_checkpoint_baseline_requires_actor_and_guid_tables_and_counters(self):
+        data = {
+            "replay": "sample.vrf",
+            "counters": {key: 0 for key in schemas.MAIN_COUNTERS | schemas.CHECKPOINT_ONLY_COUNTERS},
+            "parquet": {
+                name: {"rows": 0, "bytes": 0, "sha256": "a" * 64}
+                for name in (*schemas.MAIN_PARQUET, *schemas.CHECKPOINT_PARQUET_FILES)
+            },
+        }
+        path = Path("checkpoint_sample.json")
+        self.assertEqual(schemas.validate_export_baseline(path, data), [])
+
+        missing_table = json.loads(json.dumps(data))
+        del missing_table["parquet"]["checkpoint_actors"]
+        problems = schemas.validate_export_baseline(path, missing_table)
+        self.assertTrue(any("checkpoint_actors" in problem for problem in problems), problems)
+
+        missing_counter = json.loads(json.dumps(data))
+        del missing_counter["counters"]["cp_net_guid_rows_written"]
+        problems = schemas.validate_export_baseline(path, missing_counter)
+        self.assertTrue(any("cp_net_guid_rows_written" in problem for problem in problems), problems)
+
     def test_unknown_baseline_json_fails_closed(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
