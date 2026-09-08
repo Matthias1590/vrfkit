@@ -18,7 +18,7 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Verified state:** Rust has **692 passing** tests; Python has **744 passing** tests. The full
+**Verified state:** Rust has **692 passing** tests; Python has **766 passing** tests. The full
 714-file comparison and corpus guards passed; see
 [targeting and heal evidence](docs/TARGETING_AND_HEAL_VALUES.md).
 
@@ -27,6 +27,7 @@ by, or approved by Riot Games.
 - Latest parser corpus results: [`docs/TARGETING_AND_HEAL_VALUES.md`](docs/TARGETING_AND_HEAL_VALUES.md)
 - Character-death and KillData state: [`docs/KILL_LEDGER.md`](docs/KILL_LEDGER.md)
 - Damage, healing, decay and reset observations: [`docs/SECTION_OBSERVATIONS.md`](docs/SECTION_OBSERVATIONS.md)
+- Observed section timelines and explicit continuity gaps: [`docs/SECTION_TIMELINE.md`](docs/SECTION_TIMELINE.md)
 - Build it, test it, open a PR: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Working conventions (for an AI agent): [`CLAUDE.md`](CLAUDE.md)
 
@@ -341,7 +342,7 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**692 passing**; the full Python suite also has **744 passing** tests. The
+**692 passing**; the full Python suite also has **766 passing** tests. The
 all-corpus guards, all-file comparison, and full documentation check pass.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted

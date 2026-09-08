@@ -150,6 +150,11 @@ parentless amounts, unresolved section references and separate checkpoint rows.
 The historical measurements below do not replace its current raw validation
 or establish player attribution and continuous health timelines.
 
+`tools/extract_section_timeline.py` adds exact observed predecessors and
+explicit ordering/lifetime gaps; see [SECTION_TIMELINE.md](SECTION_TIMELINE.md).
+Its comparison eligibility does not establish a game life, component life,
+effective HP or player credit.
+
 Verified over 69 replays on build 13.02: 377,487 elements, zero parse errors,
 zero residual bits, and every observed element carrying exactly four members
 in that measurement. Corroborated against separate decode
