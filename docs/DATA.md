@@ -102,27 +102,25 @@ requires corroborating credit changes; state rows alone are not that ledger.
 |---|---|---|
 | Damage dealt / received | CombatReport `DamageDealt` / `DamageReceived` | ✅ |
 | Regional damage (head/body/leg) | `Interactions[].Regions[].Hits/Damage` | ✅ multiset-identical (on 13.01) |
-
-**Every "vs C#" claim in this file was measured on build 13.01 or earlier.**
-The reference parser registers payload transforms for 12.10, 12.11, 13.00 and
-13.01 only, so it refuses a 13.02 replay outright -- which is every demo the
-local machine now records. The comparisons still run against the preserved
-13.01 fixture, and `tools/compare_combat_report.py` still reports every
-interesting shape identical there. They cannot currently be re-run on 13.02 by
-anyone, so read them as fixed to the build they were taken on.
 | Wallbang | `bIsWallPen` | ✅ |
 | Damage source (weapon, location, bone) | `MulticastNotifyDamage` (EquippableUsed, ImpactLocation, ImpactBone) | ✅ |
 | ADR | derived from CombatReport | ◐ +0.1–0.2 vs trackers (wire damage is fractional; not a bug) |
-| Health / armour / overheal, absolute | `DamageableComponent` RPCs → `LifeChangeEvents[]` / `LifeChangeBySection[]` | ◐ **raw** — decodes cleanly, see below |
+| Health / armour / overheal, absolute | `DamageableComponent` RPCs → `LifeChangeEvents[]` / `LifeChangeBySection[]` | ✅ typed section updates; actor/section timelines require joins, see below |
+
+**The historical "vs C#" figures here were measured on build 13.01 or earlier.**
+They describe the preserved comparison fixtures, not current upstream parser
+compatibility. A result from that fixture does not establish agreement on a
+newer build; a fresh comparison needs its own replay and implementation evidence.
 
 ### Health is absolute, not a subtraction
 
 The `DamageableComponent` RPCs carry an array whose elements hold
 `ChangedComponent` (which damage section), `LifeResult` (**the absolute value
 after the change**), `DeltaLife`, and `bAliveAfterChange`. Nothing has to be
-accumulated. The array is still `raw_bits` -- typing it is listed under What's
-next -- but it walks with the ordinary RepLayout dynamic-array framing, and the
-decoded handles are the manifest handles with no offset.
+accumulated to read a reported section result. The parent array remains in
+`raw_bits`, and its decoded members are emitted as typed child rows. The array
+uses ordinary RepLayout dynamic-array framing; its inner handles come from
+the corresponding parameter-group declaration.
 
 **The four members are now typed, so this section is checkable.** `vrfkit
 export` emits one row per member beside the parent blob row, named
@@ -138,6 +136,11 @@ the same four members sit at 10-13, 1-4 or 2-5 depending on which function
 carries them -- and `MulticastNotifyHeal` and `MulticastNotifyOverhealDecay`
 name their array `LifeChangeBySection`, not `LifeChangeEvents`. A filter on the
 array's name alone silently drops more than half the calls.
+
+For a retained healing view, use `tools/extract_healing_observations.py`.
+It keeps serialized amounts, section state and identity corroboration separate;
+see [HEALING_OBSERVATIONS.md](HEALING_OBSERVATIONS.md) for its measured coverage
+and the distinction between serialized amounts and effective HP restored.
 
 Verified over 69 replays on build 13.02: 377,487 elements, zero parse errors,
 zero residual bits, and every element carrying exactly four members (these RPC
