@@ -1,7 +1,7 @@
 # Extractable data
 
-What you can get out of a VALORANT replay with vrfkit. The export is six
-Parquet tables plus `manifest.json`. Unknown property payloads and unresolved
+What you can get out of a VALORANT replay with vrfkit. With checkpoints the
+export is seven Parquet tables plus `manifest.json`. Unknown property payloads and unresolved
 whole RPCs retain raw bytes, but successfully decoded movement and synthesized
 child rows may not duplicate their input bytes. "Untyped" is not synonymous
 with "lost"; check stream-loss counters separately.
@@ -9,9 +9,11 @@ with "lost"; check stream-loss counters separately.
 Legend: ✅ typed (value decoded) · ◐ raw or derivable · ❌ unavailable in the
 stated observation scope. Absence in a sample is not proof of format-wide absence.
 
-The latest 714-replay measurements and additional crosshair/Tidal Wave fields
-are recorded in [SCHEMA_EXPANSION.md](SCHEMA_EXPANSION.md). Physical typed-value
-coverage is 69.98% main and 52.90% checkpoint; this is not semantic completeness.
+The latest 714-replay measurements, rejected partial preservation and scoped
+byte types are recorded in [TRANSPORT_PRESERVATION.md](TRANSPORT_PRESERVATION.md).
+Physical typed-value coverage is 69.9858% main and 53.2298% checkpoint; this is
+not semantic completeness. Earlier crosshair/Tidal Wave additions are recorded
+in [SCHEMA_EXPANSION.md](SCHEMA_EXPANSION.md).
 
 ---
 

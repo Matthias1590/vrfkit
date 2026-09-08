@@ -226,3 +226,30 @@ pub struct EventRecord {
     /// Trailing f32 seconds value from a structurally validated inner payload.
     pub payload_seconds: Option<f32>,
 }
+
+#[derive(Debug, Clone)]
+pub struct PartialRecord {
+    pub source: &'static str,
+    pub checkpoint_id: Option<String>,
+    pub payload_kind: &'static str,
+    pub reason: &'static str,
+    pub source_packet_id: i32,
+    pub source_payload_bit_offset: i64,
+    pub rejection_packet_id: Option<i32>,
+    pub channel_index: u32,
+    pub channel_sequence: i32,
+    pub open: bool,
+    pub close: bool,
+    pub dormant: bool,
+    pub replication_paused: bool,
+    pub reliable: bool,
+    pub partial: bool,
+    pub partial_initial: bool,
+    pub partial_final: bool,
+    pub has_package_map_exports: bool,
+    pub has_must_be_mapped_guids: bool,
+    pub close_reason: u8,
+    pub source_payload_bit_count: i32,
+    pub bit_count: u64,
+    pub raw_bits: Vec<u8>,
+}

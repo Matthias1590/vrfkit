@@ -60,6 +60,14 @@ class UnpinnableTests(unittest.TestCase):
 class CrossCheckTests(unittest.TestCase):
     """Unchanged behaviour, pinned alongside the new refusal."""
 
+    def test_partial_identity_includes_checkpoint_rows_only_when_present(self):
+        current = measurement(partial_rows=2, cp_partial_rows=3)
+        current["parquet"]["partials"]["rows"] = 5
+        checks = guard.cross_check_identities(current["counters"], current["parquet"])
+        self.assertIn(("Partial raw rows (main + checkpoint)", 5, 5), checks)
+        current["parquet"]["partials"]["rows"] = 2
+        self.assertTrue(any("Partial raw" in problem for problem in guard.cross_checks(current["counters"], current["parquet"])))
+
     def test_a_summary_disagreeing_with_its_parquet_is_a_lie(self):
         current = measurement(net_guid_rows=99)
         lies = guard.cross_checks(current["counters"], current["parquet"])
@@ -149,7 +157,7 @@ Actor closes: 0
                 "stage = out.parent / (out.name + '.stage')\n"
                 "backup = out.parent / (out.name + '.backup')\n"
                 "stage.mkdir()\n"
-                "for name in ('actors', 'fields', 'movement', 'net_guids', 'events'):\n"
+                "for name in ('actors', 'fields', 'movement', 'net_guids', 'events', 'partials'):\n"
                 "    pq.write_table(pa.table({'value': [1]}), stage / (name + '.parquet'))\n"
                 "os.replace(out, backup)\n"
                 "os.replace(stage, out)\n"

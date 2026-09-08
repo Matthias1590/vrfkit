@@ -114,13 +114,22 @@ def validate(export_root: Path, specifications: list[dict], export_ids=None, com
     if not specifications:
         raise ValueError("evidence specification is empty")
     for spec in specifications:
-        if set(spec) != {"group", "field", "type"} or not spec["group"] or not spec["field"]:
+        if set(spec) not in ({"group", "field", "type"}, {"group", "field", "type", "checksum"}) or not spec["group"] or not spec["field"]:
             raise ValueError(f"invalid evidence specification: {spec!r}")
+        if "checksum" in spec and (type(spec["checksum"]) is not int or not 0 < spec["checksum"] <= 0xFFFFFFFF):
+            raise ValueError("checksum scope must be a nonzero u32")
         if spec["type"] not in allowed:
             raise ValueError(f"unsupported evidence type: {spec['type']!r}")
-    expected = {(s["group"], s["field"]): s["type"] for s in specifications}
+    expected = {(s["group"], s["field"], s.get("checksum")): s["type"] for s in specifications}
     if len(expected) != len(specifications):
         raise ValueError("duplicate group/field specification")
+    for group, field, checksum in expected:
+        if checksum is not None and (group, field, None) in expected:
+            raise ValueError("overlapping scoped and unscoped specification")
+    def label_for(key):
+        group, field, checksum = key
+        suffix = f"::checksum={checksum}" if checksum is not None else ""
+        return f"{group}::{field}{suffix}"
     counts = Counter()
     widths = defaultdict(Counter)
     wire_keys = defaultdict(Counter)
@@ -133,7 +142,7 @@ def validate(export_root: Path, specifications: list[dict], export_ids=None, com
     paths = list(parquet_files(export_root, export_ids))
     if not paths:
         raise ValueError(f"no field parquet files below {export_root}")
-    wanted_groups = pa.array(sorted({group for group, _field in expected}))
+    wanted_groups = pa.array(sorted({group for group, _field, _checksum in expected}))
     for path in paths:
         parquet = pq.ParquetFile(path)
         columns = ["group_path", "field_name", "handle", "compatible_checksum",
@@ -148,11 +157,13 @@ def validate(export_root: Path, specifications: list[dict], export_ids=None, com
             table = pa.Table.from_batches([batch])
             table = table.filter(pc.is_in(pc.cast(table["group_path"], pa.string()), value_set=wanted_groups))
             for row in table.to_pylist():
-                key = (row["group_path"], row["field_name"])
+                key = (row["group_path"], row["field_name"], row["compatible_checksum"])
+                if key not in expected:
+                    key = (row["group_path"], row["field_name"], None)
                 type_name = expected.get(key)
                 if type_name is None:
                     continue
-                label = f"{key[0]}::{key[1]}"
+                label = label_for(key)
                 counts[label] += 1
                 widths[label][row["bit_count"]] += 1
                 wire_keys[label][
@@ -182,7 +193,7 @@ def validate(export_root: Path, specifications: list[dict], export_ids=None, com
                     failure_counts[label] += 1
                     if len(failures) < 32:
                         failures.append({"file": str(path), "field": label, "error": str(exc)})
-    missing = [f"{g}::{f}" for g, f in expected if not counts[f"{g}::{f}"]]
+    missing = [label_for(key) for key in expected if not counts[label_for(key)]]
     return {
         "fields": {
             label: {

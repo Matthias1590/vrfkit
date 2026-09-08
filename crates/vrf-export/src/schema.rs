@@ -254,3 +254,34 @@ pub fn events_schema() -> Schema {
 pub fn events_schema_ref() -> Arc<Schema> {
     Arc::new(events_schema())
 }
+
+pub fn partials_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("source", DataType::Utf8, false),
+        Field::new("checkpoint_id", DataType::Utf8, true),
+        Field::new("payload_kind", DataType::Utf8, false),
+        Field::new("reason", DataType::Utf8, false),
+        Field::new("source_packet_id", DataType::Int32, false),
+        Field::new("source_payload_bit_offset", DataType::Int64, false),
+        Field::new("rejection_packet_id", DataType::Int32, true),
+        Field::new("channel_index", DataType::UInt32, false),
+        Field::new("channel_sequence", DataType::Int32, false),
+        Field::new("open", DataType::Boolean, false),
+        Field::new("close", DataType::Boolean, false),
+        Field::new("dormant", DataType::Boolean, false),
+        Field::new("replication_paused", DataType::Boolean, false),
+        Field::new("reliable", DataType::Boolean, false),
+        Field::new("partial", DataType::Boolean, false),
+        Field::new("partial_initial", DataType::Boolean, false),
+        Field::new("partial_final", DataType::Boolean, false),
+        Field::new("has_package_map_exports", DataType::Boolean, false),
+        Field::new("has_must_be_mapped_guids", DataType::Boolean, false),
+        Field::new("close_reason", DataType::UInt8, false),
+        Field::new("source_payload_bit_count", DataType::Int32, false),
+        Field::new("bit_count", DataType::UInt64, false),
+        Field::new("raw_bits", DataType::Binary, false),
+    ])
+}
+pub fn partials_schema_ref() -> Arc<Schema> {
+    Arc::new(partials_schema())
+}

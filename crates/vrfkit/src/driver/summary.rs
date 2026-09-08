@@ -23,6 +23,8 @@ pub(super) struct RunTotals {
     pub movement_rows: u64,
     pub net_guid_rows: usize,
     pub event_rows: u64,
+    pub partial_rows: u64,
+    pub partial_bits: u64,
     /// Payload bytes an Event chunk declared that its own header layout does
     /// not reach. Zero across the corpus; counted rather than dropped in
     /// silence.
@@ -79,6 +81,10 @@ pub(super) fn print(
     eprintln!("  RPCs:             {}", net_stats.rpcs);
     eprintln!("  Actor opens:      {}", net_stats.actor_opens);
     eprintln!("  Actor closes:     {}", net_stats.actor_closes);
+    eprintln!(
+        "  Partial raw rows: {} ({} bits)",
+        totals.partial_rows, totals.partial_bits
+    );
     // The sink's own tally of the same five events, computed independently at
     // the vrfkit layer rather than the vrf-net framing layer above. Not
     // redundant to drop: a mismatch against the five lines above is a real
@@ -267,6 +273,10 @@ fn print_checkpoints(cp: &CheckpointStats) {
     eprintln!();
     eprintln!("=== Checkpoints ===");
     eprintln!("  Checkpoints:      {}", cp.chunks);
+    eprintln!(
+        "  Checkpoint partial raw: {} rows / {} bits",
+        cp.partial_rows, cp.partial_bits
+    );
     eprintln!("  Trailing bytes:   {}", cp.trailing_bytes);
     eprintln!("  GUID entries:     {}", cp.guid_entries);
     eprintln!("  Group records:    {}", cp.group_records);
@@ -464,6 +474,7 @@ fn print_file_sizes(
     eprintln!("  actors.parquet:   {} bytes", size("actors.parquet"));
     eprintln!("  net_guids.parquet:{} bytes", size("net_guids.parquet"));
     eprintln!("  events.parquet:   {} bytes", size("events.parquet"));
+    eprintln!("  partials.parquet: {} bytes", size("partials.parquet"));
     if with_checkpoints {
         eprintln!("  {CHECKPOINT_TABLE}: {} bytes", size(CHECKPOINT_TABLE));
     }

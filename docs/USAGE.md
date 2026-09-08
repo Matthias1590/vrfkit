@@ -117,6 +117,16 @@ unparsed tails as well as unresolved standalone RPC blocks. See
 `--diagnostics` prints context for every failed block. By default it shows up to
 32 lines and prints totals / shown / omitted counts in the header.
 
+Export also writes `partials.parquet` for rejected partial fragments and
+abandoned partial accumulators. `source` separates main and checkpoint rows;
+the checkpoint ID disambiguates their independently numbered packet streams.
+Source packet/bit offset and header flags identify the original wire input.
+The payload kind distinguishes a single current fragment from an accumulated
+buffer; the latter retains its first fragment's source header and a separate
+aggregate bit count. These payloads remain unresolved and do not enter the
+block validation numerator. Main/checkpoint row and bit totals are available
+in both the export summary and manifest quality object.
+
 ### `diag`
 
 Walk ReplayData and checkpoint streams without writing Parquet:
@@ -184,7 +194,7 @@ member and handle by name.
 ```
 
 (That figure is `02d4d478`'s, from `tools/baselines/export_02d4d478.json`:
-`overlay_decoded_ok / overlay_rows_offered` = 789,606 / 988,983. It moves as
+`overlay_decoded_ok / overlay_rows_offered` = 789,624 / 988,983. It moves as
 overlay entries are added -- re-measure before quoting it.)
 
 The denominator is **every row offered** to the overlay, and thanks to RPC
@@ -203,12 +213,13 @@ Measured on `02d4d478` (48,215,213 bytes):
 
 | File | Rows | Bytes | Notes |
 |---|---|---|---|
-| `fields.parquet` | 1,277,983 | 16,121,012 | |
+| `fields.parquet` | 1,277,983 | 16,121,031 | |
 | `movement.parquet` | 1,839,607 | 31,835,557 | |
 | `actors.parquet` | 3,827 | 87,281 | |
 | `net_guids.parquet` | 16,167 | 153,606 | |
 | `events.parquet` | 195 | 13,411 | |
-| `checkpoint_fields.parquet` | 78,924 | 238,016 | requires `--checkpoints` |
+| `partials.parquet` | 131 | 213,371 | main-only; with checkpoints: 1,101 rows, 1,755,789 bytes |
+| `checkpoint_fields.parquet` | 78,924 | 237,911 | requires `--checkpoints` |
 | `manifest.json` | -- | ~660,030 | varies: it records `elapsed_ms` |
 
 Use [`bench_export.py`](#analysis-helpers) to measure runtime on your machine.
@@ -587,7 +598,7 @@ m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); print(len(m
 | `compare_rpc_params.py` | RPC parameter comparison |
 | `compare_with_csharp.py` | Diff against the C# parser |
 | `check_effect_decoder.py` | Effect decoder (12 cases) |
-| `check_ascii.py` | Rust source ASCII sweep (122 files) |
+| `check_ascii.py` | Rust source ASCII sweep (124 files) |
 | `check_docs.py` | This document itself (below) |
 | `atomic_io.py` | Internal containment, recursive-removal and atomic-replacement helpers shared by mutating tools |
 
@@ -615,7 +626,37 @@ python tools/check_docs.py           # also runs the test suites to compare coun
 python tools/check_docs.py --fast    # skip the count comparison
 ```
 
-### Downstream conversion
+### Unresolved payload and observation audits
+
+`summarize_unresolved_fields.py` inventories rows with all four value columns
+null. It groups by main/checkpoint table, replay build, exact group, name and
+checksum, and reports physical occurrences, declared and preserved bit sums,
+missing nonempty payloads, zero-bit markers and affected exports.
+Raw parents can contain already decoded children; recurrence is not a count of
+distinct game facts. Per-export SQLite shards keep aggregation bounded and
+`--jobs` controls parallel scanning.
+
+```bash
+python tools/summarize_unresolved_fields.py out/exports --output-dir out/raw-audit --jobs 12
+python tools/audit_match_observations.py --exports out/exports --out out/ammo-audit.json --jobs 12
+python tools/generate_scoped_types.py --check
+```
+
+`audit_match_observations.py` compares magazine decreases with an explicit
+weapon-scoped continuous-effect RPC through the component's outer NetGUID.
+It reports unmatched and ambiguous evidence; it does not classify the RPC as
+a shot. Conflicting same-packet ammo values break the transition chain, and
+conflicting object mappings cannot support a match. Sampling, when requested,
+is evenly spaced by export name, not stratified by game build.
+
+`generate_scoped_types.py` regenerates `scoped_types.rs` from the reviewed
+`tools/fixtures/scoped_type_evidence.json`. These primitive types require the
+exact group, field name and compatible checksum. They never propagate to an
+unobserved class alias or globally by checksum. The ordinary
+`validate_type_evidence.py` specification also accepts an optional `checksum`
+to independently verify this narrower scope.
+
+### Downstream conversion tools
 
 | Script | What it does |
 |---|---|
@@ -806,12 +847,12 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 629 passing
+cargo +1.86.0 test --workspace --locked                              # 632 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
-python -W error tools/check_ascii.py --check                         # 122 files
+python -W error tools/check_ascii.py --check                         # 124 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 614 passing
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 639 passing
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 185 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check

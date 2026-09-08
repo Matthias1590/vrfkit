@@ -114,6 +114,7 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
     // Event chunks are a couple of hundred rows and are written inline for the
     // same reason `actors` is: the encoding cost is far below a thread's worth.
     let mut event_writer = EventWriter::new(create("events.parquet")?)?;
+    let mut partial_writer = vrf_export::PartialWriter::new(create("partials.parquet")?)?;
     let mut checkpoint_writer = if with_checkpoints {
         Some(FieldWriter::new(create("checkpoint_fields.parquet")?)?)
     } else {
@@ -148,6 +149,8 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
     let mut buffers = RecordBuffers::default();
     let mut movement_rows: u64 = 0;
     let mut event_rows: u64 = 0;
+    let mut partial_rows: u64 = 0;
+    let mut partial_bits: u64 = 0;
     let mut event_trailing_bytes: u64 = 0;
     let mut replay_data_trailing_bytes: u64 = 0;
     let mut error_report = OverlayErrorReport::default();
@@ -239,6 +242,7 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
                     writer,
                     &mut cp_stats,
                     &mut error_report,
+                    &mut partial_writer,
                 )?;
             }
             continue;
@@ -292,6 +296,12 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
                 for record in buffers.actors.drain(..) {
                     actor_writer.push(record)?;
                 }
+                for mut record in buffers.partials.drain(..) {
+                    partial_rows += 1;
+                    partial_bits += record.bit_count;
+                    record.source = "main";
+                    partial_writer.push(record)?;
+                }
                 Ok(())
             })();
             if let Err(error) = result {
@@ -319,8 +329,20 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
     // both results are checked.
     fields.finish()?;
     movement.finish()?;
+    // EOF can turn still-active reassemblies into preservation rows.
+    {
+        let mut sink = ExportSink::new(&mut cache, &mut channel_state, &mut buffers);
+        repl_reader.finish_with_sink(&mut sink);
+    }
+    for mut record in buffers.partials.drain(..) {
+        partial_rows += 1;
+        partial_bits += record.bit_count;
+        record.source = "main";
+        partial_writer.push(record)?;
+    }
     actor_writer.finish()?;
     event_writer.finish()?;
+    partial_writer.finish()?;
     if let Some(w) = checkpoint_writer.take() {
         w.finish()?;
     }
@@ -348,8 +370,6 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
     // accumulator is simply dropped and a partial bunch lost at EOF is
     // indistinguishable from one still legitimately in flight -- the counters
     // it feeds only exist if someone asks for them.
-    repl_reader.finish();
-
     let net_stats = repl_reader.stats();
     let elapsed = start.elapsed();
 
@@ -383,6 +403,8 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
             movement_rows,
             net_guid_rows,
             event_rows,
+            partial_rows,
+            partial_bits,
             event_trailing_bytes,
             replay_data_trailing_bytes,
             event_layout_mismatches,
@@ -420,6 +442,8 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
             movement_rows,
             net_guid_rows,
             event_rows,
+            partial_rows,
+            partial_bits,
             event_trailing_bytes,
             replay_data_trailing_bytes,
             elapsed,

@@ -13,6 +13,25 @@ from validate_type_evidence import decode_exact, validate  # noqa: E402
 
 
 class DecodeExactTests(unittest.TestCase):
+    def test_checksum_scope_separates_same_name_and_catches_wrong_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "fields.parquet"
+            pq.write_table(pa.table({
+                "group_path": ["g", "g"], "field_name": ["B", "B"], "handle": [39, 208],
+                "compatible_checksum": [379198054, 943211507], "bit_count": [8, 32],
+                "raw_bits": [b"\xff", b"\0\0\0\0"], "value_str": [None, None],
+                "value_i64": [254, None], "value_f64": [None, None], "value_bool": [None, None],
+            }), path)
+            spec = {"group": "g", "field": "B", "type": "Byte", "checksum": 379198054}
+            report = validate(Path(directory), [spec], compare_typed=True)
+            self.assertEqual(report["failure_count"], 0)
+            self.assertEqual(report["typed_mismatch_count"], 1)
+            self.assertEqual(report["fields"]["g::B::checksum=379198054"]["rows"], 1)
+            with self.assertRaisesRegex(ValueError, "overlapping"):
+                validate(Path(directory), [spec, {"group": "g", "field": "B", "type": "Byte"}])
+            unscoped = validate(Path(directory), [{"group": "g", "field": "B", "type": "Byte"}])
+            self.assertEqual(unscoped["failure_count"], 1)
+
     def test_primitive_widths_and_values(self):
         self.assertIs(decode_exact(b"\x01", 1, "Bool"), True)
         self.assertEqual(decode_exact(b"\xff", 8, "Byte"), 255)

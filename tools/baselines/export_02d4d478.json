@@ -1,60 +1,67 @@
 {
- "replay": "02d4d478-1dfb-4412-9a77-29ca29105a9d.vrf",
- "counters": {
-  "chunks": 19,
-  "packets": 530401,
-  "export_groups": 475,
-  "content_blocks": 608020,
-  "rep_layout_blocks": 258892,
-  "class_net_cache_blocks": 349119,
-  "fields": 429637,
-  "rpcs": 342953,
-  "actor_opens": 2028,
-  "actor_closes": 1799,
-  "bunches": 530401,
-  "malformed_packets": 0,
-  "skipped_bits": 19239874,
-  "movement_rows": 1839607,
-  "net_guid_rows": 16167,
-  "event_rows": 195,
-  "event_layout_mismatches": 0,
-  "event_payloads_decoded": 195,
-  "event_payload_unknown_groups": 0,
-  "overlay_decoded_ok": 789606,
-  "overlay_decode_errors": 0,
-  "overlay_raw_skip": 31793,
-  "overlay_not_in_table": 165557,
-  "overlay_no_field_name": 2027,
-  "overlay_rows_offered": 988983,
-  "effect_blobs_decoded": 53908,
-  "struct_blobs_decoded": 207,
-  "struct_blobs_failed": 0
- },
- "parquet": {
-  "fields": {
-   "rows": 1277983,
-   "bytes": 16121012,
-   "sha256": "153b81d0be2e61da91a8eb878f1410c8510e6ca6750105dedd1f997189d9c947"
+  "counters": {
+    "chunks": 19,
+    "packets": 530401,
+    "export_groups": 475,
+    "content_blocks": 608020,
+    "rep_layout_blocks": 258892,
+    "class_net_cache_blocks": 349119,
+    "fields": 429637,
+    "rpcs": 342953,
+    "actor_opens": 2028,
+    "actor_closes": 1799,
+    "bunches": 530401,
+    "malformed_packets": 0,
+    "skipped_bits": 19239874,
+    "movement_rows": 1839607,
+    "net_guid_rows": 16167,
+    "event_rows": 195,
+    "partial_rows": 131,
+    "partial_bits": 1628083,
+    "event_layout_mismatches": 0,
+    "event_payloads_decoded": 195,
+    "event_payload_unknown_groups": 0,
+    "overlay_decoded_ok": 789624,
+    "overlay_decode_errors": 0,
+    "overlay_raw_skip": 31793,
+    "overlay_not_in_table": 165539,
+    "overlay_no_field_name": 2027,
+    "overlay_rows_offered": 988983,
+    "effect_blobs_decoded": 53908,
+    "struct_blobs_decoded": 207,
+    "struct_blobs_failed": 0
   },
-  "movement": {
-   "rows": 1839607,
-   "bytes": 31835557,
-   "sha256": "106249a8e34348edc1d3ff2f180e1b324b2cbb49fe456411568000d53d3231d0"
+  "parquet": {
+    "fields": {
+      "rows": 1277983,
+      "bytes": 16121031,
+      "sha256": "7ec308879016c1490db201b53e4146ed553a50d191a1845186910c760c0c5d76"
+    },
+    "movement": {
+      "rows": 1839607,
+      "bytes": 31835557,
+      "sha256": "106249a8e34348edc1d3ff2f180e1b324b2cbb49fe456411568000d53d3231d0"
+    },
+    "actors": {
+      "rows": 3827,
+      "bytes": 87281,
+      "sha256": "84076cf7ca398c957c3e67148d0622f72e809cb4e2157f66cd4f18b197e65d7b"
+    },
+    "net_guids": {
+      "rows": 16167,
+      "bytes": 153606,
+      "sha256": "501cabc678770431d0fec9c37c4e21ed06193bb93263313959e87865625bba0f"
+    },
+    "events": {
+      "rows": 195,
+      "bytes": 13411,
+      "sha256": "e3879e2aabfc83ecae48be30ef8056fc8ec10ee1dab50c3882dc2b72d0f12af2"
+    },
+    "partials": {
+      "rows": 131,
+      "bytes": 213371,
+      "sha256": "ffde7face4ade9292ee8be4b4f25dc2054e5441469e45dd759e30cdd1a3e7720"
+    }
   },
-  "actors": {
-   "rows": 3827,
-   "bytes": 87281,
-   "sha256": "84076cf7ca398c957c3e67148d0622f72e809cb4e2157f66cd4f18b197e65d7b"
-  },
-  "net_guids": {
-   "rows": 16167,
-   "bytes": 153606,
-   "sha256": "501cabc678770431d0fec9c37c4e21ed06193bb93263313959e87865625bba0f"
-  },
-  "events": {
-   "rows": 195,
-   "bytes": 13411,
-   "sha256": "e3879e2aabfc83ecae48be30ef8056fc8ec10ee1dab50c3882dc2b72d0f12af2"
-  }
- }
+  "replay": "02d4d478-1dfb-4412-9a77-29ca29105a9d.vrf"
 }

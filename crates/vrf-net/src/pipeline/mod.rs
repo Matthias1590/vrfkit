@@ -182,11 +182,35 @@ pub struct StreamFailure {
     pub payload_preserved: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PartialPayloadReason {
+    MissingInitial,
+    OverlappingInitial,
+    MismatchedContinuation,
+    NonByteAlignedFragment,
+    ActiveStateLimit,
+    BufferedBitsLimit,
+    AllocationFailure,
+    ChannelStateLimit,
+    ChannelClosed,
+    EndOfStream,
+}
+
+pub struct RejectedPartialFragment<'a> {
+    pub header: &'a RawBunchHeader,
+    pub payload_kind: &'static str,
+    pub reason: PartialPayloadReason,
+    pub bit_count: usize,
+    pub payload: &'a [u8],
+    pub rejection_packet_id: Option<i32>,
+}
+
 /// Trait for receiving all replication events.
 ///
 /// The caller implements this to process fields, RPCs, and actor lifecycle
 /// without any data being silently discarded.
 pub trait ReplicationSink: GuidPathSink + FieldSink {
+    fn on_rejected_partial(&mut self, _partial: RejectedPartialFragment<'_>) {}
     /// Whether the sink wants per-record failure positions and decoded-payload
     /// callbacks. The default keeps the normal pipeline on its original walk.
     fn wants_stream_failure_details(&self) -> bool {
@@ -379,10 +403,27 @@ impl ReplicationReader {
     /// not move, because nothing was out of sequence.
     ///
     /// Idempotent: the accumulator is drained, so a second call counts nothing.
+    pub fn finish_with_sink(&mut self, sink: &mut dyn ReplicationSink) {
+        for partial in self.accumulator.drain_unfinished() {
+            self.stats.unfinished_partials += 1;
+            self.stats.unfinished_partial_bits += partial.bit_count as u64;
+            sink.on_rejected_partial(RejectedPartialFragment {
+                header: &partial.header,
+                payload_kind: "accumulated_payload",
+                reason: PartialPayloadReason::EndOfStream,
+                bit_count: partial.bit_count,
+                payload: &partial.buffer,
+                rejection_packet_id: None,
+            });
+        }
+    }
+
+    /// Account for unfinished partials without a preservation consumer.
     pub fn finish(&mut self) {
-        let (count, bits) = self.accumulator.drain_unfinished();
-        self.stats.unfinished_partials += count;
-        self.stats.unfinished_partial_bits += bits;
+        for partial in self.accumulator.drain_unfinished() {
+            self.stats.unfinished_partials += 1;
+            self.stats.unfinished_partial_bits += partial.bit_count as u64;
+        }
     }
 
     /// Process one raw packet (byte slice as received from the demo frame).
@@ -460,10 +501,22 @@ impl ReplicationReader {
                     && stage.channels.len() >= MAX_ACTIVE_CHANNELS)
             {
                 stage.stats.channel_state_limit_failures += 1;
+                if header.b_partial {
+                    let bit_count = payload.bits_remaining() as usize;
+                    let byte_count = stage_fragment(payload.clone(), fragment_stage);
+                    sink.on_rejected_partial(RejectedPartialFragment {
+                        header,
+                        payload_kind: "current_fragment",
+                        reason: PartialPayloadReason::ChannelStateLimit,
+                        bit_count,
+                        payload: &fragment_stage[..byte_count],
+                        rejection_packet_id: Some(header.packet_id),
+                    });
+                }
                 Self::abandon_bunch(&mut payload.clone(), &mut stage);
                 if header.b_close {
                     channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-                    Self::retire_destroyed_channel(header, &mut stage, accumulator);
+                    Self::retire_destroyed_channel(header, &mut stage, accumulator, sink);
                 }
                 bunch_index_in_packet += 1;
                 return;
@@ -524,6 +577,86 @@ impl ReplicationReader {
             );
             *header = result.header;
 
+            let reason = result
+                .error_kind
+                .map(|kind| match kind {
+                    crate::error::PartialSequenceKind::MissingInitial => {
+                        PartialPayloadReason::MissingInitial
+                    }
+                    crate::error::PartialSequenceKind::OverlappingInitial => {
+                        PartialPayloadReason::OverlappingInitial
+                    }
+                    crate::error::PartialSequenceKind::MismatchedContinuation => {
+                        PartialPayloadReason::MismatchedContinuation
+                    }
+                    crate::error::PartialSequenceKind::NonByteAlignedFragment => {
+                        PartialPayloadReason::NonByteAlignedFragment
+                    }
+                })
+                .or_else(|| {
+                    result.resource_limit.map(|limit| match limit {
+                        crate::bunch::PartialResourceLimit::ActiveStates => {
+                            PartialPayloadReason::ActiveStateLimit
+                        }
+                        crate::bunch::PartialResourceLimit::BufferedBits => {
+                            PartialPayloadReason::BufferedBitsLimit
+                        }
+                        crate::bunch::PartialResourceLimit::Allocation => {
+                            PartialPayloadReason::AllocationFailure
+                        }
+                    })
+                });
+            for (displaced, discard_cause) in &result.displaced {
+                let displaced_reason = match discard_cause {
+                    crate::bunch::PartialDiscardCause::Sequence(kind) => match kind {
+                        crate::error::PartialSequenceKind::MissingInitial => {
+                            PartialPayloadReason::MissingInitial
+                        }
+                        crate::error::PartialSequenceKind::OverlappingInitial => {
+                            PartialPayloadReason::OverlappingInitial
+                        }
+                        crate::error::PartialSequenceKind::MismatchedContinuation => {
+                            PartialPayloadReason::MismatchedContinuation
+                        }
+                        crate::error::PartialSequenceKind::NonByteAlignedFragment => {
+                            PartialPayloadReason::NonByteAlignedFragment
+                        }
+                    },
+                    crate::bunch::PartialDiscardCause::Resource(limit) => match limit {
+                        crate::bunch::PartialResourceLimit::ActiveStates => {
+                            PartialPayloadReason::ActiveStateLimit
+                        }
+                        crate::bunch::PartialResourceLimit::BufferedBits => {
+                            PartialPayloadReason::BufferedBitsLimit
+                        }
+                        crate::bunch::PartialResourceLimit::Allocation => {
+                            PartialPayloadReason::AllocationFailure
+                        }
+                    },
+                };
+                sink.on_rejected_partial(RejectedPartialFragment {
+                    header: &displaced.header,
+                    payload_kind: "accumulated_payload",
+                    reason: displaced_reason,
+                    bit_count: displaced.bit_count,
+                    payload: &displaced.buffer,
+                    rejection_packet_id: Some(header.packet_id),
+                });
+            }
+            if !result.should_process
+                && reason != Some(PartialPayloadReason::OverlappingInitial)
+                && (reason.is_some() || header.has_partial_error)
+            {
+                sink.on_rejected_partial(RejectedPartialFragment {
+                    header,
+                    payload_kind: "current_fragment",
+                    reason: reason.unwrap_or(PartialPayloadReason::OverlappingInitial),
+                    bit_count: bit_count as usize,
+                    payload: &fragment_stage[..byte_count],
+                    rejection_packet_id: Some(header.packet_id),
+                });
+            }
+
             if result.overlapping_initial {
                 stage.stats.partial_overlapping_initial += 1;
             }
@@ -556,7 +689,7 @@ impl ReplicationReader {
             if !result.should_process {
                 if header.b_close {
                     channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-                    Self::retire_destroyed_channel(header, stage, accumulator);
+                    Self::retire_destroyed_channel(header, stage, accumulator, sink);
                 }
                 return;
             }
@@ -587,7 +720,7 @@ impl ReplicationReader {
             // its close row was never emitted, and `actor_closes` never moved.
             if header.b_close {
                 channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-                Self::retire_destroyed_channel(header, stage, accumulator);
+                Self::retire_destroyed_channel(header, stage, accumulator, sink);
             }
             return;
         }
@@ -597,7 +730,7 @@ impl ReplicationReader {
             // Handle close
             if header.b_close {
                 channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-                Self::retire_destroyed_channel(header, stage, accumulator);
+                Self::retire_destroyed_channel(header, stage, accumulator, sink);
             }
             return;
         }
@@ -607,7 +740,7 @@ impl ReplicationReader {
 
         if header.b_close {
             channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-            Self::retire_destroyed_channel(header, stage, accumulator);
+            Self::retire_destroyed_channel(header, stage, accumulator, sink);
         }
     }
 
@@ -615,16 +748,24 @@ impl ReplicationReader {
         header: &RawBunchHeader,
         stage: &mut Stage<'_>,
         accumulator: &mut PartialBunchAccumulator,
+        sink: &mut dyn ReplicationSink,
     ) {
         if header.b_dormant {
             return;
         }
         stage.channels.remove(&header.ch_index);
-        let discarded = accumulator.retire_channel(header.ch_index);
-        if discarded != 0 {
+        if let Some(discarded) = accumulator.retire_channel(header.ch_index) {
             stage.stats.partial_errors += 1;
             stage.stats.partial_channel_close += 1;
-            stage.stats.skipped_bits += discarded as u64;
+            stage.stats.skipped_bits += discarded.bit_count as u64;
+            sink.on_rejected_partial(RejectedPartialFragment {
+                header: &discarded.header,
+                payload_kind: "accumulated_payload",
+                reason: PartialPayloadReason::ChannelClosed,
+                bit_count: discarded.bit_count,
+                payload: &discarded.buffer,
+                rejection_packet_id: Some(header.packet_id),
+            });
         }
     }
 
@@ -742,6 +883,15 @@ fn stage_fragment(payload: BitReader<'_>, buffer: &mut Vec<u8>) -> usize {
 mod tests {
     use super::*;
 
+    struct OwnedRejectedPartial {
+        header: RawBunchHeader,
+        kind: &'static str,
+        reason: PartialPayloadReason,
+        bit_count: usize,
+        payload: Vec<u8>,
+        rejection_packet_id: Option<i32>,
+    }
+
     #[derive(Default)]
     struct TestSink {
         fields: Vec<(u32, u32)>,
@@ -758,6 +908,7 @@ mod tests {
         content_blocks: Vec<ContentBlockHeader>,
         rep_layout_tails: Vec<(u32, Vec<u8>)>,
         rep_layout_tail_outcome: Option<RepLayoutTailOutcome>,
+        rejected_partials: Vec<OwnedRejectedPartial>,
     }
 
     impl GuidPathSink for TestSink {
@@ -779,6 +930,16 @@ mod tests {
     }
 
     impl ReplicationSink for TestSink {
+        fn on_rejected_partial(&mut self, p: RejectedPartialFragment<'_>) {
+            self.rejected_partials.push(OwnedRejectedPartial {
+                header: p.header.clone(),
+                kind: p.payload_kind,
+                reason: p.reason,
+                bit_count: p.bit_count,
+                payload: p.payload.to_vec(),
+                rejection_packet_id: p.rejection_packet_id,
+            });
+        }
         fn wants_stream_failure_details(&self) -> bool {
             true
         }
@@ -1038,6 +1199,15 @@ mod tests {
         assert_eq!(reader.stats().partial_overlapping_initial, 0);
         assert_eq!(reader.stats().partial_mismatched_continuation, 0);
         assert_eq!(reader.stats().partial_non_byte_aligned, 0);
+        assert_eq!(sink.rejected_partials.len(), 1);
+        let rejected = &sink.rejected_partials[0];
+        assert_eq!(
+            (rejected.kind, rejected.reason, rejected.bit_count),
+            ("current_fragment", PartialPayloadReason::MissingInitial, 8)
+        );
+        assert_eq!(rejected.payload, &[6]);
+        assert_eq!(rejected.header.ch_index, 2);
+        assert_eq!(rejected.rejection_packet_id, Some(0));
         assert_eq!(
             reader.stats().skipped_bits,
             8,

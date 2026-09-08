@@ -1,5 +1,9 @@
 # September 8, 2026 schema expansion and evidence audit
 
+The subsequent [partial preservation and unresolved-data audit](TRANSPORT_PRESERVATION.md)
+adds raw transport exports and supersedes the current typed-value percentages.
+Figures below describe this earlier batch.
+
 This batch adds 38 primitive overlay entries and expands the diagnostics and
 analysis tools. It was built from `4bfbbd8` plus this change using Rust 1.86.0.
 The tested executable SHA-256 is

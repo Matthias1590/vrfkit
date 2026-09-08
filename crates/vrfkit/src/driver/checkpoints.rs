@@ -19,7 +19,7 @@ use std::io::Write;
 
 use vrf_container::{decompress_checkpoint, parse_checkpoint_chunk};
 use vrf_decode::OverlayErrorReport;
-use vrf_export::FieldWriter;
+use vrf_export::{FieldWriter, PartialWriter};
 use vrf_frame::iter_demo_frames;
 use vrf_net::pipeline::ReplicationReader;
 use vrf_net::stats::NetStats;
@@ -49,6 +49,8 @@ pub(crate) struct CheckpointStats {
     pub frames: u64,
     pub packets: u64,
     pub field_rows: u64,
+    pub partial_rows: u64,
+    pub partial_bits: u64,
     /// Actor opens and movement samples the snapshot produced. They are
     /// counted and dropped, not written: a checkpoint re-opens a channel for
     /// every actor alive at that instant, so folding them into
@@ -91,12 +93,13 @@ pub(super) struct ReplayContext<'a> {
 /// `error_report` is the *shared* one: a decode error is a decode error
 /// wherever it happened, and the breakdown the summary prints is the only place
 /// a checkpoint-only failure would ever be seen.
-pub(super) fn process_chunk<W: Write + Send>(
+pub(super) fn process_chunk<W: Write + Send, P: Write + Send>(
     payload: &[u8],
     ctx: &ReplayContext<'_>,
     writer: &mut FieldWriter<W>,
     stats: &mut CheckpointStats,
     error_report: &mut OverlayErrorReport,
+    partial_writer: &mut PartialWriter<P>,
 ) -> Result<(), CliError> {
     let cp = parse_checkpoint_chunk(payload)?;
     stats.trailing_bytes += cp.trailing_bytes as u64;
@@ -133,6 +136,13 @@ pub(super) fn process_chunk<W: Write + Send>(
             stats.movement_rows_dropped += buffers.movement.len() as u64;
             buffers.actors.clear();
             buffers.movement.clear();
+            for mut record in buffers.partials.drain(..) {
+                stats.partial_rows += 1;
+                stats.partial_bits += record.bit_count;
+                record.source = "checkpoint";
+                record.checkpoint_id = Some(cp.id.clone());
+                partial_writer.push(record)?;
+            }
             Ok(())
         })();
         if let Err(error) = result {
@@ -143,7 +153,17 @@ pub(super) fn process_chunk<W: Write + Send>(
     if let Some(error) = packet_error {
         return Err(error);
     }
-    reader.finish();
+    {
+        let mut sink = ExportSink::new(&mut cache, &mut channels, &mut buffers);
+        reader.finish_with_sink(&mut sink);
+    }
+    for mut record in buffers.partials.drain(..) {
+        stats.partial_rows += 1;
+        stats.partial_bits += record.bit_count;
+        record.source = "checkpoint";
+        record.checkpoint_id = Some(cp.id.clone());
+        partial_writer.push(record)?;
+    }
     let mut chunk_net = reader.stats().clone();
     stats.net.absorb(&mut chunk_net);
 

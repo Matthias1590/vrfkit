@@ -21,3 +21,5 @@ pub mod fields;
 pub mod movement;
 #[cfg(feature = "net-guids")]
 pub mod net_guids;
+#[cfg(feature = "partials")]
+pub mod partials;

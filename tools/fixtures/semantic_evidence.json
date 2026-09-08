@@ -1,0 +1,191 @@
+{
+  "schema_version": 1,
+  "catalog_version": "2026-09-08-initial",
+  "sources": [
+    {
+      "id": "vrfkit-identity-audit",
+      "version": "repo:f22e2de9c6e8acdb6bd734562c71c73f28224f24;export-set-sha256:ddfa92463e19771e92f836c1fc6745198c316273bd8211b2ec59611ac31cd0d8",
+      "scope": {
+        "repository_paths": [
+          "docs/DATA.md:18-35",
+          "crates/vrfkit/src/sink/stream.rs:210-212",
+          "crates/vrfkit/src/sink/stream.rs:273-315",
+          "crates/vrfkit/src/manifest.rs:299-323"
+        ],
+        "export_count": 714,
+        "observed_replay_builds": [
+          "++Ares-Core+release-13.01",
+          "++Ares-Core+release-13.02",
+          "++Ares-Core+release-13.04",
+          "++Ares-Core+release-13.05"
+        ],
+        "measurement_date": "2026-09-08",
+        "cross_source_results": {
+          "subject_in_game_specific_playerLoadouts": "111268/111268; zero mismatches in every listed build",
+          "nonzero_spawned_character_in_movement": "103891/103891; zero mismatches in every listed build"
+        },
+        "limitations": "Field typing and names alone are not semantic evidence. Subject is checked against independently stored game-specific playerLoadouts; every non-zero SpawnedCharacter is checked against movement actor identity. The zero sentinel meaning is separately documented from disconnect observations.",
+        "privacy": "Only aggregate match counts and a one-way export-set identity are retained; no player values are included."
+      }
+    },
+    {
+      "id": "unresolved-semantics-audit",
+      "version": "f22e2de9c6e8acdb6bd734562c71c73f28224f24",
+      "scope": {
+        "repository_paths": [
+          "docs/SCHEMA_EXPANSION.md:39-43",
+          "docs/SCHEMA_EXPANSION.md:129-132",
+          "docs/DATA.md:506-513",
+          "docs/DATA.md:701-710"
+        ],
+        "conclusion": "Wire decoding, stable widths, field names, and aggregate distributions do not establish the listed fields' game meaning."
+      }
+    }
+  ],
+  "claims": [
+    {
+      "id": "fields-bomb-player-state-subject",
+      "source_id": "vrfkit-identity-audit",
+      "table": "fields",
+      "evidence_status": "reviewed",
+      "semantic_label": "player account subject identifier",
+      "reviewed_at": "2026-09-08",
+      "evidence": "The replicated Subject value is joined to the independently stored game-specific playerLoadouts subject identifier; the identity audit records the join rule and distinguishes it from display-name inference.",
+      "criteria": {
+        "group_path": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+        "field_name": "Subject"
+      },
+      "applicability": {
+        "replay_builds": [
+          "++Ares-Core+release-13.01",
+          "++Ares-Core+release-13.02",
+          "++Ares-Core+release-13.04",
+          "++Ares-Core+release-13.05"
+        ]
+      }
+    },
+    {
+      "id": "checkpoint-bomb-player-state-subject",
+      "source_id": "vrfkit-identity-audit",
+      "table": "checkpoint_fields",
+      "evidence_status": "reviewed",
+      "semantic_label": "player account subject identifier",
+      "reviewed_at": "2026-09-08",
+      "evidence": "The checkpoint property is the same exact BombPlayerState Subject identity asserted by the cross-source playerLoadouts join; checkpoint transport does not change that property meaning.",
+      "criteria": {
+        "group_path": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+        "field_name": "Subject"
+      },
+      "applicability": {
+        "replay_builds": [
+          "++Ares-Core+release-13.01",
+          "++Ares-Core+release-13.02",
+          "++Ares-Core+release-13.04",
+          "++Ares-Core+release-13.05"
+        ]
+      }
+    },
+    {
+      "id": "fields-bomb-player-state-spawned-character",
+      "source_id": "vrfkit-identity-audit",
+      "table": "fields",
+      "evidence_status": "reviewed",
+      "semantic_label": "current spawned player character actor reference (NetGUID, or 0 when absent)",
+      "reviewed_at": "2026-09-08",
+      "evidence": "Every non-zero replicated value in the current 714-export check occurs as movement.character_net_guid; the documented disconnect behavior independently establishes 0 as the absent-character sentinel. The selector intentionally includes both states of the actor reference.",
+      "criteria": {
+        "group_path": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+        "field_name": "SpawnedCharacter"
+      },
+      "applicability": {
+        "replay_builds": [
+          "++Ares-Core+release-13.01",
+          "++Ares-Core+release-13.02",
+          "++Ares-Core+release-13.04",
+          "++Ares-Core+release-13.05"
+        ]
+      }
+    },
+    {
+      "id": "checkpoint-bomb-player-state-spawned-character",
+      "source_id": "vrfkit-identity-audit",
+      "table": "checkpoint_fields",
+      "evidence_status": "reviewed",
+      "semantic_label": "current spawned player character actor reference (NetGUID, or 0 when absent)",
+      "reviewed_at": "2026-09-08",
+      "evidence": "Every non-zero checkpoint value in the current 714-export check occurs as movement.character_net_guid; the documented disconnect behavior independently establishes 0 as the absent-character sentinel. The selector intentionally includes both states of the actor reference.",
+      "criteria": {
+        "group_path": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+        "field_name": "SpawnedCharacter"
+      },
+      "applicability": {
+        "replay_builds": [
+          "++Ares-Core+release-13.01",
+          "++Ares-Core+release-13.02",
+          "++Ares-Core+release-13.04",
+          "++Ares-Core+release-13.05"
+        ]
+      }
+    },
+    {
+      "id": "unknown-profile-name-purpose",
+      "source_id": "unresolved-semantics-audit",
+      "table": "fields",
+      "evidence_status": "unknown",
+      "criteria": {
+        "group_path": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+        "field_name": "ProfileName"
+      }
+    },
+    {
+      "id": "unknown-player-state-g-purpose",
+      "source_id": "unresolved-semantics-audit",
+      "table": "fields",
+      "evidence_status": "unknown",
+      "criteria": {
+        "group_path": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+        "field_name": "G"
+      }
+    },
+    {
+      "id": "unknown-player-state-r-purpose",
+      "source_id": "unresolved-semantics-audit",
+      "table": "fields",
+      "evidence_status": "unknown",
+      "criteria": {
+        "group_path": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+        "field_name": "R"
+      }
+    },
+    {
+      "id": "unknown-input-event-action",
+      "source_id": "unresolved-semantics-audit",
+      "table": "fields",
+      "evidence_status": "unknown",
+      "criteria": {
+        "group_path": "/Game/Characters/_Core/BaseReplayController.BaseReplayController_C_ClassNetCache",
+        "field_name": "ClientReplayReceiveInputEventProcessingCapture.InputEventData"
+      }
+    },
+    {
+      "id": "unknown-stop-effect-type",
+      "source_id": "unresolved-semantics-audit",
+      "table": "fields",
+      "evidence_status": "unknown",
+      "criteria": {
+        "group_path": "/Script/ShooterGame.EffectManagerComponent_ClassNetCache",
+        "field_name": "MulticastStopContinuousEffect.StopEffectType"
+      }
+    },
+    {
+      "id": "unknown-gas-active-gameplay-effects-payload",
+      "source_id": "unresolved-semantics-audit",
+      "table": "fields",
+      "evidence_status": "unknown",
+      "criteria": {
+        "group_path": "/Script/ShooterGame.AresAbilitySystemComponent_ClassNetCache",
+        "field_name": "ActiveGameplayEffects"
+      }
+    }
+  ]
+}

@@ -89,6 +89,8 @@ COUNTERS = {
     "movement_rows": r"Movement rows:\s+(\d+)",
     "net_guid_rows": r"NetGUID rows:\s+(\d+)",
     "event_rows": r"Event rows:\s+(\d+)",
+    "partial_rows": r"Partial raw rows:\s+(\d+)",
+    "partial_bits": r"Partial raw rows:\s+\d+ \((\d+) bits\)",
     "event_layout_mismatches": r"Event layout err:\s+(\d+)",
     "event_payloads_decoded": r"Event payloads:\s+(\d+) decoded",
     "event_payload_unknown_groups": r"Event payloads:\s+\d+ decoded / (\d+) unknown groups",
@@ -119,6 +121,8 @@ PATTERNS = {k: re.compile(v) for k, v in COUNTERS.items()}
 # default run must not record them as None and then diff that against a
 # baseline taken with the flag.
 CHECKPOINT_COUNTERS = {
+    "cp_partial_rows": r"Checkpoint partial raw:\s+(\d+) rows",
+    "cp_partial_bits": r"Checkpoint partial raw:\s+\d+ rows / (\d+) bits",
     "cp_chunks": r"Checkpoints:\s+(\d+)",
     "cp_guid_entries": r"GUID entries:\s+(\d+)",
     "cp_group_records": r"Group records:\s+(\d+)",
@@ -132,7 +136,7 @@ CHECKPOINT_COUNTERS = {
     "cp_struct_blobs_failed": r"Checkpoint blobs:\s+\d+ decoded / (\d+) failed",
 }
 
-PARQUET_FILES = ("fields", "movement", "actors", "net_guids", "events")
+PARQUET_FILES = ("fields", "movement", "actors", "net_guids", "events", "partials")
 
 
 def sha256_file(path: Path) -> str:
@@ -157,6 +161,12 @@ def cross_check_identities(counters: dict, parquet: dict) -> list:
         ("NetGUID rows", counters.get("net_guid_rows"), parquet["net_guids"]["rows"]),
         ("Movement rows", counters.get("movement_rows"), parquet["movement"]["rows"]),
         ("Event rows", counters.get("event_rows"), parquet["events"]["rows"]),
+        (
+            "Partial raw rows (main + checkpoint)",
+            None if counters.get("partial_rows") is None or counters.get("cp_partial_rows", 0) is None
+            else counters["partial_rows"] + counters.get("cp_partial_rows", 0),
+            parquet["partials"]["rows"],
+        ),
         (
             "Actor opens + Actor closes",
             None

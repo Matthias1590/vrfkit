@@ -92,6 +92,7 @@ USAGE = REPO / "docs" / "USAGE.md"
 GENERATED_INVENTORY = {
     "crates/vrf-decode/src/table.rs": "tools/extract_descriptors.py",
     "crates/vrf-decode/src/checksum_table.rs": "tools/extract_checksum_types.py",
+    "crates/vrf-decode/src/scoped_types.rs": "tools/generate_scoped_types.py",
     "crates/vrf-transform/src/sbox.rs": "tools/extract_sboxes.py",
     "crates/vrf-transform/tests/data/golden_vectors.rs": "tools/extract_golden.py",
     "tools/equippable_table.py": "tools/extract_equippables.py",

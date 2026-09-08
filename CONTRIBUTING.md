@@ -51,6 +51,7 @@ python -W error tools/check_ascii.py --check
 python -W error tools/apply_type_corrections.py --check
 python -W error tools/check_effect_decoder.py --check
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
+python -W error tools/generate_scoped_types.py --check
 python -W error tools/check_baseline_schemas.py
 python tools/check_docs.py            # not --fast: that skips the count check
 python -W error -m unittest discover -s tools/tests -p "test_*.py"
@@ -86,6 +87,7 @@ cargo +1.86.0 check -p vrf-export --no-default-features --features movement --lo
 cargo +1.86.0 check -p vrf-export --no-default-features --features actors --locked
 cargo +1.86.0 check -p vrf-export --no-default-features --features net-guids --locked
 cargo +1.86.0 check -p vrf-export --no-default-features --features events --locked
+cargo +1.86.0 check -p vrf-export --no-default-features --features partials --locked
 cargo +1.86.0 check -p vrf-export --no-default-features --features snappy --locked
 cargo +1.86.0 check -p vrf-net --no-default-features --locked
 cargo +1.86.0 check -p vrf-net --no-default-features --features diagnostics --locked
@@ -197,6 +199,7 @@ These corrupt downstream consumers silently — no test fails when they break.
 |---|---|
 | `crates/vrf-decode/src/table.rs` | `tools/extract_descriptors.py` then `tools/apply_type_corrections.py` |
 | `crates/vrf-decode/src/checksum_table.rs` | `tools/extract_checksum_types.py` against one or more fresh exports |
+| `crates/vrf-decode/src/scoped_types.rs` | `tools/generate_scoped_types.py` from reviewed exact group/name/checksum evidence |
 | `crates/vrf-transform/src/sbox.rs` | `tools/extract_sboxes.py` |
 | `crates/vrf-transform/tests/data/golden_vectors.rs` | `tools/extract_golden.py` |
 | `tools/equippable_table.py` | `tools/extract_equippables.py` |

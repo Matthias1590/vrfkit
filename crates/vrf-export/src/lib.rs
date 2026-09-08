@@ -85,7 +85,7 @@ pub mod writer;
 
 pub use error::ExportError;
 pub use record::{
-    ActorRecord, EventRecord, FieldRecord, MovementRecord, NetGuidRecord,
+    ActorRecord, EventRecord, FieldRecord, MovementRecord, NetGuidRecord, PartialRecord,
     UNRESOLVED_CLASS_NET_CACHE_PAYLOAD_FIELD_NAME,
 };
 
@@ -99,5 +99,7 @@ pub use tables::fields::{DEFAULT_ROW_GROUP_SIZE, FieldWriter, FieldsTable};
 pub use tables::movement::{DEFAULT_MOVEMENT_ROW_GROUP_SIZE, MovementTable, MovementWriter};
 #[cfg(feature = "net-guids")]
 pub use tables::net_guids::{DEFAULT_NET_GUID_ROW_GROUP_SIZE, NetGuidWriter, NetGuidsTable};
+#[cfg(feature = "partials")]
+pub use tables::partials::{PartialWriter, PartialsTable};
 #[cfg(feature = "parquet")]
 pub use writer::{Table, TableWriter};

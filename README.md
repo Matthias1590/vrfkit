@@ -18,11 +18,12 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Current state:** `cargo +1.86.0 test --workspace --locked` **629 passing**,
-`tools/tests` **614 passing** -- see [Status](#status) for the rest.
+**Current state:** `cargo +1.86.0 test --workspace --locked` **632 passing**,
+`tools/tests` **639 passing** -- see [Status](#status) for the rest.
 
 - Run it: [`docs/USAGE.md`](docs/USAGE.md)
 - What's extractable: [`docs/DATA.md`](docs/DATA.md)
+- Latest corpus results: [`docs/TRANSPORT_PRESERVATION.md`](docs/TRANSPORT_PRESERVATION.md)
 - Build it, test it, open a PR: [`CONTRIBUTING.md`](CONTRIBUTING.md)
 - Working conventions (for an AI agent): [`CLAUDE.md`](CLAUDE.md)
 
@@ -93,7 +94,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **629 tests** plus a layered validation suite (framing / bytes / decode
+- **632 tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -143,20 +144,23 @@ silently** -- a subcommand that printed nothing and exited 0 would be
 indistinguishable from one that wrote the files.
 
 On `02d4d478` (48,215,213 bytes, build 13.01), `export` takes ~0.79 s and
-produces seven files:
+produces eight files when checkpoints are included:
 
 | File | Rows | Bytes |
 |---|---|---|
-| `fields.parquet` | 1,277,983 | 16,121,012 |
+| `fields.parquet` | 1,277,983 | 16,121,031 |
 | `movement.parquet` | 1,839,607 | 31,835,557 |
 | `actors.parquet` | 3,827 | 87,281 |
 | `net_guids.parquet` | 16,167 | 153,606 |
 | `events.parquet` | 195 | 13,411 |
-| `checkpoint_fields.parquet` | 78,924 | 238,016 |
+| `partials.parquet` | 131 | 213,371 |
+| `checkpoint_fields.parquet` | 78,924 | 237,911 |
 | `manifest.json` |  | ~660,030 |
 
-`checkpoint_fields.parquet` requires `--checkpoints`; with or without it, **the
-other five tables are byte-for-byte identical.**
+`checkpoint_fields.parquet` requires `--checkpoints`. The partials row above
+shows the default main-only export; with checkpoints it contains 1,101 rows
+and occupies 1,755,789 bytes. The five original main tables remain
+byte-for-byte identical across the checkpoint flag.
 
 Two things about `movement.parquet` worth knowing up front: `timestamp` is the
 128.0 Hz server tick and **resets each round** -- use `time_ms` for a global
@@ -276,6 +280,19 @@ normalization collapses them to ~1.4% (see `docs/archive/PROJECT_STATUS.md`
 section 22-I; byte-level format in
 [`docs/archive/CHECKPOINT_SPEC.md`](docs/archive/CHECKPOINT_SPEC.md)).
 
+### `partials.parquet` -- unresolved transport payloads
+
+Rejected partial fragments and abandoned accumulators retain their exact raw
+bits in this separate table. Rows record the source stream and checkpoint ID,
+source packet and payload bit offset, channel and sequence, original header
+flags, rejection position and reason. `current_fragment` and
+`accumulated_payload` are distinct: an accumulator's source header describes
+its first fragment, while its `bit_count` describes the assembled raw buffer.
+These rows are preserved evidence, not successfully reconstructed RPCs.
+With `--checkpoints`, both streams share this table and remain distinguishable
+by `source` and `checkpoint_id`. CLI and manifest counters report each stream's
+preserved rows and bits separately.
+
 ### `manifest.json`
 
 The full ReplayInfo plus the header, statistics, and **every export group the
@@ -299,8 +316,8 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**629 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
-and `check_ascii` on 122 files. The Python suite in `tools/tests` has 614 tests.
+**632 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
+and `check_ascii` on 124 files. The Python suite in `tools/tests` has 639 tests.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
 from the table below on purpose -- they go stale, and re-measuring is one line.
@@ -619,13 +636,13 @@ committed export baseline `tools/baselines/export_02d4d478.json` (pinned in
 `ee34e9a`) -- not retyped from a console:
 
 ```
-Decoded OK:   789,606      Decode errors:      0
-Raw/Skip:      31,793      Not in table: 165,557
+Decoded OK:   789,624      Decode errors:      0
+Raw/Skip:      31,793      Not in table: 165,539
 No field name:  2,027      Typed:          79.8%
 Effect blobs:  53,908
 ```
 
-The four buckets partition `Rows offered` exactly (789,606 + 31,793 + 165,557 +
+The four buckets partition `Rows offered` exactly (789,624 + 31,793 + 165,539 +
 2,027 = 988,983), and `Typed` is `Decoded OK / Rows offered`. The figures this
 block held until 2026-08-30 partitioned the same 988,983 rows differently -- they
 were an older snapshot, taken before overlay entries that moved rows out of `Not
@@ -852,6 +869,7 @@ Five files in the tree are generated and must never be edited by hand:
 |---|---|---|
 | `crates/vrf-decode/src/table.rs` | `tools/extract_descriptors.py` then `tools/apply_type_corrections.py` | The overlay table (1,309 entries, 214 groups, 84 handles) and handle table |
 | `crates/vrf-decode/src/checksum_table.rs` | `tools/extract_checksum_types.py` | Replay-observed checksum-to-type propagation table; conflicting donors are omitted |
+| `crates/vrf-decode/src/scoped_types.rs` | `tools/generate_scoped_types.py` | Exact group/name/checksum primitive types for ambiguous field names; no cross-group propagation |
 | `crates/vrf-transform/src/sbox.rs` | `tools/extract_sboxes.py` | 768-byte S-box, shared across builds |
 | `crates/vrf-transform/tests/data/golden_vectors.rs` | `tools/extract_golden.py` | Per-build golden test vectors |
 | `tools/equippable_table.py` | `tools/extract_equippables.py` | Weapon class path to display name |

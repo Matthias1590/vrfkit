@@ -48,7 +48,7 @@ use vrf_decode::{
     ArrayDecodeStats, GroupHashState, OVERLAY_HANDLE_TABLE, OVERLAY_TABLE, OverlayStats,
     OverlayTable, group_hash_state,
 };
-use vrf_export::{ActorRecord, FieldRecord, MovementRecord};
+use vrf_export::{ActorRecord, FieldRecord, MovementRecord, PartialRecord};
 use vrf_net::net_guid::GuidPathSink;
 use vrf_net::types::NetworkGuid;
 use vrf_schema::{FxHashMap, NetGuidCache};
@@ -389,6 +389,7 @@ pub struct RecordBuffers {
     pub movement: Vec<MovementRecord>,
     /// Actor lifecycle records to be drained by the driver.
     pub actors: Vec<ActorRecord>,
+    pub partials: Vec<PartialRecord>,
 }
 
 /// The export sink. Receives decoded events from `vrf-net` and produces records
@@ -451,6 +452,7 @@ impl<'a> ExportSink<'a> {
         records.fields.clear();
         records.movement.clear();
         records.actors.clear();
+        records.partials.clear();
         let current_group_path = empty_group_path();
         let current_group_hash = group_hash_state(&current_group_path);
         Self {

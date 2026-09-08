@@ -102,6 +102,8 @@ mod checksum_table;
 pub mod effect;
 #[cfg(feature = "overlay")]
 mod overlay;
+#[cfg(feature = "overlay")]
+mod scoped_types;
 #[cfg(feature = "structs")]
 pub mod structs;
 #[cfg(feature = "overlay")]

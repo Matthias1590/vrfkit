@@ -1,74 +1,83 @@
 {
- "replay": "02d4d478-1dfb-4412-9a77-29ca29105a9d.vrf",
- "counters": {
-  "chunks": 19,
-  "packets": 530401,
-  "export_groups": 475,
-  "content_blocks": 608020,
-  "rep_layout_blocks": 258892,
-  "class_net_cache_blocks": 349119,
-  "fields": 429637,
-  "rpcs": 342953,
-  "actor_opens": 2028,
-  "actor_closes": 1799,
-  "bunches": 530401,
-  "malformed_packets": 0,
-  "skipped_bits": 19239874,
-  "movement_rows": 1839607,
-  "net_guid_rows": 16167,
-  "event_rows": 195,
-  "event_layout_mismatches": 0,
-  "event_payloads_decoded": 195,
-  "event_payload_unknown_groups": 0,
-  "overlay_decoded_ok": 789606,
-  "overlay_decode_errors": 0,
-  "overlay_raw_skip": 31793,
-  "overlay_not_in_table": 165557,
-  "overlay_no_field_name": 2027,
-  "overlay_rows_offered": 988983,
-  "effect_blobs_decoded": 53908,
-  "struct_blobs_decoded": 207,
-  "struct_blobs_failed": 0,
-  "cp_chunks": 18,
-  "cp_guid_entries": 74270,
-  "cp_group_records": 8307,
-  "cp_exported_fields": 49314,
-  "cp_frames": 18,
-  "cp_frame_packets": 3691,
-  "cp_field_rows": 78924,
-  "cp_struct_blobs_decoded": 35,
-  "cp_struct_blobs_failed": 0
- },
- "parquet": {
-  "fields": {
-   "rows": 1277983,
-   "bytes": 16121012,
-   "sha256": "153b81d0be2e61da91a8eb878f1410c8510e6ca6750105dedd1f997189d9c947"
+  "counters": {
+    "chunks": 19,
+    "packets": 530401,
+    "export_groups": 475,
+    "content_blocks": 608020,
+    "rep_layout_blocks": 258892,
+    "class_net_cache_blocks": 349119,
+    "fields": 429637,
+    "rpcs": 342953,
+    "actor_opens": 2028,
+    "actor_closes": 1799,
+    "bunches": 530401,
+    "malformed_packets": 0,
+    "skipped_bits": 19239874,
+    "movement_rows": 1839607,
+    "net_guid_rows": 16167,
+    "event_rows": 195,
+    "partial_rows": 131,
+    "partial_bits": 1628083,
+    "event_layout_mismatches": 0,
+    "event_payloads_decoded": 195,
+    "event_payload_unknown_groups": 0,
+    "overlay_decoded_ok": 789624,
+    "overlay_decode_errors": 0,
+    "overlay_raw_skip": 31793,
+    "overlay_not_in_table": 165539,
+    "overlay_no_field_name": 2027,
+    "overlay_rows_offered": 988983,
+    "effect_blobs_decoded": 53908,
+    "struct_blobs_decoded": 207,
+    "struct_blobs_failed": 0,
+    "cp_partial_rows": 970,
+    "cp_partial_bits": 12444310,
+    "cp_chunks": 18,
+    "cp_guid_entries": 74270,
+    "cp_group_records": 8307,
+    "cp_exported_fields": 49314,
+    "cp_frames": 18,
+    "cp_frame_packets": 3691,
+    "cp_field_rows": 78924,
+    "cp_struct_blobs_decoded": 35,
+    "cp_struct_blobs_failed": 0
   },
-  "movement": {
-   "rows": 1839607,
-   "bytes": 31835557,
-   "sha256": "106249a8e34348edc1d3ff2f180e1b324b2cbb49fe456411568000d53d3231d0"
+  "parquet": {
+    "fields": {
+      "rows": 1277983,
+      "bytes": 16121031,
+      "sha256": "7ec308879016c1490db201b53e4146ed553a50d191a1845186910c760c0c5d76"
+    },
+    "movement": {
+      "rows": 1839607,
+      "bytes": 31835557,
+      "sha256": "106249a8e34348edc1d3ff2f180e1b324b2cbb49fe456411568000d53d3231d0"
+    },
+    "actors": {
+      "rows": 3827,
+      "bytes": 87281,
+      "sha256": "84076cf7ca398c957c3e67148d0622f72e809cb4e2157f66cd4f18b197e65d7b"
+    },
+    "net_guids": {
+      "rows": 16167,
+      "bytes": 153606,
+      "sha256": "501cabc678770431d0fec9c37c4e21ed06193bb93263313959e87865625bba0f"
+    },
+    "events": {
+      "rows": 195,
+      "bytes": 13411,
+      "sha256": "e3879e2aabfc83ecae48be30ef8056fc8ec10ee1dab50c3882dc2b72d0f12af2"
+    },
+    "partials": {
+      "rows": 1101,
+      "bytes": 1755789,
+      "sha256": "a407833d3ca58eb735bf8109c633fc06a6056435bc709fd6bf74d70e591bcfbc"
+    },
+    "checkpoint_fields": {
+      "rows": 78924,
+      "bytes": 237911,
+      "sha256": "5c9f2be08a1f1fab7f77089cbef0b19b0bb431346543c9a22abcc61be7a90eab"
+    }
   },
-  "actors": {
-   "rows": 3827,
-   "bytes": 87281,
-   "sha256": "84076cf7ca398c957c3e67148d0622f72e809cb4e2157f66cd4f18b197e65d7b"
-  },
-  "net_guids": {
-   "rows": 16167,
-   "bytes": 153606,
-   "sha256": "501cabc678770431d0fec9c37c4e21ed06193bb93263313959e87865625bba0f"
-  },
-  "events": {
-   "rows": 195,
-   "bytes": 13411,
-   "sha256": "e3879e2aabfc83ecae48be30ef8056fc8ec10ee1dab50c3882dc2b72d0f12af2"
-  },
-  "checkpoint_fields": {
-   "rows": 78924,
-   "bytes": 238016,
-   "sha256": "f8dde2786a032c86b337135ad81a4d60b3a3f8477e8a92a6b9a53b4181cd593e"
-  }
- }
+  "replay": "02d4d478-1dfb-4412-9a77-29ca29105a9d.vrf"
 }

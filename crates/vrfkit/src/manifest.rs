@@ -36,6 +36,8 @@ pub(crate) struct ManifestQuality<'a> {
     pub movement_rows: u64,
     pub net_guid_rows: usize,
     pub event_rows: u64,
+    pub partial_rows: u64,
+    pub partial_bits: u64,
     pub event_trailing_bytes: u64,
     pub replay_data_trailing_bytes: u64,
     pub event_layout_mismatches: u64,
@@ -428,6 +430,18 @@ fn quality_json(quality: &ManifestQuality<'_>) -> String {
     wkv(&mut out, "event_rows", &quality.event_rows.to_string(), 2);
     wkv(
         &mut out,
+        "partial_rows",
+        &quality.partial_rows.to_string(),
+        2,
+    );
+    wkv(
+        &mut out,
+        "partial_bits",
+        &quality.partial_bits.to_string(),
+        2,
+    );
+    wkv(
+        &mut out,
         "event_trailing_bytes",
         &quality.event_trailing_bytes.to_string(),
         2,
@@ -526,6 +540,18 @@ fn quality_json(quality: &ManifestQuality<'_>) -> String {
                 &mut out,
                 "checkpoint_field_rows",
                 &checkpoints.field_rows.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_partial_rows",
+                &checkpoints.partial_rows.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_partial_bits",
+                &checkpoints.partial_bits.to_string(),
                 3,
             );
             wkv(
@@ -824,6 +850,8 @@ mod tests {
             movement_rows: 0,
             net_guid_rows: 0,
             event_rows: 0,
+            partial_rows: 0,
+            partial_bits: 0,
             event_trailing_bytes: 0,
             replay_data_trailing_bytes: 0,
             event_layout_mismatches: 0,
@@ -1019,6 +1047,8 @@ mod tests {
             movement_rows: 0,
             net_guid_rows: 0,
             event_rows: 0,
+            partial_rows: 0,
+            partial_bits: 0,
             event_trailing_bytes: 0,
             replay_data_trailing_bytes: 0,
             event_layout_mismatches: 0,
@@ -1070,6 +1100,8 @@ mod tests {
             movement_rows: 0,
             net_guid_rows: 0,
             event_rows: 0,
+            partial_rows: 0,
+            partial_bits: 0,
             event_trailing_bytes: 0,
             replay_data_trailing_bytes: 0,
             event_layout_mismatches: 0,

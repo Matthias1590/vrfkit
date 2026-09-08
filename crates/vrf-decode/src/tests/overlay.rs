@@ -17,6 +17,63 @@ const SWIFT_GS: &str = "/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits
 const SWIFT_PS: &str = "/Game/GameModes/_Development/Swiftplay_EndOfRoundCredits\
 /Swiftplay_EoRCredits_PlayerState.Swiftplay_EoRCredits_PlayerState_C";
 
+#[test]
+fn scoped_types_require_the_exact_group_name_and_checksum() {
+    let table = OverlayTable::new(&OVERLAY_TABLE);
+    for group in [BOMB_PS, SWIFT_PS] {
+        assert_eq!(
+            resolve_field_type_with_checksum(&table, group, Some("B"), None, Some(379198054)),
+            Some(FieldType::Byte)
+        );
+        for checksum in [None, Some(943211507), Some(1)] {
+            assert_eq!(
+                resolve_field_type_with_checksum(&table, group, Some("B"), None, checksum),
+                None
+            );
+        }
+    }
+    for (group, name) in [("/Unobserved", "B"), (BOMB_PS, "Unobserved")] {
+        assert_eq!(
+            resolve_field_type_with_checksum(&table, group, Some(name), None, Some(379198054)),
+            None
+        );
+    }
+}
+
+#[test]
+fn scoped_bytes_decode_exactly_and_reject_a_wider_payload() {
+    let table = OverlayTable::new(&OVERLAY_TABLE);
+    let mut stats = OverlayStats::default();
+    let value = crate::apply_overlay_with_checksum(
+        &table,
+        BOMB_PS,
+        group_hash_state(BOMB_PS),
+        Some("B"),
+        39,
+        Some(379198054),
+        Some(&[255]),
+        8,
+        &mut stats,
+    )
+    .expect("scoped byte is attempted");
+    assert_eq!(value.value_i64, Some(255));
+    let rejected = crate::apply_overlay_with_checksum(
+        &table,
+        BOMB_PS,
+        group_hash_state(BOMB_PS),
+        Some("B"),
+        39,
+        Some(379198054),
+        Some(&[255, 0, 0, 0]),
+        32,
+        &mut stats,
+    )
+    .expect("known type reports a rejected width");
+    assert_eq!(rejected.value_i64, None);
+    assert_eq!(stats.decoded_ok, 1);
+    assert_eq!(stats.decoded_err, 1);
+}
+
 /// A Bomb class is already canonical and must not be rewritten.
 #[test]
 fn canonical_group_leaves_a_bomb_class_alone() {

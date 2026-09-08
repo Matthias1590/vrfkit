@@ -11,11 +11,14 @@ use smallvec::SmallVec;
 use vrf_bitio::BitReader;
 use vrf_decode::apply_overlay_with_checksum;
 use vrf_decode::cnc::decode_cnc_payload;
-use vrf_export::{ActorRecord, MovementRecord, UNRESOLVED_CLASS_NET_CACHE_PAYLOAD_FIELD_NAME};
+use vrf_export::{
+    ActorRecord, MovementRecord, PartialRecord, UNRESOLVED_CLASS_NET_CACHE_PAYLOAD_FIELD_NAME,
+};
 use vrf_net::content::ContentBlockHeader;
 use vrf_net::field::FieldSink;
 use vrf_net::pipeline::{
-    ActorChannelState, RepLayoutTailOutcome, ReplicationSink, StreamFailure, StreamFailureCause,
+    ActorChannelState, PartialPayloadReason, RejectedPartialFragment, RepLayoutTailOutcome,
+    ReplicationSink, StreamFailure, StreamFailureCause,
 };
 use vrf_net::types::NetworkGuid;
 
@@ -388,6 +391,52 @@ impl ExportSink<'_> {
 }
 
 impl ReplicationSink for ExportSink<'_> {
+    fn on_rejected_partial(&mut self, p: RejectedPartialFragment<'_>) {
+        let reason = match p.reason {
+            PartialPayloadReason::MissingInitial => "missing_initial",
+            PartialPayloadReason::OverlappingInitial => "overlapping_initial",
+            PartialPayloadReason::MismatchedContinuation => "mismatched_continuation",
+            PartialPayloadReason::NonByteAlignedFragment => "non_byte_aligned_fragment",
+            PartialPayloadReason::ActiveStateLimit => "active_state_limit",
+            PartialPayloadReason::BufferedBitsLimit => "buffered_bits_limit",
+            PartialPayloadReason::AllocationFailure => "allocation_failure",
+            PartialPayloadReason::ChannelStateLimit => "channel_state_limit",
+            PartialPayloadReason::ChannelClosed => "channel_closed",
+            PartialPayloadReason::EndOfStream => "end_of_stream",
+        };
+        let mut raw_bits = p.payload.to_vec();
+        if p.bit_count % 8 != 0 {
+            if let Some(last) = raw_bits.last_mut() {
+                *last &= (1u8 << (p.bit_count % 8)) - 1;
+            }
+        }
+        let h = p.header;
+        self.records.partials.push(PartialRecord {
+            source: "",
+            checkpoint_id: None,
+            payload_kind: p.payload_kind,
+            reason,
+            source_packet_id: h.packet_id,
+            source_payload_bit_offset: h.payload_bit_offset,
+            rejection_packet_id: p.rejection_packet_id,
+            channel_index: h.ch_index,
+            channel_sequence: h.ch_sequence,
+            open: h.b_open,
+            close: h.b_close,
+            dormant: h.b_dormant,
+            replication_paused: h.b_is_replication_paused,
+            reliable: h.b_reliable,
+            partial: h.b_partial,
+            partial_initial: h.b_partial_initial,
+            partial_final: h.b_partial_final,
+            has_package_map_exports: h.b_has_package_map_exports,
+            has_must_be_mapped_guids: h.b_has_must_be_mapped_guids,
+            close_reason: h.close_reason as u8,
+            source_payload_bit_count: h.payload_bit_count,
+            bit_count: p.bit_count as u64,
+            raw_bits,
+        });
+    }
     fn on_actor_open(&mut self, state: &ActorChannelState) {
         self.stats.actor_opens += 1;
         // Track archetype GUID per channel so ClassNetCache path resolution can
