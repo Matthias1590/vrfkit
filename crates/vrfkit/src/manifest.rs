@@ -562,6 +562,24 @@ fn quality_json(quality: &ManifestQuality<'_>) -> String {
             );
             wkv(
                 &mut out,
+                "checkpoint_guid_entry_rows_written",
+                &checkpoints.guid_entry_rows_written.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_export_group_rows_written",
+                &checkpoints.export_group_rows_written.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
+                "checkpoint_export_field_rows_written",
+                &checkpoints.export_field_rows_written.to_string(),
+                3,
+            );
+            wkv(
+                &mut out,
                 "checkpoint_partial_rows",
                 &checkpoints.partial_rows.to_string(),
                 3,
@@ -970,6 +988,9 @@ mod tests {
             "checkpoint_actor_rows_written",
             "checkpoint_net_guid_rows_written",
             "checkpoint_block_rows_written",
+            "checkpoint_guid_entry_rows_written",
+            "checkpoint_export_group_rows_written",
+            "checkpoint_export_field_rows_written",
             "checkpoint_actor_rows_dropped",
             "checkpoint_movement_rows_dropped",
         ] {

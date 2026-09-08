@@ -42,6 +42,9 @@
     "cp_actor_rows_written": 3014,
     "cp_net_guid_rows_written": 74270,
     "cp_block_rows_written": 22247,
+    "cp_guid_entry_rows_written": 74270,
+    "cp_export_group_rows_written": 8307,
+    "cp_export_field_rows_written": 49314,
     "cp_struct_blobs_decoded": 205,
     "cp_struct_blobs_failed": 0
   },
@@ -95,6 +98,21 @@
       "rows": 22247,
       "bytes": 182371,
       "sha256": "333bbc47831e24d4cff71b08a220b689bc5b9a07e3292c7d220152494d4f1eed"
+    },
+    "checkpoint_guid_entries": {
+      "rows": 74270,
+      "bytes": 928714,
+      "sha256": "693876842cc8dc60b3328c64c62446e022dde6e2a8ade2e25a3a5042143ec33e"
+    },
+    "checkpoint_export_groups": {
+      "rows": 8307,
+      "bytes": 27041,
+      "sha256": "91517ce00b415ae13779451a194a593304eada4bc69b4dd743220b48cc6c7fcd"
+    },
+    "checkpoint_export_fields": {
+      "rows": 49314,
+      "bytes": 287130,
+      "sha256": "20dd02181ee904b521aef2382fbc644f30ad49f90b1e7d70930f73202726d174"
     }
   },
   "replay": "02d4d478-1dfb-4412-9a77-29ca29105a9d.vrf"

@@ -5,17 +5,21 @@ use std::sync::Arc;
 use arrow_array::builder::StringDictionaryBuilder;
 use arrow_array::types::Int32Type;
 use arrow_array::{
-    ArrayRef, BinaryArray, BooleanArray, Float32Array, Float64Array, Int64Array, RecordBatch,
-    StringArray, UInt8Array, UInt32Array, UInt64Array,
+    ArrayRef, BinaryArray, BooleanArray, Float32Array, Float64Array, Int32Array, Int64Array,
+    RecordBatch, StringArray, UInt8Array, UInt32Array, UInt64Array,
 };
 use arrow_schema::Schema;
 
 use crate::ExportError;
 use crate::record::{
-    CheckpointActorRecord, CheckpointBlockRecord, CheckpointFieldRecord, CheckpointNetGuidRecord,
+    CheckpointActorRecord, CheckpointBlockRecord, CheckpointExportFieldRecord,
+    CheckpointExportGroupRecord, CheckpointFieldRecord, CheckpointGuidEntryRecord,
+    CheckpointNetGuidRecord,
 };
 use crate::schema::{
-    checkpoint_actors_schema_ref, checkpoint_blocks_schema_ref, checkpoint_fields_schema_ref,
+    checkpoint_actors_schema_ref, checkpoint_blocks_schema_ref,
+    checkpoint_export_fields_schema_ref, checkpoint_export_groups_schema_ref,
+    checkpoint_fields_schema_ref, checkpoint_guid_entries_schema_ref,
     checkpoint_net_guids_schema_ref,
 };
 use crate::writer::{Table, TableWriter};
@@ -24,10 +28,16 @@ pub struct CheckpointFieldsTable;
 pub struct CheckpointActorsTable;
 pub struct CheckpointNetGuidsTable;
 pub struct CheckpointBlocksTable;
+pub struct CheckpointGuidEntriesTable;
+pub struct CheckpointExportGroupsTable;
+pub struct CheckpointExportFieldsTable;
 pub type CheckpointFieldWriter<W> = TableWriter<CheckpointFieldsTable, W>;
 pub type CheckpointActorWriter<W> = TableWriter<CheckpointActorsTable, W>;
 pub type CheckpointNetGuidWriter<W> = TableWriter<CheckpointNetGuidsTable, W>;
 pub type CheckpointBlockWriter<W> = TableWriter<CheckpointBlocksTable, W>;
+pub type CheckpointGuidEntryWriter<W> = TableWriter<CheckpointGuidEntriesTable, W>;
+pub type CheckpointExportGroupWriter<W> = TableWriter<CheckpointExportGroupsTable, W>;
+pub type CheckpointExportFieldWriter<W> = TableWriter<CheckpointExportFieldsTable, W>;
 
 fn identity_arrays<'a>(
     identities: impl Iterator<Item = &'a crate::record::CheckpointIdentity> + Clone,
@@ -40,6 +50,119 @@ fn identity_arrays<'a>(
             identities.map(|i| i.checkpoint_id.as_ref()),
         )),
     ]
+}
+
+impl Table for CheckpointGuidEntriesTable {
+    type Row = CheckpointGuidEntryRecord;
+    const DEFAULT_ROW_GROUP_SIZE: usize = 131_072;
+    const MAX_BUFFERED_BYTES: usize = 8 * 1024 * 1024;
+    const DICTIONARY_COLUMNS: &'static [&'static str] = &["literal_path"];
+    fn schema() -> Arc<Schema> {
+        checkpoint_guid_entries_schema_ref()
+    }
+    fn retained_bytes(row: &Self::Row) -> usize {
+        row.checkpoint.checkpoint_id.len() + row.literal_path.as_ref().map_or(0, String::len)
+    }
+    fn build_batch(rows: &[Self::Row]) -> Result<RecordBatch, ExportError> {
+        let mut c = identity_arrays(rows.iter().map(|r| &r.checkpoint)).to_vec();
+        c.extend([
+            Arc::new(UInt32Array::from_iter_values(
+                rows.iter().map(|r| r.ordinal),
+            )) as ArrayRef,
+            Arc::new(UInt32Array::from_iter_values(
+                rows.iter().map(|r| r.net_guid),
+            )),
+            Arc::new(UInt32Array::from_iter_values(
+                rows.iter().map(|r| r.outer_net_guid),
+            )),
+            Arc::new(BooleanArray::from_iter(
+                rows.iter().map(|r| Some(r.path_is_string)),
+            )),
+            Arc::new(StringArray::from_iter(
+                rows.iter().map(|r| r.literal_path.as_deref()),
+            )),
+            Arc::new(UInt32Array::from_iter(rows.iter().map(|r| r.name_index))),
+            Arc::new(UInt8Array::from_iter_values(rows.iter().map(|r| r.flags))),
+        ]);
+        RecordBatch::try_new(Self::schema(), c).map_err(|e| ExportError::Parquet(e.into()))
+    }
+}
+
+impl Table for CheckpointExportGroupsTable {
+    type Row = CheckpointExportGroupRecord;
+    const DEFAULT_ROW_GROUP_SIZE: usize = 131_072;
+    const MAX_BUFFERED_BYTES: usize = 8 * 1024 * 1024;
+    const DICTIONARY_COLUMNS: &'static [&'static str] = &["group_path"];
+    fn schema() -> Arc<Schema> {
+        checkpoint_export_groups_schema_ref()
+    }
+    fn retained_bytes(row: &Self::Row) -> usize {
+        row.checkpoint.checkpoint_id.len() + row.group_path.len()
+    }
+    fn build_batch(rows: &[Self::Row]) -> Result<RecordBatch, ExportError> {
+        let mut c = identity_arrays(rows.iter().map(|r| &r.checkpoint)).to_vec();
+        c.extend([
+            Arc::new(UInt32Array::from_iter_values(
+                rows.iter().map(|r| r.ordinal),
+            )) as ArrayRef,
+            Arc::new(UInt32Array::from_iter_values(
+                rows.iter().map(|r| r.path_name_index),
+            )),
+            Arc::new(StringArray::from_iter_values(
+                rows.iter().map(|r| r.group_path.as_str()),
+            )),
+            Arc::new(UInt32Array::from_iter_values(
+                rows.iter().map(|r| r.declared_slots),
+            )),
+        ]);
+        RecordBatch::try_new(Self::schema(), c).map_err(|e| ExportError::Parquet(e.into()))
+    }
+}
+
+impl Table for CheckpointExportFieldsTable {
+    type Row = CheckpointExportFieldRecord;
+    const DEFAULT_ROW_GROUP_SIZE: usize = 131_072;
+    const MAX_BUFFERED_BYTES: usize = 8 * 1024 * 1024;
+    const DICTIONARY_COLUMNS: &'static [&'static str] = &["rendered_name", "fname_base"];
+    fn schema() -> Arc<Schema> {
+        checkpoint_export_fields_schema_ref()
+    }
+    fn retained_bytes(row: &Self::Row) -> usize {
+        row.checkpoint.checkpoint_id.len()
+            + row.rendered_name.len()
+            + row.fname_base.as_ref().map_or(0, String::len)
+    }
+    fn build_batch(rows: &[Self::Row]) -> Result<RecordBatch, ExportError> {
+        let mut c = identity_arrays(rows.iter().map(|r| &r.checkpoint)).to_vec();
+        c.extend([
+            Arc::new(UInt32Array::from_iter_values(
+                rows.iter().map(|r| r.group_ordinal),
+            )) as ArrayRef,
+            Arc::new(UInt32Array::from_iter_values(
+                rows.iter().map(|r| r.path_name_index),
+            )),
+            Arc::new(UInt32Array::from_iter_values(rows.iter().map(|r| r.slot))),
+            Arc::new(UInt32Array::from_iter_values(rows.iter().map(|r| r.handle))),
+            Arc::new(UInt32Array::from_iter_values(
+                rows.iter().map(|r| r.compatible_checksum),
+            )),
+            Arc::new(StringArray::from_iter_values(
+                rows.iter().map(|r| r.rendered_name.as_str()),
+            )),
+            Arc::new(UInt8Array::from_iter_values(
+                rows.iter().map(|r| r.exported_flag),
+            )),
+            Arc::new(UInt8Array::from_iter_values(
+                rows.iter().map(|r| r.fname_kind),
+            )),
+            Arc::new(StringArray::from_iter(
+                rows.iter().map(|r| r.fname_base.as_deref()),
+            )),
+            Arc::new(UInt32Array::from_iter(rows.iter().map(|r| r.fname_index))),
+            Arc::new(Int32Array::from_iter(rows.iter().map(|r| r.fname_number))),
+        ]);
+        RecordBatch::try_new(Self::schema(), c).map_err(|e| ExportError::Parquet(e.into()))
+    }
 }
 
 impl Table for CheckpointBlocksTable {
@@ -287,6 +410,7 @@ mod tests {
     use super::*;
     use crate::record::{ActorRecord, CheckpointIdentity, FieldRecord, NetGuidRecord};
     use crate::schema::fields_schema;
+    use arrow_array::Array;
     use smallvec::smallvec;
 
     fn identities() -> [CheckpointIdentity; 2] {
@@ -494,6 +618,124 @@ mod tests {
                 .unwrap()
                 .values(),
             &[12, 12]
+        );
+    }
+
+    #[test]
+    fn declaration_tables_preserve_raw_forms_sparse_slots_and_empty_groups() {
+        let checkpoint = identities()[0].clone();
+        let guid_rows = [
+            CheckpointGuidEntryRecord {
+                checkpoint: checkpoint.clone(),
+                ordinal: 0,
+                net_guid: 7,
+                outer_net_guid: 0,
+                path_is_string: true,
+                literal_path: Some("18".into()),
+                name_index: None,
+                flags: 0,
+            },
+            CheckpointGuidEntryRecord {
+                checkpoint: checkpoint.clone(),
+                ordinal: 1,
+                net_guid: 8,
+                outer_net_guid: 7,
+                path_is_string: false,
+                literal_path: None,
+                name_index: Some(18),
+                flags: 3,
+            },
+        ];
+        let guids = CheckpointGuidEntriesTable::build_batch(&guid_rows).unwrap();
+        let path_is_string = guids
+            .column_by_name("path_is_string")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<BooleanArray>()
+            .unwrap();
+        let name_index = guids
+            .column_by_name("name_index")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<UInt32Array>()
+            .unwrap();
+        let flags = guids
+            .column_by_name("flags")
+            .unwrap()
+            .as_any()
+            .downcast_ref::<UInt8Array>()
+            .unwrap();
+        assert_eq!(
+            [path_is_string.value(0), path_is_string.value(1)],
+            [true, false]
+        );
+        assert!(name_index.is_null(0));
+        assert_eq!(name_index.value(1), 18);
+        assert_eq!(flags.values(), &[0, 3]);
+
+        let groups = CheckpointExportGroupsTable::build_batch(&[CheckpointExportGroupRecord {
+            checkpoint: checkpoint.clone(),
+            ordinal: 4,
+            path_name_index: 18,
+            group_path: "18".into(),
+            declared_slots: 0,
+        }])
+        .unwrap();
+        assert_eq!(
+            groups
+                .column_by_name("declared_slots")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<UInt32Array>()
+                .unwrap()
+                .value(0),
+            0
+        );
+
+        let fields = CheckpointExportFieldsTable::build_batch(&[CheckpointExportFieldRecord {
+            checkpoint,
+            group_ordinal: 9,
+            path_name_index: 18,
+            slot: 6,
+            handle: 31,
+            compatible_checksum: 0x1234,
+            rendered_name: "44".into(),
+            exported_flag: 2,
+            fname_kind: 1,
+            fname_base: None,
+            fname_index: Some(44),
+            fname_number: None,
+        }])
+        .unwrap();
+        assert_eq!(
+            fields
+                .column_by_name("slot")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<UInt32Array>()
+                .unwrap()
+                .value(0),
+            6
+        );
+        assert_eq!(
+            fields
+                .column_by_name("exported_flag")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<UInt8Array>()
+                .unwrap()
+                .value(0),
+            2
+        );
+        assert_eq!(
+            fields
+                .column_by_name("fname_index")
+                .unwrap()
+                .as_any()
+                .downcast_ref::<UInt32Array>()
+                .unwrap()
+                .value(0),
+            44
         );
     }
 }

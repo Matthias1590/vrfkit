@@ -18,8 +18,8 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Current state:** `cargo +1.86.0 test --workspace --locked` **645 passing**,
-`tools/tests` **655 passing** -- see [Status](#status) for the rest.
+**Current state:** `cargo +1.86.0 test --workspace --locked` **651 passing**,
+`tools/tests` **657 passing** -- see [Status](#status) for the rest.
 
 - Run it: [`docs/USAGE.md`](docs/USAGE.md)
 - What's extractable: [`docs/DATA.md`](docs/DATA.md)
@@ -94,7 +94,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **645 tests** plus a layered validation suite (framing / bytes / decode
+- **651 tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -158,6 +158,9 @@ files when checkpoints are included:
 | `checkpoint_actors.parquet` | 3,014 | 27,118 |
 | `checkpoint_net_guids.parquet` | 74,270 | 307,362 |
 | `checkpoint_blocks.parquet` | 22,247 | 182,371 |
+| `checkpoint_guid_entries.parquet` | 74,270 | 928,714 |
+| `checkpoint_export_groups.parquet` | 8,307 | 27,041 |
+| `checkpoint_export_fields.parquet` | 49,314 | 287,130 |
 | `manifest.json` |  | ~660,030 |
 
 `checkpoint_fields.parquet` requires `--checkpoints`. The partials row above
@@ -281,6 +284,15 @@ preserves class GUIDs and the path used to resolve the group name. Join
 within that checkpoint: its packet, channel and GUID state is independent of
 the main stream. A snapshot actor open is not a new timeline spawn.
 
+`checkpoint_export_groups.parquet` and `checkpoint_export_fields.parquet`
+preserve the checkpoint's schema declarations, sparse field slots, checksums,
+and raw FName components. `checkpoint_guid_entries.parquet` preserves the
+initial GUID entries, their order, path representation, and raw flags.
+The existing GUID table remains the cache after the frame walk. See
+[declaration columns and join rules](docs/USAGE.md#checkpoint-schema-declarations).
+The [schema preservation report](docs/CHECKPOINT_SCHEMA_PRESERVATION.md)
+separates the added registry evidence from gameplay interpretation.
+
 See [checkpoint output](docs/USAGE.md#checkpoint_fieldsparquet) and
 [current semantic evidence](docs/SEMANTIC_CONTEXT_EXPANSION.md). Older comparisons
 that joined checkpoint and main GUIDs by number do not establish actor identity.
@@ -321,8 +333,8 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**645 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
-and `check_ascii` on 125 files. The Python suite in `tools/tests` has 655 tests.
+**651 passing**, strict workspace `clippy -D warnings` **0**, `cargo fmt` clean,
+and `check_ascii` on 125 files. The Python suite in `tools/tests` has 657 tests.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
 from the table below on purpose -- they go stale, and re-measuring is one line.

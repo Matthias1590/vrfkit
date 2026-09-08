@@ -85,14 +85,18 @@ pub mod writer;
 
 pub use error::ExportError;
 pub use record::{
-    ActorRecord, CheckpointActorRecord, CheckpointBlockRecord, CheckpointFieldRecord,
+    ActorRecord, CheckpointActorRecord, CheckpointBlockRecord, CheckpointExportFieldRecord,
+    CheckpointExportGroupRecord, CheckpointFieldRecord, CheckpointGuidEntryRecord,
     CheckpointIdentity, CheckpointNetGuidRecord, EventRecord, FieldRecord, MovementRecord,
     NetGuidRecord, PartialRecord, UNRESOLVED_CLASS_NET_CACHE_PAYLOAD_FIELD_NAME,
 };
 #[cfg(feature = "checkpoint-context")]
 pub use tables::checkpoints::{
     CheckpointActorWriter, CheckpointActorsTable, CheckpointBlockWriter, CheckpointBlocksTable,
-    CheckpointFieldWriter, CheckpointFieldsTable, CheckpointNetGuidWriter, CheckpointNetGuidsTable,
+    CheckpointExportFieldWriter, CheckpointExportFieldsTable, CheckpointExportGroupWriter,
+    CheckpointExportGroupsTable, CheckpointFieldWriter, CheckpointFieldsTable,
+    CheckpointGuidEntriesTable, CheckpointGuidEntryWriter, CheckpointNetGuidWriter,
+    CheckpointNetGuidsTable,
 };
 
 #[cfg(feature = "actors")]

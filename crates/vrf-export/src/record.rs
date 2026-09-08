@@ -221,6 +221,43 @@ pub struct CheckpointNetGuidRecord {
     pub net_guid: NetGuidRecord,
 }
 
+#[derive(Debug, Clone)]
+pub struct CheckpointGuidEntryRecord {
+    pub checkpoint: CheckpointIdentity,
+    pub ordinal: u32,
+    pub net_guid: u32,
+    pub outer_net_guid: u32,
+    pub path_is_string: bool,
+    pub literal_path: Option<String>,
+    pub name_index: Option<u32>,
+    pub flags: u8,
+}
+
+#[derive(Debug, Clone)]
+pub struct CheckpointExportGroupRecord {
+    pub checkpoint: CheckpointIdentity,
+    pub ordinal: u32,
+    pub path_name_index: u32,
+    pub group_path: String,
+    pub declared_slots: u32,
+}
+
+#[derive(Debug, Clone)]
+pub struct CheckpointExportFieldRecord {
+    pub checkpoint: CheckpointIdentity,
+    pub group_ordinal: u32,
+    pub path_name_index: u32,
+    pub slot: u32,
+    pub handle: u32,
+    pub compatible_checksum: u32,
+    pub rendered_name: String,
+    pub exported_flag: u8,
+    pub fname_kind: u8,
+    pub fname_base: Option<String>,
+    pub fname_index: Option<u32>,
+    pub fname_number: Option<i32>,
+}
+
 /// One checkpoint content block and the field rows emitted while walking it.
 #[derive(Debug, Clone)]
 pub struct CheckpointBlockRecord {

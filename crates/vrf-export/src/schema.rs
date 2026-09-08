@@ -85,6 +85,58 @@ pub fn checkpoint_blocks_schema_ref() -> Arc<Schema> {
     Arc::new(checkpoint_blocks_schema())
 }
 
+pub fn checkpoint_guid_entries_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("checkpoint_index", DataType::UInt32, false),
+        Field::new("checkpoint_id", DataType::Utf8, false),
+        Field::new("ordinal", DataType::UInt32, false),
+        Field::new("net_guid", DataType::UInt32, false),
+        Field::new("outer_net_guid", DataType::UInt32, false),
+        Field::new("path_is_string", DataType::Boolean, false),
+        Field::new("literal_path", DataType::Utf8, true),
+        Field::new("name_index", DataType::UInt32, true),
+        Field::new("flags", DataType::UInt8, false),
+    ])
+}
+pub fn checkpoint_guid_entries_schema_ref() -> Arc<Schema> {
+    Arc::new(checkpoint_guid_entries_schema())
+}
+
+pub fn checkpoint_export_groups_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("checkpoint_index", DataType::UInt32, false),
+        Field::new("checkpoint_id", DataType::Utf8, false),
+        Field::new("ordinal", DataType::UInt32, false),
+        Field::new("path_name_index", DataType::UInt32, false),
+        Field::new("group_path", DataType::Utf8, false),
+        Field::new("declared_slots", DataType::UInt32, false),
+    ])
+}
+pub fn checkpoint_export_groups_schema_ref() -> Arc<Schema> {
+    Arc::new(checkpoint_export_groups_schema())
+}
+
+pub fn checkpoint_export_fields_schema() -> Schema {
+    Schema::new(vec![
+        Field::new("checkpoint_index", DataType::UInt32, false),
+        Field::new("checkpoint_id", DataType::Utf8, false),
+        Field::new("group_ordinal", DataType::UInt32, false),
+        Field::new("path_name_index", DataType::UInt32, false),
+        Field::new("slot", DataType::UInt32, false),
+        Field::new("handle", DataType::UInt32, false),
+        Field::new("compatible_checksum", DataType::UInt32, false),
+        Field::new("rendered_name", DataType::Utf8, false),
+        Field::new("exported_flag", DataType::UInt8, false),
+        Field::new("fname_kind", DataType::UInt8, false),
+        Field::new("fname_base", DataType::Utf8, true),
+        Field::new("fname_index", DataType::UInt32, true),
+        Field::new("fname_number", DataType::Int32, true),
+    ])
+}
+pub fn checkpoint_export_fields_schema_ref() -> Arc<Schema> {
+    Arc::new(checkpoint_export_fields_schema())
+}
+
 /// Schema for the `fields` table (long format).
 ///
 /// Most rows represent one decoded field. A whole ClassNetCache block whose

@@ -34,7 +34,8 @@ use vrf_container::{
 use vrf_container::{EventPayload, parse_event_payload};
 use vrf_decode::OverlayErrorReport;
 use vrf_export::{
-    ActorWriter, CheckpointActorWriter, CheckpointBlockWriter, CheckpointFieldWriter,
+    ActorWriter, CheckpointActorWriter, CheckpointBlockWriter, CheckpointExportFieldWriter,
+    CheckpointExportGroupWriter, CheckpointFieldWriter, CheckpointGuidEntryWriter,
     CheckpointNetGuidWriter, EventRecord, EventWriter, FieldRecord, FieldWriter, MovementRecord,
     MovementWriter, NetGuidRecord, NetGuidWriter,
 };
@@ -122,6 +123,15 @@ pub fn run(vrf_path: &str, out_dir: &str, with_checkpoints: bool) -> Result<(), 
             actors: CheckpointActorWriter::new(create("checkpoint_actors.parquet")?)?,
             net_guids: CheckpointNetGuidWriter::new(create("checkpoint_net_guids.parquet")?)?,
             blocks: CheckpointBlockWriter::new(create("checkpoint_blocks.parquet")?)?,
+            guid_entries: CheckpointGuidEntryWriter::new(create(
+                "checkpoint_guid_entries.parquet",
+            )?)?,
+            export_groups: CheckpointExportGroupWriter::new(create(
+                "checkpoint_export_groups.parquet",
+            )?)?,
+            export_fields: CheckpointExportFieldWriter::new(create(
+                "checkpoint_export_fields.parquet",
+            )?)?,
         })
     } else {
         None

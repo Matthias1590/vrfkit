@@ -124,7 +124,7 @@ CHECKPOINT_COUNTERS = {
     "cp_partial_rows": r"Checkpoint partial raw:\s+(\d+) rows",
     "cp_partial_bits": r"Checkpoint partial raw:\s+\d+ rows / (\d+) bits",
     "cp_chunks": r"Checkpoints:\s+(\d+)",
-    "cp_guid_entries": r"GUID entries:\s+(\d+)",
+    "cp_guid_entries": r"(?m)^\s*GUID entries:\s+(\d+)",
     "cp_group_records": r"Group records:\s+(\d+)",
     "cp_exported_fields": r"Exported fields:\s+(\d+)",
     "cp_frames": r"Frames:\s+(\d+)",
@@ -133,6 +133,9 @@ CHECKPOINT_COUNTERS = {
     "cp_actor_rows_written": r"Checkpoint actors:\s*(\d+) rows",
     "cp_net_guid_rows_written": r"Checkpoint GUID rows:\s+(\d+)",
     "cp_block_rows_written": r"Checkpoint blocks:\s*(\d+) rows",
+    "cp_guid_entry_rows_written": r"Checkpoint GUID entries:\s*(\d+) rows",
+    "cp_export_group_rows_written": r"Checkpoint export groups:\s*(\d+) rows",
+    "cp_export_field_rows_written": r"Checkpoint export fields:\s*(\d+) rows",
     # Deliberately a different label from the main block's "Struct blobs", so
     # these regexes cannot match each other's line.
     "cp_struct_blobs_decoded": r"Checkpoint blobs:\s+(\d+) decoded",
@@ -142,6 +145,7 @@ CHECKPOINT_COUNTERS = {
 PARQUET_FILES = ("fields", "movement", "actors", "net_guids", "events", "partials")
 CHECKPOINT_PARQUET_FILES = (
     "checkpoint_fields", "checkpoint_actors", "checkpoint_net_guids", "checkpoint_blocks",
+    "checkpoint_guid_entries", "checkpoint_export_groups", "checkpoint_export_fields",
 )
 
 
@@ -190,6 +194,20 @@ def cross_check_identities(counters: dict, parquet: dict) -> list:
     if "cp_block_rows_written" in counters or "checkpoint_blocks" in parquet:
         identities.append(("Checkpoint blocks", counters.get("cp_block_rows_written"),
                            parquet.get("checkpoint_blocks", {}).get("rows")))
+    for label, written, parsed, table in (
+        ("Checkpoint GUID entries", "cp_guid_entry_rows_written", "cp_guid_entries",
+         "checkpoint_guid_entries"),
+        ("Checkpoint export groups", "cp_export_group_rows_written", "cp_group_records",
+         "checkpoint_export_groups"),
+        ("Checkpoint export fields", "cp_export_field_rows_written", "cp_exported_fields",
+         "checkpoint_export_fields"),
+    ):
+        if written in counters or parsed in counters or table in parquet:
+            actual = parquet.get(table, {}).get("rows")
+            identities.append((label, counters.get(written), actual))
+            # Compare the schema reader's independent count too: a writer that
+            # drops a record must fail even if its own printed count agrees.
+            identities.append((label + " parsed", counters.get(parsed), actual))
     return identities
 
 

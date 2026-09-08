@@ -169,7 +169,9 @@ vrfkit export replay.vrf --out out/ --checkpoints
 
 `--checkpoints` reads the Checkpoint chunks as well and **additionally** writes
 `checkpoint_fields.parquet`, `checkpoint_actors.parquet`,
-`checkpoint_net_guids.parquet`, and `checkpoint_blocks.parquet`.
+`checkpoint_net_guids.parquet`, `checkpoint_blocks.parquet`,
+`checkpoint_guid_entries.parquet`, `checkpoint_export_groups.parquet`, and
+`checkpoint_export_fields.parquet`.
 It is off by default because it is a separate pass
 that reads roughly 10% more of the file, and **with or without it, the other
 five tables are byte-for-byte identical.**
@@ -226,6 +228,9 @@ Measured on `02d4d478` (48,215,213 bytes):
 | `checkpoint_actors.parquet` | 3,014 | 27,118 | requires `--checkpoints` |
 | `checkpoint_net_guids.parquet` | 74,270 | 307,362 | requires `--checkpoints` |
 | `checkpoint_blocks.parquet` | 22,247 | 182,371 | requires `--checkpoints` |
+| `checkpoint_guid_entries.parquet` | 74,270 | 928,714 | requires `--checkpoints` |
+| `checkpoint_export_groups.parquet` | 8,307 | 27,041 | requires `--checkpoints` |
+| `checkpoint_export_fields.parquet` | 49,314 | 287,130 | requires `--checkpoints` |
 | `manifest.json` | -- | ~660,030 | varies: it records `elapsed_ms` |
 
 Use [`bench_export.py`](#analysis-helpers) to measure runtime on your machine.
@@ -476,6 +481,38 @@ the enclosing actor's class.
 Historical snapshot-versus-main percentages predate the partial-header fix and
 do not validate cross-stream identity. See [current context and semantic
 evidence](SEMANTIC_CONTEXT_EXPANSION.md).
+
+### Checkpoint schema declarations
+
+These three tables preserve the declarations before each checkpoint's frame.
+All carry `checkpoint_index` and the original `checkpoint_id`. Join with the
+replay identity and checkpoint index; the wire ID alone may repeat.
+
+| Table | Preserved columns after checkpoint identity |
+|---|---|
+| `checkpoint_guid_entries.parquet` | `ordinal`, `net_guid`, `outer_net_guid`, `path_is_string`, `literal_path`, `name_index`, `flags` |
+| `checkpoint_export_groups.parquet` | `ordinal`, `path_name_index`, `group_path`, `declared_slots` |
+| `checkpoint_export_fields.parquet` | `group_ordinal`, `path_name_index`, `slot`, `handle`, `compatible_checksum`, `rendered_name`, `exported_flag`, `fname_kind`, `fname_base`, `fname_index`, `fname_number` |
+
+GUID entry order is the initial wire order, including entries later overwritten
+in the cache. `checkpoint_net_guids.parquet` continues to describe the cache
+after the frame. A literal numeric string and a name index remain distinct:
+`path_is_string` selects exactly one of `literal_path` and `name_index`.
+`flags` retains the raw byte; its bit meanings and the name-index lookup scope
+have not been established.
+
+Group ordinals retain declaration order, including groups with no populated
+fields. `declared_slots` and the populated field slots preserve sparse holes.
+Join fields to groups using checkpoint identity and `group_ordinal`.
+`exported_flag` retains the nonzero wire byte. For an FName, `fname_kind = 0`
+carries `fname_base` and `fname_number`; any nonzero kind carries `fname_index`.
+The exact kind byte is retained. This polarity differs from `path_is_string`.
+`rendered_name` is the existing parser's string rendering, alongside the
+components needed to distinguish forms that render alike.
+
+These are schema and registry observations, not additional gameplay values or
+proof of a numeric group's class. The parser's declaration counts and the
+writer's row counts are independently checked against the three Parquet files.
 
 ### `manifest.json`
 
@@ -893,12 +930,12 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 645 passing
+cargo +1.86.0 test --workspace --locked                              # 651 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 125 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 655 passing
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 657 passing
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 185 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check

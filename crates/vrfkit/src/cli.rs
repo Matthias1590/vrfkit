@@ -35,7 +35,9 @@ SUBCOMMANDS:
               net_guids, events) + manifest.json
               --checkpoints  Also parse Checkpoint chunks into
                              checkpoint_fields, checkpoint_actors,
-                             checkpoint_net_guids and checkpoint_blocks
+                             checkpoint_net_guids, checkpoint_blocks,
+                             checkpoint_guid_entries, checkpoint_export_groups and
+                             checkpoint_export_fields
                              Parquet tables. Off by default: the
                              snapshots are ~10% of the file and a separate
                              read, and the five other tables are unaffected

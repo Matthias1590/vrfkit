@@ -12,6 +12,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -102,6 +103,33 @@ class CrossCheckTests(unittest.TestCase):
         self.assertTrue(any("Checkpoint actors" in p for p in problems), problems)
         self.assertTrue(any("Checkpoint GUID rows" in p for p in problems), problems)
         self.assertTrue(any("Checkpoint blocks" in p for p in problems), problems)
+
+    def test_checkpoint_schema_rows_must_match_reader_and_writer_counts(self):
+        for table, parsed, written in (
+            ("checkpoint_guid_entries", "cp_guid_entries", "cp_guid_entry_rows_written"),
+            ("checkpoint_export_groups", "cp_group_records", "cp_export_group_rows_written"),
+            ("checkpoint_export_fields", "cp_exported_fields", "cp_export_field_rows_written"),
+        ):
+            with self.subTest(table=table):
+                current = checkpoint_measurement(actor_closes=0, cp_partial_rows=0)
+                self.assertEqual(guard.cross_checks(current["counters"], current["parquet"]), [])
+                # A dropped row with a matching writer counter is still wrong.
+                current["counters"][written] = 0
+                current["parquet"][table]["rows"] = 0
+                problems = guard.cross_checks(current["counters"], current["parquet"])
+                self.assertEqual(len(problems), 1, problems)
+                self.assertIn("parsed", problems[0])
+                current["counters"][parsed] = 0
+                self.assertEqual(guard.cross_checks(current["counters"], current["parquet"]), [])
+                current["counters"][written] = None
+                self.assertIn("did not print", " ".join(guard.cross_checks(
+                    current["counters"], current["parquet"])))
+
+    def test_guid_writer_label_cannot_hide_missing_parser_count(self):
+        summary = "  Checkpoint GUID entries: 42 rows\n"
+        self.assertIsNone(re.search(guard.CHECKPOINT_COUNTERS["cp_guid_entries"], summary))
+        summary += "  GUID entries: 43\n"
+        self.assertEqual(re.search(guard.CHECKPOINT_COUNTERS["cp_guid_entries"], summary).group(1), "43")
 
     def test_checkpoint_measurement_requires_every_new_table_and_zero_dropped_actors(self):
         with tempfile.TemporaryDirectory() as temp:
