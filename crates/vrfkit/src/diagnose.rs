@@ -74,6 +74,7 @@ struct DiagSinkTotals {
     multi_contents_items_emitted: u64,
     movement_rpc_errors: u64,
     array: ArrayDecodeStats,
+    tracked_rewards_opaque_empty_variants: u64,
     array_leaf_decode_errors: u64,
     truncated_rpcs: u64,
     rpc_suffix_bits_dropped: u64,
@@ -107,6 +108,7 @@ impl DiagSinkTotals {
         self.array.unconsumed_nested_bits += stats.array.unconsumed_nested_bits;
         self.array.implicit_terminations += stats.array.implicit_terminations;
         self.array.unconsumed_root_bits += stats.array.unconsumed_root_bits;
+        self.tracked_rewards_opaque_empty_variants += stats.tracked_rewards_opaque_empty_variants;
         self.array_leaf_decode_errors += stats.array_leaf_decode_errors;
         self.truncated_rpcs += stats.truncated_rpcs;
         self.rpc_suffix_bits_dropped += stats.rpc_suffix_bits_dropped;
@@ -677,6 +679,10 @@ fn push_sink_totals(out: &mut String, s: &DiagSinkTotals) {
         (
             "array_leaf_decode_errors",
             s.array_leaf_decode_errors.to_string(),
+        ),
+        (
+            "tracked_rewards_opaque_empty_variants",
+            s.tracked_rewards_opaque_empty_variants.to_string(),
         ),
         ("truncated_rpcs", s.truncated_rpcs.to_string()),
         (

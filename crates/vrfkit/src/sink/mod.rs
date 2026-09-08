@@ -196,6 +196,9 @@ pub struct ExportStats {
     pub content_blocks: u64,
     pub overlay: OverlayStats,
     pub array: ArrayDecodeStats,
+    /// Exact 24-bit `TrackedRewards` windows with the measured opaque zero
+    /// byte. They preserve their parent raw row and emit no child rows.
+    pub tracked_rewards_opaque_empty_variants: u64,
     /// EffectContainer blobs turned into a `value_str` JSON array.
     ///
     /// Counted because nothing else moves when this decoder works. The overlay

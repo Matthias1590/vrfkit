@@ -49,6 +49,7 @@ pub(crate) struct SinkTotals {
     pub movement_rpc_errors: u64,
     pub movement_first_error: Option<String>,
     pub array: ArrayDecodeStats,
+    pub tracked_rewards_opaque_empty_variants: u64,
     pub array_leaf_decode_errors: u64,
     pub truncated_rpcs: u64,
     pub rpc_suffix_bits_dropped: u64,
@@ -103,6 +104,7 @@ impl SinkTotals {
         self.array.unconsumed_nested_bits += stats.array.unconsumed_nested_bits;
         self.array.implicit_terminations += stats.array.implicit_terminations;
         self.array.unconsumed_root_bits += stats.array.unconsumed_root_bits;
+        self.tracked_rewards_opaque_empty_variants += stats.tracked_rewards_opaque_empty_variants;
         self.array_leaf_decode_errors += stats.array_leaf_decode_errors;
         self.truncated_rpcs += stats.truncated_rpcs;
         self.rpc_suffix_bits_dropped += stats.rpc_suffix_bits_dropped;

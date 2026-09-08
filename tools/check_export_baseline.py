@@ -114,6 +114,12 @@ COUNTERS = {
     # (0 decoded, 0 failed) from reading the same as a clean one.
     "struct_blobs_decoded": r"Struct blobs:\s+(\d+) decoded",
     "struct_blobs_failed": r"Struct blobs:\s+\d+ decoded / (\d+) failed",
+    # This is a measured opaque shape, not a decode-error counter: the main
+    # corpus is expected to contain it. Require its unconditional summary
+    # line and reconcile it with the manifest instead of requiring zero.
+    "tracked_rewards_opaque_empty_variants": (
+        r"(?m)^\s*Reward opaque:\s+(\d+) empty variants\s*$"
+    ),
 }
 PATTERNS = {k: re.compile(v) for k, v in COUNTERS.items()}
 
@@ -143,6 +149,9 @@ CHECKPOINT_COUNTERS = {
     # these regexes cannot match each other's line.
     "cp_struct_blobs_decoded": r"Checkpoint blobs:\s+(\d+) decoded",
     "cp_struct_blobs_failed": r"Checkpoint blobs:\s+\d+ decoded / (\d+) failed",
+    "cp_tracked_rewards_opaque_empty_variants": (
+        r"(?m)^\s*Checkpoint reward opaque:\s+(\d+) empty variants\s*$"
+    ),
 }
 
 PARQUET_FILES = ("fields", "movement", "actors", "net_guids", "events", "partials")
@@ -289,6 +298,34 @@ def checkpoint_manifest_errors(out_dir: Path, counters: dict | None = None) -> l
     return errors
 
 
+def reward_opaque_manifest_errors(
+    out_dir: Path, counters: dict, checkpoints: bool,
+) -> list[str]:
+    """The measured reward count must agree between CLI and manifest.
+
+    It is deliberately not folded into a decode-error-zero gate: the count
+    records a known opaque payload variant and can legitimately be nonzero.
+    """
+    try:
+        quality = json.loads((out_dir / "manifest.json").read_text(encoding="utf-8"))["quality"]
+        main = quality["sink"]["tracked_rewards_opaque_empty_variants"]
+        checkpoint = (quality["checkpoints"]["sink"]
+                      ["tracked_rewards_opaque_empty_variants"]
+                      if checkpoints else None)
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        return [f"manifest omits tracked rewards opaque-empty quality data: {exc}"]
+    values = {"tracked_rewards_opaque_empty_variants": main}
+    if checkpoints:
+        values["cp_tracked_rewards_opaque_empty_variants"] = checkpoint
+    if any(type(value) is not int or value < 0 for value in values.values()):
+        return ["tracked rewards opaque-empty counts must be nonnegative integers"]
+    return [
+        f"manifest {key}={value} disagrees with summary {counters.get(key)}"
+        for key, value in values.items()
+        if counters.get(key) != value
+    ]
+
+
 def measure(exe: Path, replay: Path, out_dir: Path, checkpoints: bool = False) -> dict:
     """Export one replay and collect the summary counters and Parquet shape.
 
@@ -335,6 +372,10 @@ def measure(exe: Path, replay: Path, out_dir: Path, checkpoints: bool = False) -
             "bytes": path.stat().st_size,
             "sha256": sha256_file(path),
         }
+
+    manifest_errors = reward_opaque_manifest_errors(out_dir, counters, checkpoints)
+    if manifest_errors:
+        raise SystemExit("; ".join(manifest_errors))
 
     if checkpoints:
         manifest_errors = checkpoint_manifest_errors(out_dir, counters)

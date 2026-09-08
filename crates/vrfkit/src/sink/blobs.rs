@@ -55,6 +55,26 @@ fn verified_array_leaf_type(
     (resolved == Some(wanted) || (resolved.is_none() && measured_vector)).then_some(wanted)
 }
 
+/// `TrackedRewards` leaf types have independent full-corpus evidence. The
+/// enclosing exact-array route proves the framing; each typed leaf still needs
+/// its own declared name, handle, checksum, and overlay type to agree.
+fn verified_reward_leaf_type(
+    handle: u32,
+    declared_name: Option<&str>,
+    declared_checksum: Option<u32>,
+    resolved: Option<FieldType>,
+) -> Option<FieldType> {
+    let (name, checksum, wanted) = match handle {
+        28 => ("RewardName", 1_337_472_711, FieldType::FName),
+        30 => ("InstancesOfReward", 2_922_243_316, FieldType::Int32),
+        31 => ("RewardGrantStrategy", 3_589_631_714, FieldType::EnumByte),
+        32 => ("Source", 1_118_571_008, FieldType::EnumByte),
+        _ => return None,
+    };
+    (declared_name == Some(name) && declared_checksum == Some(checksum) && resolved == Some(wanted))
+        .then_some(wanted)
+}
+
 fn measured_array_route(group: &str, parent: &str, checksum: Option<u32>) -> bool {
     matches!(
         (group, parent, checksum),
@@ -63,6 +83,18 @@ fn measured_array_route(group: &str, parent: &str, checksum: Option<u32>) -> boo
             "AllPlayersObfuscatedPlayerInformation",
             Some(1_349_268_968)
         ) | (
+            "/Script/ShooterGame.OwnerExclusivePlayerInfo",
+            "TrackedRewards",
+            Some(976_048_801)
+        ) | (
+            "/Script/ShooterGame.PersonalizationComponent",
+            "SelectedV2",
+            Some(4_218_721_055)
+        ) | (
+            "/Script/ShooterGame.PlayerMatchStatsComponent",
+            "KillData",
+            Some(1_493_759_848)
+        ) | (
             "/Script/ShooterGame.EffectManagerComponent",
             "ServerActiveEffects",
             Some(3_301_618_856)
@@ -70,6 +102,30 @@ fn measured_array_route(group: &str, parent: &str, checksum: Option<u32>) -> boo
             "/Script/ShooterGame.FiniteSpeedMovementComponent",
             "RequestedIgnoreActors",
             Some(1_063_739_204)
+        )
+    )
+}
+
+/// The sole measured empty `TrackedRewards` variant is a 24-bit `02 00 00`
+/// window. Its first two packed values are capacity one and its index-zero
+/// terminator; the final zero byte remains opaque. This is deliberately a
+/// literal route, not a relaxation of `decode_struct_array_exact`: no other
+/// suffix byte, bit length, or identity is accepted.
+fn is_tracked_rewards_opaque_empty_variant(
+    group: &str,
+    parent: &str,
+    checksum: Option<u32>,
+    raw: &[u8],
+    bit_count: u32,
+) -> bool {
+    matches!(
+        (group, parent, checksum, bit_count, raw),
+        (
+            "/Script/ShooterGame.OwnerExclusivePlayerInfo",
+            "TrackedRewards",
+            Some(976_048_801),
+            24,
+            [0x02, 0x00, 0x00]
         )
     )
 }
@@ -124,6 +180,20 @@ impl ExportSink<'_> {
             .collect()
     }
 
+    /// Compatible checksums are declarations on the current enclosing group,
+    /// just like the names above. Keep them indexed by handle so leaf typing
+    /// cannot silently infer a checksum from the child position.
+    fn declared_handle_checksums(cache: &NetGuidCache, group_path: &str) -> Vec<Option<u32>> {
+        let Some(group) = cache.get_group_by_path(group_path) else {
+            return Vec::new();
+        };
+        group
+            .fields
+            .iter()
+            .map(|slot| slot.as_ref().map(|field| field.compatible_checksum))
+            .collect()
+    }
+
     /// Check if a field name is a known DynamicArray that should be flattened.
     pub(super) fn is_known_array_field(
         &self,
@@ -143,6 +213,21 @@ impl ExportSink<'_> {
                 self.measured_array_routes
                     && self.current_group_path.as_ref()
                         == "/Script/ShooterGame.OwnerExclusivePlayerInfo"
+            }
+            (Some("TrackedRewards"), Some(976_048_801)) => {
+                self.measured_array_routes
+                    && self.current_group_path.as_ref()
+                        == "/Script/ShooterGame.OwnerExclusivePlayerInfo"
+            }
+            (Some("SelectedV2"), Some(4_218_721_055)) => {
+                self.measured_array_routes
+                    && self.current_group_path.as_ref()
+                        == "/Script/ShooterGame.PersonalizationComponent"
+            }
+            (Some("KillData"), Some(1_493_759_848)) => {
+                self.measured_array_routes
+                    && self.current_group_path.as_ref()
+                        == "/Script/ShooterGame.PlayerMatchStatsComponent"
             }
             (Some("ServerActiveEffects"), Some(3_301_618_856)) => {
                 self.measured_array_routes
@@ -193,9 +278,23 @@ impl ExportSink<'_> {
     ) {
         let schema = self.get_array_schema(field_name);
         let declared = Self::declared_handle_names(self.cache, &self.current_group_path);
+        let declared_checksums =
+            Self::declared_handle_checksums(self.cache, &self.current_group_path);
         let parent_name = field_name.unwrap_or("_array");
         let measured = self.measured_array_routes
             && measured_array_route(&self.current_group_path, parent_name, checksum);
+        if measured
+            && is_tracked_rewards_opaque_empty_variant(
+                &self.current_group_path,
+                parent_name,
+                checksum,
+                raw,
+                bit_count,
+            )
+        {
+            self.stats.tracked_rewards_opaque_empty_variants += 1;
+            return;
+        }
         let mut isolated = vrf_decode::ArrayDecodeStats::default();
         let flattened = if measured {
             vrf_decode::decode_struct_array_exact(raw, bit_count, &declared, &mut isolated)
@@ -254,7 +353,11 @@ impl ExportSink<'_> {
                     Some(f.handle),
                 )
                 .filter(|ft| !matches!(ft, FieldType::Raw | FieldType::Skip));
-                if measured {
+                if measured && parent_name == "TrackedRewards" {
+                    let declared_checksum =
+                        declared_checksums.get(f.handle as usize).copied().flatten();
+                    verified_reward_leaf_type(f.handle, name, declared_checksum, resolved)
+                } else if measured {
                     verified_array_leaf_type(parent_name, checksum, f.handle, resolved, name)
                 } else {
                     resolved
@@ -651,6 +754,14 @@ mod tests {
     const OWNER: &str = "/Script/ShooterGame.OwnerExclusivePlayerInfo";
     const OWNER_PARENT: &str = "AllPlayersObfuscatedPlayerInformation";
     const OWNER_CHECKSUM: u32 = 1_349_268_968;
+    const REWARDS_PARENT: &str = "TrackedRewards";
+    const REWARDS_CHECKSUM: u32 = 976_048_801;
+    const SELECTED_GROUP: &str = "/Script/ShooterGame.PersonalizationComponent";
+    const SELECTED_PARENT: &str = "SelectedV2";
+    const SELECTED_CHECKSUM: u32 = 4_218_721_055;
+    const KILL_GROUP: &str = "/Script/ShooterGame.PlayerMatchStatsComponent";
+    const KILL_PARENT: &str = "KillData";
+    const KILL_CHECKSUM: u32 = 1_493_759_848;
     const MEASURED_BUILD: &str = "++Ares-Core+release-13.05";
 
     fn packed(bits: &mut Vec<bool>, mut value: u32) {
@@ -672,6 +783,12 @@ mod tests {
         raw
     }
 
+    fn bits_from_bytes(raw: &[u8]) -> Vec<bool> {
+        raw.iter()
+            .flat_map(|byte| (0..8).map(move |bit| byte & (1 << bit) != 0))
+            .collect()
+    }
+
     fn one_leaf(handle: u32, payload: &[bool]) -> Vec<bool> {
         let mut bits = Vec::new();
         for value in [1, 1, handle + 1, payload.len() as u32] {
@@ -689,12 +806,22 @@ mod tests {
         bits: &[bool],
         branch: Option<&str>,
     ) -> (RecordBuffers, ExportStats) {
+        export_array_with_child_checksum(identity, (leaf.0, leaf.1, 0), bits, branch)
+    }
+
+    fn export_array_with_child_checksum(
+        identity: (&str, &str, u32),
+        leaf: (u32, &str, u32),
+        bits: &[bool],
+        branch: Option<&str>,
+    ) -> (RecordBuffers, ExportStats) {
         let (group, parent, checksum) = identity;
         let mut cache = NetGuidCache::new();
         cache
             .add_export_group(vrf_schema::NetFieldExportGroup::new(group.into(), 7, 128))
             .unwrap();
-        for (handle, name, compatible_checksum) in [(0, parent, checksum), (leaf.0, leaf.1, 0)] {
+        for (handle, name, compatible_checksum) in [(0, parent, checksum), (leaf.0, leaf.1, leaf.2)]
+        {
             assert!(cache.set_field_on_group(
                 7,
                 vrf_schema::NetFieldExport {
@@ -843,6 +970,327 @@ mod tests {
     }
 
     #[test]
+    fn tracked_rewards_unverified_children_stay_raw() {
+        let bits = one_leaf(19, &[true]);
+        let (records, stats) = export_array(
+            (OWNER, REWARDS_PARENT, REWARDS_CHECKSUM),
+            (19, "AdditionalRawReward"),
+            &bits,
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields.len(), 2);
+        let child = &records.fields[0];
+        assert_eq!(
+            child.field_name.as_deref(),
+            Some("TrackedRewards[0].AdditionalRawReward")
+        );
+        assert_eq!(child.raw_bits.as_deref(), Some([1u8].as_slice()));
+        assert_eq!(
+            (
+                child.value_i64,
+                child.value_f64,
+                child.value_bool,
+                child.value_str.as_deref()
+            ),
+            (None, None, None, None)
+        );
+        assert_eq!(stats.tracked_rewards_opaque_empty_variants, 0);
+    }
+
+    #[test]
+    fn tracked_rewards_types_only_the_four_verified_leaf_identities() {
+        let fname_zero = vec![true, false, false, false, false, false, false, false, false];
+        for (handle, name, checksum, payload, want_i64, want_str) in [
+            (28, "RewardName", 1_337_472_711, fname_zero, None, Some("0")),
+            (
+                30,
+                "InstancesOfReward",
+                2_922_243_316,
+                vec![false; 32],
+                Some(0),
+                None,
+            ),
+            (
+                31,
+                "RewardGrantStrategy",
+                3_589_631_714,
+                vec![false; 2],
+                Some(0),
+                None,
+            ),
+            (
+                32,
+                "Source",
+                1_118_571_008,
+                vec![true, true, false],
+                Some(3),
+                None,
+            ),
+        ] {
+            let bits = one_leaf(handle, &payload);
+            let (records, _) = export_array_with_child_checksum(
+                (OWNER, REWARDS_PARENT, REWARDS_CHECKSUM),
+                (handle, name, checksum),
+                &bits,
+                Some(MEASURED_BUILD),
+            );
+            let child = &records.fields[0];
+            assert_eq!(child.value_i64, want_i64, "{name}");
+            assert_eq!(child.value_str.as_deref(), want_str, "{name}");
+            assert_eq!(child.raw_bits.as_deref(), Some(bytes(&payload).as_slice()));
+        }
+    }
+
+    #[test]
+    fn tracked_rewards_refuses_wrong_child_identity_or_resolved_type() {
+        let bits = one_leaf(30, &[false; 32]);
+        for (name, checksum) in [("OtherName", 2_922_243_316), ("InstancesOfReward", 0)] {
+            let (records, _) = export_array_with_child_checksum(
+                (OWNER, REWARDS_PARENT, REWARDS_CHECKSUM),
+                (30, name, checksum),
+                &bits,
+                Some(MEASURED_BUILD),
+            );
+            assert_eq!(records.fields[0].value_i64, None, "{name}/{checksum}");
+        }
+        assert_eq!(
+            verified_reward_leaf_type(
+                30,
+                Some("InstancesOfReward"),
+                Some(2_922_243_316),
+                Some(FieldType::Float),
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn tracked_rewards_bad_typed_width_keeps_raw_leaf_and_counts_error() {
+        let bits = one_leaf(30, &[false; 8]);
+        let (records, stats) = export_array_with_child_checksum(
+            (OWNER, REWARDS_PARENT, REWARDS_CHECKSUM),
+            (30, "InstancesOfReward", 2_922_243_316),
+            &bits,
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields.len(), 2);
+        assert_eq!(records.fields[0].raw_bits.as_deref(), Some([0].as_slice()));
+        assert_eq!(records.fields[0].value_i64, None);
+        assert_eq!(stats.array_leaf_decode_errors, 1);
+    }
+
+    #[test]
+    fn selected_v2_and_kill_data_are_exact_raw_child_routes() {
+        for (group, parent, checksum) in [
+            (SELECTED_GROUP, SELECTED_PARENT, SELECTED_CHECKSUM),
+            (KILL_GROUP, KILL_PARENT, KILL_CHECKSUM),
+        ] {
+            let bits = one_leaf(19, &[true, false, true]);
+            let (records, stats) = export_array(
+                (group, parent, checksum),
+                (19, "NestedRawMember"),
+                &bits,
+                Some(MEASURED_BUILD),
+            );
+            assert_eq!(records.fields.len(), 2, "{parent}");
+            assert_eq!(records.fields[0].raw_bits.as_deref(), Some([5].as_slice()));
+            assert_eq!(
+                (
+                    records.fields[0].value_i64,
+                    records.fields[0].value_f64,
+                    records.fields[0].value_bool,
+                    records.fields[0].value_str.as_deref()
+                ),
+                (None, None, None, None),
+                "{parent}"
+            );
+            assert_eq!(stats.array.fields_emitted, 1);
+        }
+    }
+
+    #[test]
+    fn selected_v2_and_kill_data_refuse_wrong_identity_and_exact_residuals() {
+        for (group, parent, checksum) in [
+            (SELECTED_GROUP, SELECTED_PARENT, SELECTED_CHECKSUM),
+            (KILL_GROUP, KILL_PARENT, KILL_CHECKSUM),
+        ] {
+            let valid = one_leaf(19, &[true]);
+            for (actual_group, actual_checksum, branch, bits) in [
+                (
+                    "/Script/ShooterGame.Other",
+                    checksum,
+                    Some(MEASURED_BUILD),
+                    valid.clone(),
+                ),
+                (group, checksum + 1, Some(MEASURED_BUILD), valid.clone()),
+                (group, checksum, None, valid.clone()),
+                (group, checksum, Some(MEASURED_BUILD), {
+                    let mut suffix = valid.clone();
+                    suffix.extend([false; 8]);
+                    suffix
+                }),
+                (
+                    group,
+                    checksum,
+                    Some(MEASURED_BUILD),
+                    valid[..valid.len() - 8].to_vec(),
+                ),
+            ] {
+                let (records, stats) = export_array(
+                    (actual_group, parent, actual_checksum),
+                    (19, "NestedRawMember"),
+                    &bits,
+                    branch,
+                );
+                assert_eq!(
+                    records.fields.len(),
+                    1,
+                    "{parent}/{actual_group}/{actual_checksum}"
+                );
+                if actual_group == group && actual_checksum == checksum && branch.is_some() {
+                    assert!(
+                        stats.array.unconsumed_root_bits > 0
+                            || stats.array.errors > 0
+                            || stats.array.implicit_terminations > 0,
+                        "exact residual lost its diagnostic: {stats:?}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn tracked_rewards_literal_opaque_empty_variant_keeps_only_parent_raw() {
+        let bits = bits_from_bytes(&[0x02, 0x00, 0x00]);
+        let (records, stats) = export_array(
+            (OWNER, REWARDS_PARENT, REWARDS_CHECKSUM),
+            (49, "Rewards"),
+            &bits,
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert_eq!(
+            records.fields[0].field_name.as_deref(),
+            Some(REWARDS_PARENT)
+        );
+        assert_eq!(
+            records.fields[0].raw_bits.as_deref(),
+            Some([2, 0, 0].as_slice())
+        );
+        assert_eq!(stats.tracked_rewards_opaque_empty_variants, 1);
+        assert_eq!(stats.array.fields_emitted, 0);
+    }
+
+    #[test]
+    fn tracked_rewards_refuses_wrong_identity_and_any_other_trailer_shape() {
+        let literal = bits_from_bytes(&[0x02, 0x00, 0x00]);
+        for (group, parent, checksum, branch, bits) in [
+            (
+                OWNER,
+                REWARDS_PARENT,
+                REWARDS_CHECKSUM + 1,
+                Some(MEASURED_BUILD),
+                literal.clone(),
+            ),
+            (
+                "/Script/ShooterGame.Other",
+                REWARDS_PARENT,
+                REWARDS_CHECKSUM,
+                Some(MEASURED_BUILD),
+                literal.clone(),
+            ),
+            (
+                OWNER,
+                "OtherRewards",
+                REWARDS_CHECKSUM,
+                Some(MEASURED_BUILD),
+                literal.clone(),
+            ),
+            (
+                OWNER,
+                REWARDS_PARENT,
+                REWARDS_CHECKSUM,
+                None,
+                literal.clone(),
+            ),
+            // A different trailing byte and a nonempty extension cannot become
+            // an accepted optional trailer.
+            (
+                OWNER,
+                REWARDS_PARENT,
+                REWARDS_CHECKSUM,
+                Some(MEASURED_BUILD),
+                bits_from_bytes(&[0x02, 0x00, 0x01]),
+            ),
+            (
+                OWNER,
+                REWARDS_PARENT,
+                REWARDS_CHECKSUM,
+                Some(MEASURED_BUILD),
+                bits_from_bytes(&[0x02, 0x00, 0x00, 0x00]),
+            ),
+            // No zero index terminator: the exact decoder must reject it.
+            (
+                OWNER,
+                REWARDS_PARENT,
+                REWARDS_CHECKSUM,
+                Some(MEASURED_BUILD),
+                bits_from_bytes(&[0x02]),
+            ),
+        ] {
+            let (records, stats) =
+                export_array((group, parent, checksum), (49, "Rewards"), &bits, branch);
+            assert_eq!(
+                records.fields.len(),
+                1,
+                "{group}/{parent}/{checksum}/{branch:?}"
+            );
+            assert_eq!(stats.tracked_rewards_opaque_empty_variants, 0);
+            assert_eq!(stats.array.fields_emitted, 0);
+        }
+    }
+
+    #[test]
+    fn tracked_rewards_residual_variants_keep_exact_diagnostics() {
+        for bits in [
+            bits_from_bytes(&[0x02, 0x00, 0x01]),
+            bits_from_bytes(&[0x02, 0x00, 0x00, 0x00]),
+            bits_from_bytes(&[0x02]),
+        ] {
+            let (records, stats) = export_array(
+                (OWNER, REWARDS_PARENT, REWARDS_CHECKSUM),
+                (49, "Rewards"),
+                &bits,
+                Some(MEASURED_BUILD),
+            );
+            assert_eq!(records.fields.len(), 1);
+            assert_eq!(stats.tracked_rewards_opaque_empty_variants, 0);
+            assert_eq!(stats.array.fields_emitted, 0);
+            assert!(
+                stats.array.unconsumed_root_bits > 0
+                    || stats.array.errors > 0
+                    || stats.array.implicit_terminations > 0,
+                "residual window lost its exact-decoder diagnostic: {stats:?}"
+            );
+        }
+        // A complete nonempty array followed by a zero byte is not the measured
+        // empty variant. Walking a child does not authorize emitting it when
+        // the enclosing array retains unexplained bits.
+        let mut bits = one_leaf(19, &[false; 32]);
+        bits.extend(bits_from_bytes(&[0]));
+        let (records, stats) = export_array(
+            (OWNER, REWARDS_PARENT, REWARDS_CHECKSUM),
+            (19, "Rewards"),
+            &bits,
+            Some(MEASURED_BUILD),
+        );
+        assert_eq!(records.fields.len(), 1);
+        assert_eq!(stats.tracked_rewards_opaque_empty_variants, 0);
+        assert_eq!(stats.array.fields_emitted, 1);
+        assert_eq!(stats.array.unconsumed_root_bits, 8);
+    }
+
+    #[test]
     fn measured_effect_and_ignore_routes_emit_expected_leaf_values() {
         let payload: Vec<bool> = (0..32)
             .map(|bit| (-0.0f32).to_bits() & (1 << bit) != 0)
@@ -921,6 +1369,11 @@ mod tests {
             "/Script/ShooterGame.FiniteSpeedMovementComponent",
             "RequestedIgnoreActors",
             Some(1_063_739_204)
+        ));
+        assert!(measured_array_route(
+            OWNER,
+            REWARDS_PARENT,
+            Some(REWARDS_CHECKSUM)
         ));
         assert!(!measured_array_route(
             "/Script/ShooterGame.FiniteSpeedMovementComponent",

@@ -63,6 +63,11 @@ class UnpinnableTests(unittest.TestCase):
             measurement(struct_blobs_decoded=None, effect_blobs_decoded=None))
         self.assertEqual(len(reasons), 2, reasons)
 
+    def test_reward_opaque_counter_is_required_even_when_zero(self):
+        reasons = guard.unpinnable(measurement(
+            tracked_rewards_opaque_empty_variants=None))
+        self.assertIn("tracked_rewards_opaque_empty_variants", " ".join(reasons))
+
     def test_the_checkpoint_counters_are_only_required_when_measured(self):
         """A default run never prints them, so their absence is not a fault.
 
@@ -222,6 +227,53 @@ class CrossCheckTests(unittest.TestCase):
                     manifest.write_text(json.dumps({"quality": {"checkpoints": changed}}), encoding="utf-8")
                     self.assertIn("nonnegative integers", " ".join(guard.checkpoint_manifest_errors(root)))
 
+    def test_reward_opaque_manifest_reconciles_main_and_checkpoint_counts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            quality = {
+                "sink": {"tracked_rewards_opaque_empty_variants": 4470},
+                "checkpoints": {"sink": {"tracked_rewards_opaque_empty_variants": 7}},
+            }
+            (root / "manifest.json").write_text(
+                json.dumps({"quality": quality}), encoding="utf-8")
+            counters = {"tracked_rewards_opaque_empty_variants": 4470,
+                        "cp_tracked_rewards_opaque_empty_variants": 7}
+            self.assertEqual(guard.reward_opaque_manifest_errors(root, counters, True), [])
+            problems = guard.reward_opaque_manifest_errors(
+                root, dict(counters, tracked_rewards_opaque_empty_variants=1), True)
+            self.assertIn("disagrees", " ".join(problems))
+            problems = guard.reward_opaque_manifest_errors(
+                root, dict(counters, cp_tracked_rewards_opaque_empty_variants=1), True)
+            self.assertIn("cp_tracked_rewards_opaque_empty_variants", " ".join(problems))
+
+    def test_reward_opaque_manifest_rejects_missing_and_noninteger_counts(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            manifest = root / "manifest.json"
+            manifest.write_text(json.dumps({"quality": {}}), encoding="utf-8")
+            self.assertIn("omits", " ".join(guard.reward_opaque_manifest_errors(
+                root, {}, False)))
+            # The real manifest puts sink-owned counters below `quality.sink`;
+            # accepting this tempting flat shape would hide a wiring drift.
+            manifest.write_text(json.dumps({"quality": {
+                "tracked_rewards_opaque_empty_variants": 4470
+            }}), encoding="utf-8")
+            self.assertIn("omits", " ".join(guard.reward_opaque_manifest_errors(
+                root, {}, False)))
+            for value in (None, True, "4470", 4470.0, -1):
+                with self.subTest(value=value):
+                    manifest.write_text(json.dumps({"quality": {
+                        "sink": {"tracked_rewards_opaque_empty_variants": value}
+                    }}), encoding="utf-8")
+                    self.assertIn("nonnegative integers", " ".join(
+                        guard.reward_opaque_manifest_errors(root, {}, False)))
+            manifest.write_text(json.dumps({"quality": {
+                "sink": {"tracked_rewards_opaque_empty_variants": 4470},
+                "checkpoints": {"sink": {"tracked_rewards_opaque_empty_variants": "7"}},
+            }}), encoding="utf-8")
+            self.assertIn("nonnegative integers", " ".join(
+                guard.reward_opaque_manifest_errors(root, {}, True)))
+
 
 class ContentIdentityTests(unittest.TestCase):
     def test_equal_size_different_bytes_do_not_satisfy_byte_identity(self):
@@ -270,6 +322,7 @@ Event rows: 1
 NetGUID rows: 1
 Actor opens: 1
 Actor closes: 0
+Reward opaque: 0 empty variants
 """
 
     def run_fake_export(self, *, fail: bool):
@@ -293,7 +346,7 @@ Actor closes: 0
             )
         else:
             script.write_text(
-                "import os, shutil, sys\n"
+                "import json, os, shutil, sys\n"
                 "from pathlib import Path\n"
                 "import pyarrow as pa\n"
                 "import pyarrow.parquet as pq\n"
@@ -303,6 +356,7 @@ Actor closes: 0
                 "stage.mkdir()\n"
                 "for name in ('actors', 'fields', 'movement', 'net_guids', 'events', 'partials'):\n"
                 "    pq.write_table(pa.table({'value': [1]}), stage / (name + '.parquet'))\n"
+                "(stage / 'manifest.json').write_text(json.dumps({'quality': {'sink': {'tracked_rewards_opaque_empty_variants': 0}}}), encoding='utf-8')\n"
                 "os.replace(out, backup)\n"
                 "os.replace(stage, out)\n"
                 "shutil.rmtree(backup)\n"

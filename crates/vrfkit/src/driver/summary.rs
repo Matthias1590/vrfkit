@@ -223,6 +223,10 @@ pub(super) fn print(
         "  Array leaf errs:  {}",
         totals.sink.array_leaf_decode_errors
     );
+    eprintln!(
+        "  Reward opaque:    {} empty variants",
+        totals.sink.tracked_rewards_opaque_empty_variants
+    );
     eprintln!("  Truncated RPCs:   {}", totals.sink.truncated_rpcs);
     eprintln!(
         "  RPC suffix bits:  {}",
@@ -416,6 +420,10 @@ fn print_checkpoints(cp: &CheckpointStats) {
     eprintln!(
         "  Checkpoint leaf:  {} typed decode errors",
         cp.sink.array_leaf_decode_errors
+    );
+    eprintln!(
+        "  Checkpoint reward opaque: {} empty variants",
+        cp.sink.tracked_rewards_opaque_empty_variants
     );
     eprintln!(
         "  Checkpoint movement: {} failures",

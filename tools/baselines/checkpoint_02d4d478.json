@@ -30,6 +30,7 @@
     "effect_blobs_decoded": 61617,
     "struct_blobs_decoded": 207,
     "struct_blobs_failed": 0,
+    "tracked_rewards_opaque_empty_variants": 7,
     "cp_partial_rows": 0,
     "cp_partial_bits": 0,
     "cp_chunks": 18,
@@ -38,7 +39,7 @@
     "cp_exported_fields": 49314,
     "cp_frames": 18,
     "cp_frame_packets": 3691,
-    "cp_field_rows": 258682,
+    "cp_field_rows": 341704,
     "cp_actor_rows_written": 3014,
     "cp_net_guid_rows_written": 74270,
     "cp_block_rows_written": 22247,
@@ -49,13 +50,14 @@
     "cp_indexed_paths": 18526,
     "cp_resolved_path_indices": 18526,
     "cp_struct_blobs_decoded": 205,
-    "cp_struct_blobs_failed": 0
+    "cp_struct_blobs_failed": 0,
+    "cp_tracked_rewards_opaque_empty_variants": 0
   },
   "parquet": {
     "fields": {
-      "rows": 1282647,
-      "bytes": 16312456,
-      "sha256": "d87e44ffea720dcba3da46286819f98a93f30a1c8203ce722e3a2fd5d366787f"
+      "rows": 1296066,
+      "bytes": 16416927,
+      "sha256": "cebd9f9bf824939194411b8d0ae882dcb33cd8342c43998316ebfe37f7140b0b"
     },
     "movement": {
       "rows": 1844147,
@@ -83,9 +85,9 @@
       "sha256": "8945eaca3d7e4f22c6fec2835b867f06e9023e14651d22874e1512fd11181d6d"
     },
     "checkpoint_fields": {
-      "rows": 258682,
-      "bytes": 932036,
-      "sha256": "6212a4f0db49cfdc47d72d82675644c7bf6153b7b6d350b19a2f369469bbd8db"
+      "rows": 341704,
+      "bytes": 1160575,
+      "sha256": "257d5745f19672971cb3356790f24b850471cfbeeca0f75f83dbf41376e8bb38"
     },
     "checkpoint_actors": {
       "rows": 3014,
@@ -99,8 +101,8 @@
     },
     "checkpoint_blocks": {
       "rows": 22247,
-      "bytes": 170290,
-      "sha256": "15409a090e7974f59bde43c1b720c14605f71974f8f561690f33be9e19a21b4e"
+      "bytes": 175032,
+      "sha256": "bc0a9b5e9f53e230b6c2263566057ee96a66f8cdd6f11695d4fc3cd4dabc4216"
     },
     "checkpoint_guid_entries": {
       "rows": 74270,

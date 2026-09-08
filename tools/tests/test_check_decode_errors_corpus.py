@@ -42,6 +42,7 @@ Raw/Skip:          900
 Not in table:      100
 No field name:     0
 Struct blobs:      63 decoded / 0 failed
+Reward opaque:     4470 empty variants
 """
 
 #: The same summary from an exporter whose decoders never ran. Every counter is
@@ -54,6 +55,8 @@ Raw/Skip:          0
 Not in table:      0
 No field name:     0
 Struct blobs:      0 decoded / 0 failed
+Reward opaque:     0 empty variants
+Reward opaque:     0 empty variants
 """
 
 #: Measured on a live export -- not synthesized. 742738 + 0 + 72644 + 171605 +
@@ -67,6 +70,7 @@ Raw/Skip:          72644
 Not in table:      171605
 No field name:     1996
 Struct blobs:      63 decoded / 0 failed
+Reward opaque:     4470 empty variants
 """
 
 
@@ -77,6 +81,7 @@ class ReadCountersTests(unittest.TestCase):
         self.assertEqual(counters["decode_errors"], 0)
         self.assertEqual(counters["decoded_ok"], 129000)
         self.assertEqual(counters["struct_blobs_decoded"], 63)
+        self.assertEqual(counters["tracked_rewards_opaque_empty_variants"], 4470)
 
     def test_a_nonzero_exit_is_not_a_clean_replay(self):
         """The summary prints before the Parquet files are finalised.
@@ -99,6 +104,13 @@ class ReadCountersTests(unittest.TestCase):
         text = "\n".join(l for l in CLEAN.splitlines() if "Struct blobs" not in l)
         counters, err = guard.read_counters(text, 0)
         self.assertIsNone(counters)
+
+    def test_reward_opaque_label_is_required_and_cannot_match_checkpoint_label(self):
+        text = "\n".join(l for l in CLEAN.splitlines() if "Reward opaque" not in l)
+        text += "\nCheckpoint reward opaque: 4470 empty variants\n"
+        counters, err = guard.read_counters(text, 0)
+        self.assertIsNone(counters)
+        self.assertIn("Reward opaque", err)
 
     def test_no_field_name_is_read(self):
         counters, err = guard.read_counters(LIVE_EXPORT, 0)
@@ -229,6 +241,7 @@ CLEAN_WITH_CHECKPOINTS = LIVE_EXPORT + """
   Overlay:          500 decoded / 0 errors / 20 raw-skip / 5 not-in-table / 2 unnamed / 4 conflicts / 1 effect blobs
   Checkpoint blobs: 8 decoded / 0 failed
   Checkpoint fails: 0 array / 0 truncated RPC / 0 movement
+  Checkpoint reward opaque: 7 empty variants
   Checkpoint CNC:   3 RPC rows
 """
 
@@ -276,6 +289,16 @@ class CheckpointCounterTests(unittest.TestCase):
         self.assertEqual(counters["checkpoint_fail_array"], 0)
         self.assertEqual(counters["checkpoint_fail_truncated_rpc"], 0)
         self.assertEqual(counters["checkpoint_fail_movement"], 0)
+        self.assertEqual(counters["checkpoint_tracked_rewards_opaque_empty_variants"], 7)
+
+    def test_checkpoint_reward_opaque_label_is_required_and_cannot_match_main_label(self):
+        text = "\n".join(
+            l for l in CLEAN_WITH_CHECKPOINTS.splitlines()
+            if "Checkpoint reward opaque" not in l)
+        text += "\nReward opaque: 7 empty variants\n"
+        counters, err = guard.read_counters(text, 0, require_checkpoints=True)
+        self.assertIsNone(counters)
+        self.assertIn("Checkpoint reward opaque", err)
 
     def test_a_summary_missing_the_checkpoint_block_is_unreadable_when_required(self):
         counters, err = guard.read_counters(
@@ -506,6 +529,7 @@ Raw/Skip:          0
 Not in table:      0
 No field name:     0
 Struct blobs:      0 decoded / 0 failed
+Reward opaque:     0 empty variants
 """)
     raise SystemExit(0)
 
@@ -518,6 +542,7 @@ Raw/Skip:          0
 Not in table:      0
 No field name:     0
 Struct blobs:      5 decoded / 0 failed
+Reward opaque:     0 empty variants
 """)
     raise SystemExit(0)
 
@@ -530,6 +555,7 @@ Raw/Skip:          3
 Not in table:      2
 No field name:     0
 Struct blobs:      5 decoded / 1 failed
+Reward opaque:     0 empty variants
 """)
     raise SystemExit(0)
 
@@ -542,6 +568,7 @@ Decode errors:     0
 Raw/Skip:          0
 Not in table:      0
 Struct blobs:      5 decoded / 0 failed
+Reward opaque:     0 empty variants
 """)
     raise SystemExit(0)
 
@@ -557,6 +584,7 @@ Raw/Skip:          5
 Not in table:      3
 No field name:     1
 Struct blobs:      5 decoded / 0 failed
+Reward opaque:     0 empty variants
 """)
     raise SystemExit(0)
 
@@ -568,6 +596,7 @@ Raw/Skip:          5
 Not in table:      3
 No field name:     2
 Struct blobs:      5 decoded / 0 failed
+Reward opaque:     0 empty variants
 """)
 '''
 

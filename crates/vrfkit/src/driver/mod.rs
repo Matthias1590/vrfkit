@@ -515,6 +515,7 @@ mod tests {
                 cnc_rpcs_emitted: 8,
                 rep_layout_cnc_tails_decoded: 23,
                 rep_layout_cnc_tails_preserved: 24,
+                tracked_rewards_opaque_empty_variants: 25,
                 array_leaf_decode_errors: 22,
                 ..crate::sink::ExportStats::default()
             };
@@ -544,6 +545,7 @@ mod tests {
         assert_eq!(totals.cnc_rpcs_emitted, 16);
         assert_eq!(totals.rep_layout_cnc_tails_decoded, 46);
         assert_eq!(totals.rep_layout_cnc_tails_preserved, 48);
+        assert_eq!(totals.tracked_rewards_opaque_empty_variants, 50);
         assert_eq!(totals.array_leaf_decode_errors, 44);
         assert_eq!(totals.overlay.decoded_ok, 18);
         assert_eq!(totals.overlay.decoded_err, 20);

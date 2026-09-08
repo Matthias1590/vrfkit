@@ -29,13 +29,14 @@
     "overlay_rows_offered": 988995,
     "effect_blobs_decoded": 61617,
     "struct_blobs_decoded": 207,
-    "struct_blobs_failed": 0
+    "struct_blobs_failed": 0,
+    "tracked_rewards_opaque_empty_variants": 7
   },
   "parquet": {
     "fields": {
-      "rows": 1282647,
-      "bytes": 16312456,
-      "sha256": "d87e44ffea720dcba3da46286819f98a93f30a1c8203ce722e3a2fd5d366787f"
+      "rows": 1296066,
+      "bytes": 16416927,
+      "sha256": "cebd9f9bf824939194411b8d0ae882dcb33cd8342c43998316ebfe37f7140b0b"
     },
     "movement": {
       "rows": 1844147,

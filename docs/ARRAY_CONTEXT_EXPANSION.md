@@ -3,7 +3,8 @@
 This report describes the array/context batch at `217bf39`, before checkpoint
 GUID path reconstruction. Its counts are historical; see
 [Checkpoint path resolution](CHECKPOINT_PATH_RESOLUTION.md) for the subsequent
-field expansion and current typed-value measurements.
+field expansion, then [structured-array expansion](STRUCTURED_ARRAY_EXPANSION.md)
+for the current candidate measurement and validation state.
 
 The 2026-09-08 corpus contains 714 replays: 13.01 (215), 13.02 (204),
 13.04 (108), and 13.05 (187). The candidate was exported with checkpoints,
@@ -33,8 +34,10 @@ are typed only inside the qualified effect array. Other members remain raw.
 New routes require explicit terminators and exact consumption. The legacy
 array decoder accepts an optional trailer for its existing callers; the new
 flat-array entry point does not. A failed walk emits no new children and
-retains the raw parent and diagnostics. `TrackedRewards` remains excluded:
-4,470 observed parents leave eight bits beyond the strict terminator.
+retains the raw parent and diagnostics. At this historical point
+`TrackedRewards` remained excluded: 4,470 observed parents left eight bits
+beyond the strict terminator. The later candidate has a separate exact
+opaque-empty-variant rule; see `STRUCTURED_ARRAY_EXPANSION.md`.
 
 ## Checkpoint block context
 

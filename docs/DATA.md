@@ -9,10 +9,11 @@ with "lost"; check stream-loss counters separately.
 Legend: ✅ typed (value decoded) · ◐ raw or derivable · ❌ unavailable in the
 stated observation scope. Absence in a sample is not proof of format-wide absence.
 
-The latest 714-replay field measurements are recorded in
-[CHECKPOINT_PATH_RESOLUTION.md](CHECKPOINT_PATH_RESOLUTION.md).
-Physical typed-value presence is 70.6364% main, 81.3258% checkpoint, and
-72.4914% combined; these physical row ratios are not semantic completeness.
+The current 714-replay field measurement is recorded in
+[STRUCTURED_ARRAY_EXPANSION.md](STRUCTURED_ARRAY_EXPANSION.md): physical
+typed-value presence is 70.1225% main, 62.7948% checkpoint, and 68.5562%
+combined. These physical row ratios are not semantic completeness. Both corpus
+guards and the independent all-file comparison pass on all 714 inputs.
 The earlier partial-header correction is recorded in
 [PARTIAL_HEADER_CORRECTION.md](PARTIAL_HEADER_CORRECTION.md), and crosshair/Tidal
 Wave additions in [SCHEMA_EXPANSION.md](SCHEMA_EXPANSION.md).
@@ -22,6 +23,8 @@ and reload observation boundaries are described in
 [SEMANTIC_CONTEXT_EXPANSION.md](SEMANTIC_CONTEXT_EXPANSION.md).
 Checkpoint-local GUID path reconstruction and its evidence boundary are
 described in [CHECKPOINT_PATH_RESOLUTION.md](CHECKPOINT_PATH_RESOLUTION.md).
+Its 72.4914% combined ratio predates the structured-array expansion and is
+historical rather than a current coverage figure.
 
 ---
 
