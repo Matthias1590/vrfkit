@@ -155,6 +155,12 @@ explicit ordering/lifetime gaps; see [SECTION_TIMELINE.md](SECTION_TIMELINE.md).
 Its comparison eligibility does not establish a game life, component life,
 effective HP or player credit.
 
+`tools/extract_section_packet_timeline.py` retains that strict view and adds
+packet-ordered comparisons. Distinct main packets can resolve some observations
+that share a millisecond timestamp; same-packet ties and unresolved actor/channel
+instances still prevent links. See [SECTION_PACKET_TIMELINE.md](SECTION_PACKET_TIMELINE.md)
+for evidence, arithmetic disagreements and the separate interpretation limits.
+
 Verified over 69 replays on build 13.02: 377,487 elements, zero parse errors,
 zero residual bits, and every observed element carrying exactly four members
 in that measurement. Corroborated against separate decode
