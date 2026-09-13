@@ -1,6 +1,7 @@
 """Tests for the read-only descriptor-source audit."""
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -122,6 +123,35 @@ OverlayHandleEntry { group_path: "g", handle: 1, field_name: "two" },
             after_status = subprocess.run(["git", "-C", str(repo), "status", "--porcelain=v1"], check=True,
                 capture_output=True, text=True).stdout
             self.assertEqual((after_head, after_status), (before_head, before_status))
+
+    def test_git_revision_input_does_not_depend_on_the_tar_on_path(self):
+        """A revision is unpacked in-process. It used to shell out to the first
+        `tar` on PATH, which on Windows is GNU tar under Git Bash (it refuses a
+        `C:\\` destination) and bsdtar elsewhere, so the same command passed or
+        failed by shell. A tar that always fails, placed first on PATH, must not
+        matter."""
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            repo = root / "repo"
+            descriptor(repo, '        AddProperty(x => x.Value).Float();')
+            for args in (("init",), ("config", "user.email", "test@example.com"),
+                         ("config", "user.name", "Test"), ("add", "."), ("commit", "-m", "fixture")):
+                subprocess.run(["git", "-C", str(repo), *args], check=True, capture_output=True, text=True)
+            broken = root / "broken-bin"
+            broken.mkdir()
+            if os.name == "nt":
+                (broken / "tar.bat").write_text("@exit /b 1\r\n", encoding="ascii")
+            else:
+                script = broken / "tar"
+                script.write_text("#!/bin/sh\nexit 1\n", encoding="ascii")
+                script.chmod(0o755)
+            env = dict(os.environ, PATH=str(broken) + os.pathsep + os.environ.get("PATH", ""))
+            output = root / "audit.json"
+            result = subprocess.run([sys.executable, str(TOOL), "--baseline", f"{repo}::HEAD",
+                "--candidate", f"{repo}::HEAD", "--output", str(output)], capture_output=True,
+                text=True, encoding="utf-8", env=env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertTrue(output.exists())
 
     def test_invalid_source_fails_without_writing_output(self):
         with tempfile.TemporaryDirectory() as temp:
