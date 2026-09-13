@@ -77,6 +77,48 @@ jobs:
           $interopDir = Join-Path $root 'interop'
           python -W error crates/vrf-export/tests/python_interop.py $interopDir
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # The per-build corpus baselines were guarded on one machine only, and
+      # went stale there for a month: nothing that ran them ever failed a
+      # build. The 12.10, 12.11 and 13.00 fixtures are byte-identical to the
+      # upstream parser's public test replays, so CI can run those three from
+      # a pinned commit, checked by SHA-256 before use. 13.02, 13.04 and 13.05
+      # have no public fixture and stay machine-local.
+      - name: corpus baselines on the public upstream fixtures
+        shell: pwsh
+        env:
+          UPSTREAM_REPLAYS: https://raw.githubusercontent.com/michel-giehl/ValorantReplayParser/b51d67423b7b4952d59051cf91e55efa1c42da05/tests/Test.Integration/Replays
+        run: |
+          cargo +1.86.0 build -p vrfkit --locked
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $exe = Join-Path (Get-Location) 'target/debug/vrfkit.exe'
+          $fixtures = @(
+            @("1210", "9f8b32c5-c243-41ec-bbbb-832582edf652.12_10.vrf", "a4ce1b72f9bdf99492162013c1c909e6994a0d22bef1899e687fde71fbc86606"),
+            @("1211", "5c673443-5bdc-4576-b416-aab3f62471a5.12_11.vrf", "7a7a5492ddf286bb04413da96f0d3b216f91150e8174a3a4397493529e17ebdd"),
+            @("1300", "12974d2b-848f-490d-80ba-5f03a033c2d5.13_00.vrf", "fd49091dd43171bb060eb6bbae50ed6677aa1077344572c5bf65f0c6fe2b4c1a")
+          )
+          foreach ($fixture in $fixtures) {
+            $build, $name, $sha256 = $fixture
+            $corpus = Join-Path $env:RUNNER_TEMP "baseline-corpora/build_$build"
+            New-Item -ItemType Directory -Force $corpus | Out-Null
+            $replay = Join-Path $corpus $name
+            Invoke-WebRequest -UseBasicParsing -Uri "$env:UPSTREAM_REPLAYS/$name" -OutFile $replay
+            $actual = (Get-FileHash -Algorithm SHA256 $replay).Hash.ToLowerInvariant()
+            if ($actual -ne $sha256) {
+              Write-Error "fixture $name has SHA-256 $actual, expected $sha256"
+              exit 1
+            }
+            python -W error tools/check_corpus_baseline.py --baseline "tools/baselines/build_$build.json" --corpus $corpus --exe $exe --require-input
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            & $exe export $replay --out (Join-Path $env:RUNNER_TEMP "public-fixture-exports/build_$build") --checkpoints
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          # Every overlay test decodes a payload it built itself, so none could
+          # fail if a typing were wrong. These fields decode from real wire bytes
+          # in the public fixtures; an independent Python decoder must agree with
+          # the exported value on every row, and a field that stops appearing
+          # fails as missing.
+          python -W error tools/validate_type_evidence.py (Join-Path $env:RUNNER_TEMP 'public-fixture-exports') tools/fixtures/public_fixture_type_evidence.json --compare-typed
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   python-checks:
     runs-on: ubuntu-latest
