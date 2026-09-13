@@ -23,7 +23,9 @@
 - 로컬 `local/vrfkit-descriptors`와 upstream `main`은 `2d2e05e`에서 갈라졌다.
   전자에만 valplay 확장 descriptor 커밋들이 있고 후자에는 없다. 따라서 최신 upstream을
   전체 재추출하면 vrfkit의 기존 schema를 후퇴시킬 수 있으며, 이 조사는 wholesale refresh를
-  권하지 않는다.
+  권하지 않는다. (2026-09-13 추가) 그 브랜치의 `src/Replay.Valorant`
+  (`8824794`)는 이제 [`third_party/vrp/`](../third_party/vrp/README.md)에
+  그대로 들어 있고, `table.rs`는 거기서 재생성된다. upstream과 갈라진 상태는 그대로다.
 
 ## identity, GAS, effect, partial의 판정
 

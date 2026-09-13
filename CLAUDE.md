@@ -84,8 +84,10 @@ Consequences for how you work:
 ## Traps that have cost real time
 
 - **`crates/vrf-decode/src/table.rs` is generated.** Edit
-  `tools/extract_descriptors.py` or `tools/apply_type_corrections.py` instead,
-  then regenerate. The pipeline order is generate -> correct -> `cargo fmt`.
+  `tools/extract_descriptors.py`, `tools/apply_type_corrections.py` or the
+  vendored C# descriptors in `third_party/vrp/` instead, then
+  regenerate. The pipeline order is generate -> correct -> `cargo fmt`, and CI
+  fails if the regenerated table differs from the committed one.
 - **Some entries in that table are unreachable.** The four `LifeChangeEvents`
   member entries never appear as a top-level parameter. "Fixing" one compiles,
   passes tests, and changes no rows. The real typing happens in

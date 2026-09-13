@@ -212,7 +212,7 @@ These corrupt downstream consumers silently — no test fails when they break.
 
 | File | Generator |
 |---|---|
-| `crates/vrf-decode/src/table.rs` | `tools/extract_descriptors.py` then `tools/apply_type_corrections.py` |
+| `crates/vrf-decode/src/table.rs` | `tools/extract_descriptors.py` on `third_party/vrp/Replay.Valorant`, then `tools/apply_type_corrections.py` |
 | `crates/vrf-decode/src/checksum_table.rs` | `tools/extract_checksum_types.py` against one or more fresh exports |
 | `crates/vrf-decode/src/scoped_types.rs` | `tools/generate_scoped_types.py` from reviewed exact group/name/checksum evidence |
 | `crates/vrf-transform/src/sbox.rs` | `tools/extract_sboxes.py` |
@@ -222,6 +222,20 @@ These corrupt downstream consumers silently — no test fails when they break.
 Ordering for the overlay table is load-bearing:
 `extract_descriptors.py` → `apply_type_corrections.py` → `cargo fmt` →
 `extract_checksum_types.py` (against a **fresh** export).
+
+The C# descriptor input is vendored under
+[`third_party/vrp/`](third_party/vrp/README.md),
+copied verbatim from the commit that README names. A descriptor change is an
+edit there, committed together with the regenerated `table.rs`. CI runs the
+first three steps against that directory and fails if `table.rs` changes:
+
+```bash
+python tools/extract_descriptors.py third_party/vrp/Replay.Valorant \
+    crates/vrf-decode/src/table.rs
+python tools/apply_type_corrections.py
+cargo +1.86.0 fmt -p vrf-decode
+git diff --exit-code -- crates/vrf-decode/src/table.rs
+```
 
 The checksum step is last because it learns from what the overlay table
 declares. Run it before the additions land and the new entries are not donors

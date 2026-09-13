@@ -658,6 +658,9 @@ diagnostic rather than pretending the properties were decoded.
 
 The overlay table is extracted mechanically from the C# descriptors
 (`tools/extract_descriptors.py`) -- 215 groups, 1,310 entries, 84 handles.
+Those descriptors are vendored verbatim in
+[`third_party/vrp/`](third_party/vrp/README.md),
+and CI regenerates the table from them on every push.
 Nothing is transcribed by hand, for the same reason S-boxes and golden vectors
 are not: it is the kind of constant where a typo is invisible in review.
 
@@ -912,16 +915,26 @@ that way is a trap:
 
 ## Generated files
 
-Five files in the tree are generated and must never be edited by hand:
+Six files in the tree are generated and must never be edited by hand:
 
 | Generated file | Generator | Notes |
 |---|---|---|
-| `crates/vrf-decode/src/table.rs` | `tools/extract_descriptors.py` then `tools/apply_type_corrections.py` | The overlay table (1,310 entries, 215 groups, 84 handles) and handle table |
+| `crates/vrf-decode/src/table.rs` | `tools/extract_descriptors.py` then `tools/apply_type_corrections.py` | The overlay table (1,310 entries, 215 groups, 84 handles) and handle table, from the vendored descriptors in `third_party/vrp/` |
 | `crates/vrf-decode/src/checksum_table.rs` | `tools/extract_checksum_types.py` | Replay-observed checksum-to-type propagation table; conflicting donors are omitted |
 | `crates/vrf-decode/src/scoped_types.rs` | `tools/generate_scoped_types.py` | Exact group/name/checksum primitive types for ambiguous field names; no cross-group propagation |
 | `crates/vrf-transform/src/sbox.rs` | `tools/extract_sboxes.py` | 768-byte S-box, shared across builds |
 | `crates/vrf-transform/tests/data/golden_vectors.rs` | `tools/extract_golden.py` | Per-build golden test vectors |
 | `tools/equippable_table.py` | `tools/extract_equippables.py` | Weapon class path to display name |
+
+The overlay table's input is in the tree, so anyone can regenerate it; CI does,
+and fails if the result differs from the committed file:
+
+```bash
+python tools/extract_descriptors.py third_party/vrp/Replay.Valorant \
+    crates/vrf-decode/src/table.rs
+python tools/apply_type_corrections.py
+cargo +1.86.0 fmt -p vrf-decode
+```
 
 The S-box and golden-vector generators require an upstream checkout:
 

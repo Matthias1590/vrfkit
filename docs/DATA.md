@@ -855,6 +855,8 @@ on one and `Float` on another. `RemoteRole` never appears on the wire in this
 corpus, so nothing decodes through the odd entry.
 
 The overlay table and all generated files are off-limits to hand-editing:
-`tools/extract_descriptors.py` then `tools/apply_type_corrections.py` then
-`cargo fmt` is the only path, and `python tools/check_docs.py` + the export
-baseline must stay green.
+`tools/extract_descriptors.py` (on the vendored descriptors in
+`third_party/vrp/Replay.Valorant`) then
+`tools/apply_type_corrections.py` then `cargo fmt` is the only path, and
+`python tools/check_docs.py` + the export baseline must stay green. CI reruns
+that path and fails if `table.rs` changes.
