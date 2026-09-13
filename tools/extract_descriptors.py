@@ -43,6 +43,9 @@ for replays whose field name differs from the descriptor's label.
 
 Usage:
     python tools/extract_descriptors.py <replay_valorant_dir> <out.rs>
+
+The committed table comes from the vendored descriptors:
+    python tools/extract_descriptors.py third_party/vrp/Replay.Valorant crates/vrf-decode/src/table.rs
 """
 
 from __future__ import annotations

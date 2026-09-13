@@ -134,7 +134,7 @@ class AtomicOutputTests(unittest.TestCase):
     def test_equippable_generator_preserves_previous_file(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            resolver = root / extract_equippables.RESOLVER_RELPATH
+            resolver = root / "Replay.Valorant" / extract_equippables.RESOLVER_RELPATH
             resolver.parent.mkdir(parents=True)
             resolver.write_text(
                 'Define("/Game/Vandal.Vandal_C", "Vandal", '

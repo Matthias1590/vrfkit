@@ -5,9 +5,9 @@ is read with ``git archive`` into a temporary directory; the tool never fetches,
 checks out, resets, or writes to either repository.  Its JSON result contains
 the resolved commits, dirty state, exact inputs, and *review candidates*.
 
-Example:
+Example (the vendored table input against an upstream revision):
   python tools/compare_descriptor_sources.py \
-    --baseline C:/src/ValorantReplayParser \
+    --baseline third_party/vrp \
     --candidate C:/src/ValorantReplayParser::b51d674... \
     --downstream-table crates/vrf-decode/src/table.rs --output audit.json
 """

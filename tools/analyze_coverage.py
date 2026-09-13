@@ -4,7 +4,8 @@
 Reads:
   - out/nested/manifest.json  (replay groups + fields)
   - crates/vrf-decode/src/table.rs  (current overlay entries)
-  - C# descriptor directory (to list which groups have descriptors)
+  - C# descriptor directory (to list which groups have descriptors); the
+    vendored third_party/vrp/Replay.Valorant unless --csharp-dir says otherwise
 
 Outputs:
   - Groups in replay with no overlay entry, split by whether a C# descriptor
@@ -17,7 +18,6 @@ Usage:
 from __future__ import annotations
 
 import json
-import os
 import re
 import sys
 from pathlib import Path
@@ -27,10 +27,11 @@ VRFKIT_ROOT = Path(__file__).parent.parent
 MANIFEST_PATH = VRFKIT_ROOT / "out" / "nested" / "manifest.json"
 TABLE_RS_PATH = VRFKIT_ROOT / "crates" / "vrf-decode" / "src" / "table.rs"
 
-# Default C# descriptor location. Set VRFKIT_CSHARP_DIR to the
-# ValorantReplayParser checkout root; defaults to empty so a machine without
-# it degrades to "no C# descriptors" rather than crashing.
-DEFAULT_CSHARP_DIR = Path(os.environ.get("VRFKIT_CSHARP_DIR", "")) / "src" / "Replay.Valorant"
+# The descriptors table.rs is generated from, vendored in the tree
+# (third_party/vrp/README.md). This used to come from VRFKIT_CSHARP_DIR, which
+# no one set, so the extractor-missed count read NOT MEASURED by default.
+# --csharp-dir points at another Replay.Valorant directory, e.g. upstream's.
+DEFAULT_CSHARP_DIR = VRFKIT_ROOT / "third_party" / "vrp" / "Replay.Valorant"
 
 PATH_RE = re.compile(r'override\s+string\s+Path\s*=>\s*"(?P<path>[^"]+)"')
 
@@ -91,7 +92,7 @@ def missed_report(extractor_missed: int, measured: bool) -> str:
     """
     if not measured:
         return ("  C# descriptor exists but extractor missed: NOT MEASURED "
-                "(no C# descriptor dir; set VRFKIT_CSHARP_DIR)")
+                "(no C# descriptor dir; pass --csharp-dir)")
     return f"  C# descriptor exists but extractor missed: {extractor_missed}"
 
 
@@ -114,7 +115,7 @@ def main(argv: list[str]) -> int:
     else:
         csharp_paths = set()
         print(f"NOTE: C# descriptor dir not found ({csharp_dir}); "
-              f"set VRFKIT_CSHARP_DIR to classify extractor-missed groups. "
+              f"pass --csharp-dir to classify extractor-missed groups. "
               f"All uncovered groups will read as 'no descriptor'.",
               file=sys.stderr)
 

@@ -119,6 +119,23 @@ jobs:
           # fails as missing.
           python -W error tools/validate_type_evidence.py (Join-Path $env:RUNNER_TEMP 'public-fixture-exports') tools/fixtures/public_fixture_type_evidence.json --compare-typed
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      # table.rs used to be generated from C# sources that existed on one
+      # machine, so nothing else could regenerate it or say it still matched
+      # its input. The input is vendored now; regenerating it here fails the
+      # build on a hand edit, a descriptor change committed without its table,
+      # or a generator change that moves the output. Last in the job because it
+      # rewrites table.rs, which would make any later cargo step recompile.
+      - name: descriptor table regenerates from the vendored source
+        shell: pwsh
+        run: |
+          python -W error tools/extract_descriptors.py third_party/vrp/Replay.Valorant crates/vrf-decode/src/table.rs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -W error tools/apply_type_corrections.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo +1.86.0 fmt -p vrf-decode
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          git diff --exit-code -- crates/vrf-decode/src/table.rs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
   python-checks:
     runs-on: ubuntu-latest
@@ -139,6 +156,8 @@ jobs:
         run: python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
       - name: generated scoped type guard
         run: python -W error tools/generate_scoped_types.py --check
+      - name: generated equippable table guard
+        run: python -W error tools/extract_equippables.py --check
       - name: baseline schemas
         run: python -W error tools/check_baseline_schemas.py
       - name: docs self-check

@@ -2,7 +2,7 @@
 
 GENERATED FILE -- DO NOT EDIT BY HAND.
 Regenerate with: python tools/extract_equippables.py
-Source: src/Replay.Valorant/Combat/ValorantEquippableResolver.cs
+Source: third_party/vrp/Replay.Valorant/Combat/ValorantEquippableResolver.cs
 
 Keys cover the three path shapes that appear in replay data, mirroring
 the C# CreateDefinitions(): the full 'Package.Class_C' path, the package
