@@ -89,10 +89,14 @@ COMPUTE_METRICS = Path(
 #: reference replay the whole project is developed against, and it lives in the
 #: read-only valplay corpus.
 #:
-#: The other four point at %LOCALAPPDATA%\vrfkit\baseline-corpora and MUST keep
+#: The others point at %LOCALAPPDATA%\vrfkit\baseline-corpora and MUST keep
 #: doing so. They used to point at %LOCALAPPDATA%\VALORANT\Saved\Demos, which
 #: the GAME owns and rotates; on 2026-08-02 all four pinned replays were gone.
 #: A baseline over a directory another program writes to guards nothing.
+#:
+#: 13.04 and 13.05 were added 2026-09-13. Until then the two newest supported
+#: builds had no semantic guard at all; each fixture is a full ranked match that
+#: had already been through export -> bundle -> compute_metrics end to end.
 REPLAYS = {
     "12.10": r"%LOCALAPPDATA%\vrfkit\baseline-corpora\build_1210"
              r"\9f8b32c5-c243-41ec-bbbb-832582edf652.12_10.vrf",
@@ -102,6 +106,10 @@ REPLAYS = {
              r"\12974d2b-848f-490d-80ba-5f03a033c2d5.13_00.vrf",
     "13.01": "02d4d478-1dfb-4412-9a77-29ca29105a9d.vrf",
     "13.02": r"%LOCALAPPDATA%\vrfkit\baseline-corpora\build_1302\1.vrf",
+    "13.04": r"%LOCALAPPDATA%\vrfkit\baseline-corpora\build_1304"
+             r"\01e0979f-660f-4121-b3ce-84911860df8e.vrf",
+    "13.05": r"%LOCALAPPDATA%\vrfkit\baseline-corpora\build_1305"
+             r"\005f5193-35ef-4ade-8539-e9e8dd0d5ed7.vrf",
 }
 
 

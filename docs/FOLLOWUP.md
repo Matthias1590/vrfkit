@@ -150,11 +150,15 @@ preserves every other tail whole.
 
 ## Remaining work
 
-- Add full-population reason counters for the 125,037 main and 835,967
-  checkpoint partial-reassembly rejections. If orphan continuations need a
-  durable representation, preserve their raw bytes without presenting them as
-  successfully reassembled payloads. Do this before any end-to-end lossless
-  claim.
+- ~~Add full-population reason counters for the 125,037 main and 835,967
+  checkpoint partial-reassembly rejections.~~ Superseded: the
+  [header-order correction](PARTIAL_HEADER_CORRECTION.md) reassembles all of
+  them, per-cause counters and `partials.parquet` preservation now exist, and a
+  2026-09-13 sweep of 839 replays (main and checkpoint) found 0 rejected rows.
+  The counters themselves were then shown able to read zero over a dropped
+  bunch when the packet reader's partial tracker disagreed with the
+  accumulator; that was fixed on 2026-09-13, with tests in
+  `crates/vrf-net/src/pipeline/mod.rs` that fail if it returns.
 - Establish semantics for whole raw post-RepLayout tails, unresolved RPC
   payloads, InputEventData tags, GAS words and StopEffectType before adding
   typed fields or game-action labels.

@@ -166,6 +166,20 @@ on every content block) and `check_decode_errors_corpus.py` (the overlay), and
 neither runs under `cargo test` or in CI. The names do not distinguish them, so
 the distinction is written here.
 
+One corpus guard does run in CI: `check_corpus_baseline.py`, on the 12.10,
+12.11 and 13.00 fixtures only. Those three are byte-identical to the upstream
+parser's public test replays, so the Windows job fetches them from a pinned
+commit and checks their SHA-256 first. The 13.02, 13.04 and 13.05 baselines
+have no public fixture and are still yours to run.
+
+The same job exports those three fixtures and runs `validate_type_evidence.py
+--compare-typed` against `tools/fixtures/public_fixture_type_evidence.json`:
+an independent Python decode of each listed field's raw bits must equal the
+exported value on every row. It is the only check in CI that decodes real wire
+bytes rather than a payload a test built itself, and it covers only the typed
+fields the public fixtures happen to carry. Everything else still depends on
+the corpus sweeps above.
+
 ```bash
 export VRFKIT_CORPUS_DIR=/path/to/replays
 python tools/check_decode_errors_corpus.py ./target/release/vrfkit "$VRFKIT_CORPUS_DIR"

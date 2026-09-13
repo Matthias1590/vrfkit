@@ -1,0 +1,42 @@
+[
+ {
+  "group": "/Game/Characters/Deadeye/Deadeye_PC.Deadeye_PC_C",
+  "field": "ReplayLastTransformUpdateTimeStamp",
+  "type": "Float"
+ },
+ {
+  "group": "/Game/Characters/Gumshoe/Gumshoe_PC.Gumshoe_PC_C",
+  "field": "ReplayLastTransformUpdateTimeStamp",
+  "type": "Float"
+ },
+ {
+  "group": "/Game/Characters/Thorne/Thorne_PC.Thorne_PC_C",
+  "field": "ReplayLastTransformUpdateTimeStamp",
+  "type": "Float"
+ },
+ {
+  "group": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+  "field": "bFadeCrosshairWithFiringError",
+  "type": "Bool"
+ },
+ {
+  "group": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+  "field": "bShowMinError",
+  "type": "Bool"
+ },
+ {
+  "group": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+  "field": "bShowSpectatedPlayerCrosshair",
+  "type": "Bool"
+ },
+ {
+  "group": "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
+  "field": "bUsePrimaryCrosshairForADS",
+  "type": "Bool"
+ },
+ {
+  "group": "/Script/ShooterGame.EquippableStateMachineComponent",
+  "field": "TransitionContext",
+  "type": "ObjectNetGuid"
+ }
+]

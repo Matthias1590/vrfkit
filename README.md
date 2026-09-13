@@ -18,7 +18,7 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Verified state:** Rust has **699 passing** tests; Python has **796 passing**
+**Verified state:** Rust has **709 passing** tests; Python has **808 passing**
 tests. The full 714-file comparison and corpus guards passed; see
 [current status](docs/CURRENT_STATUS.md) for the current evidence boundary.
 
@@ -52,8 +52,8 @@ can be represented by their rows instead of a duplicate raw RPC.
 
 | Build | Branch | Status | Verified by |
 |---|---|---|---|
-| **13.05** | `release-13.05` | ✅ Supported | Golden vectors + 187-file portion of the 714-file main/checkpoint audit |
-| **13.04** | `release-13.04` | ✅ Supported | Upstream golden vectors + 108-replay full export/checkpoint sweep |
+| **13.05** | `release-13.05` | ✅ Supported | Preserved fixture + golden vectors + 187-file portion of the 714-file main/checkpoint audit |
+| **13.04** | `release-13.04` | ✅ Supported | Preserved fixture + upstream golden vectors + 108-replay full export/checkpoint sweep |
 | **13.02** | `release-13.02` | ✅ Supported | Preserved replay + 204-replay oracle sweep |
 | **13.01** | `release-13.01` | ✅ Supported | 215-replay full corpus |
 | **13.00** | `release-13.00` | ✅ Supported | Preserved fixture + golden vectors |
@@ -106,7 +106,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **699 Rust tests** plus a layered validation suite (framing / bytes / decode
+- **709 Rust tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -351,7 +351,7 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**699 passing**; the full Python suite also has **796 passing** tests. The
+**709 passing**; the full Python suite also has **808 passing** tests. The
 all-corpus guards, all-file comparison, and full documentation check pass.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
@@ -383,12 +383,15 @@ disabling it would produce files this crate could not explain.
 CI also compiles every advertised core-only and singleton feature from
 `--no-default-features`, checks all workspace targets/all features, builds the
 standalone probe tool, and runs strict rustdoc. The executable matrix is in
-[`CONTRIBUTING.md`](CONTRIBUTING.md#before-you-open-a-pr) as 25 `cargo check`
-lines; `.github/workflows/ci.yml` expresses **the same 25 cases** as a PowerShell
+[`CONTRIBUTING.md`](CONTRIBUTING.md#before-you-open-a-pr) as 27 `cargo check`
+lines; `.github/workflows/ci.yml` expresses **the same 27 cases** as a PowerShell
 array of `@("crate","feature")` pairs. Same set, same order, two notations -- so
-they are not copies of one another and nothing checks that they agree. If you add
-a case, add it in both, and confirm the sets still match rather than eyeballing
-them:
+they are not copies of one another. `tools/check_docs.py` (including `--fast`,
+which CI runs) fails when the two lists differ in membership or order, and when
+either count quoted here is stale. This paragraph used to say nothing checked
+that they agree; by the time anyone looked, three cases were in a different
+order and the count quoted here was two short. If you add a case, add it in
+both. To see the two lists side by side:
 
 ```bash
 python - <<'EOF'
@@ -406,7 +409,7 @@ print('only in ci.yml:', sorted(set(ci) - set(sh)))
 EOF
 ```
 
-(Measured 2026-08-30: 25 and 25, identical -- including order.)
+(Measured 2026-09-13 after reordering ci.yml: identical, including order.)
 
 ## Performance
 
@@ -815,8 +818,8 @@ struct-blob failures and zero checkpoint failures over 110,152,399 offered
 rows, 20,756 decoded struct blobs, 3,129,483 decoded checkpoint fields and
 1,872 decoded checkpoint blobs. The
 machine-local corpus can rotate; the reproducible transform oracle remains the
-66 mechanically extracted upstream golden vectors (11 staging boundaries per
-build).
+77 mechanically extracted upstream golden vectors (11 staging boundaries per
+build, seven builds).
 
 The 768-byte S-box is shared across builds, which makes it usable as a
 **signature for locating the transform function in a binary.**
@@ -889,7 +892,7 @@ layered, and the layers catch different things:
 - **Decode** (`check_decode_errors_corpus.py`, scoped export corpora) -- overlay
   type errors and struct-blob failures; the current 13.04 scope is all 108 files
   with checkpoints enabled.
-- **Semantics** (`check_metrics_baseline.py`, five builds) -- round count,
+- **Semantics** (`check_metrics_baseline.py`, 7 builds) -- round count,
   score, K/D/A invariants that need no baseline.
 
 Two of the headline metrics are **not** "100% / high is good" and reading them

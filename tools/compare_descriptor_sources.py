@@ -16,11 +16,12 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import io
 import json
 import re
-import shutil
 import subprocess
 import sys
+import tarfile
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -201,13 +202,16 @@ def source_from_spec(spec: str, workspace: Path) -> tuple[Path, dict[str, object
         raise ValueError(f"git archive failed for {spec}: {archive.stderr.decode().strip()}")
     unpacked = workspace / f"source-{len(list(workspace.iterdir()))}"
     unpacked.mkdir()
-    tar = shutil.which("tar")
-    if tar is None:
-        raise ValueError("tar is required to read a git revision without a checkout")
-    result = subprocess.run([tar, "-xf", "-", "-C", str(unpacked)], input=archive.stdout,
-                            capture_output=True, check=False)
-    if result.returncode:
-        raise ValueError("could not unpack git archive")
+    # Unpacked in-process, not with whatever `tar` is first on PATH. On Windows
+    # that is Git for Windows' GNU tar inside Git Bash, which reads the drive
+    # colon in `-C C:\...` as a remote host and refuses, and System32's bsdtar
+    # everywhere else -- so the same command passed from PowerShell and failed
+    # from Git Bash. The `data` filter refuses absolute and escaping members.
+    try:
+        with tarfile.open(fileobj=io.BytesIO(archive.stdout)) as tar:
+            tar.extractall(unpacked, filter="data")
+    except (tarfile.TarError, OSError) as exc:
+        raise ValueError(f"could not unpack git archive: {exc}") from exc
     descriptor = descriptor_directory(unpacked)
     manifest, file_count = descriptor_manifest(descriptor)
     return descriptor, {"input": spec, "kind": "git_revision", "repository": str(repo),

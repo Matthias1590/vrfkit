@@ -285,6 +285,26 @@ impl RawPacketReader {
         }
 
         if header.b_partial_initial {
+            let overlapping = self
+                .partial_bunches
+                .get(&header.ch_index)
+                .is_some_and(|existing| !existing.is_complete);
+
+            // An initial that is also final is a whole bunch: nothing is left in
+            // flight, so no state is admitted or kept for it. This branch used
+            // to insert the state and return before `b_partial_final` was ever
+            // read, so the next such bunch on the channel was reported as an
+            // overlapping initial.
+            if header.b_partial_final {
+                if overlapping {
+                    *partial_error_count += 1;
+                    header.has_partial_error = true;
+                }
+                self.partial_bunches.remove(&header.ch_index);
+                header.is_partial_completed = !header.has_partial_error;
+                return;
+            }
+
             if !self.partial_bunches.contains_key(&header.ch_index)
                 && self.partial_bunches.len() >= self.max_channels
             {
@@ -292,12 +312,9 @@ impl RawPacketReader {
                 header.has_partial_error = true;
                 return;
             }
-            // Check for overlapping initial
-            if let Some(existing) = self.partial_bunches.get(&header.ch_index) {
-                if !existing.is_complete {
-                    *partial_error_count += 1;
-                    header.has_partial_error = true;
-                }
+            if overlapping {
+                *partial_error_count += 1;
+                header.has_partial_error = true;
             }
 
             self.partial_bunches.insert(
@@ -649,6 +666,43 @@ mod tests {
             0,
             "completed packet-level partial state must be retired"
         );
+    }
+
+    /// A partial that is both initial and final is a whole bunch: nothing is
+    /// left in flight after it. The tracker kept its state (it returned from
+    /// the initial branch before looking at `b_partial_final`), so the next
+    /// such bunch on the channel was reported as an overlapping initial.
+    #[test]
+    fn an_initial_final_partial_leaves_no_tracker_state() {
+        let mut bits = Vec::new();
+        for _ in 0..2 {
+            write_bit(&mut bits, false); // bControl
+            write_bit(&mut bits, false); // bIsReplicationPaused
+            write_bit(&mut bits, true); // bReliable
+            write_int_packed(&mut bits, 2);
+            write_bit(&mut bits, false);
+            write_bit(&mut bits, false);
+            write_bit(&mut bits, true); // bPartial
+            write_bit(&mut bits, false); // VALORANT
+            write_bit(&mut bits, true); // bPartialInitial
+            write_bit(&mut bits, true); // bPartialFinal
+            write_fname(&mut bits, 1);
+            write_payload_size(&mut bits, 8);
+            for _ in 0..8 {
+                write_bit(&mut bits, false);
+            }
+        }
+        let packet = build_packet(&bits);
+
+        let mut reader = RawPacketReader::new();
+        let mut headers = Vec::new();
+        let result = reader.read_packet(&packet, 0, |h, _| headers.push(h.clone()));
+
+        assert_eq!(headers.len(), 2);
+        assert_eq!(result.partial_error_count, 0);
+        assert!(!headers[1].has_partial_error, "not an overlapping initial");
+        assert!(headers[0].is_partial_completed && headers[1].is_partial_completed);
+        assert!(reader.partial_bunches.is_empty());
     }
 
     #[test]

@@ -566,9 +566,24 @@ impl ReplicationReader {
             stage.stats.partial_bunches += 1;
             let byte_count = stage_fragment(payload, fragment_stage);
 
+            // The accumulator is the one reassembly authority. The packet
+            // reader's own tracker can disagree with it -- it keeps an assembly
+            // the accumulator has already refused (an unaligned or over-budget
+            // fragment), and it used to keep one for every initial that was also
+            // final -- and its verdict rode in on `has_partial_error`. That flag
+            // then vetoed a valid completion and wrote a "rejected" row for bits
+            // that were reassembled anyway, while `partial_errors`, which only
+            // the accumulator counts, stayed at zero: a complete bunch dropped
+            // with every cause counter reading 0. The accumulator gets a header
+            // carrying none of the reader's partial verdicts.
+            let mut fragment_header = header.clone();
+            fragment_header.has_partial_error = false;
+            fragment_header.partial_error_kind = None;
+            fragment_header.is_partial_completed = false;
+
             let result = accumulator.add_fragment(
                 ch_index,
-                header.clone(),
+                fragment_header,
                 &fragment_stage[..byte_count],
                 bit_count as usize,
                 &mut stage.stats.partial_errors,
@@ -643,14 +658,20 @@ impl ReplicationReader {
                     rejection_packet_id: Some(header.packet_id),
                 });
             }
-            if !result.should_process
-                && reason != Some(PartialPayloadReason::OverlappingInitial)
-                && (reason.is_some() || header.has_partial_error)
-            {
+            // A current-fragment row is written only for a fragment the
+            // accumulator refused, under the cause it named. An overlapping
+            // initial is not refused: it replaced the old assembly (preserved
+            // above as a displaced payload) and is itself buffered, so it writes
+            // no row here. There is deliberately no fallback cause -- a row
+            // labelled with a cause no counter recorded is how the same bits
+            // used to reach the table twice.
+            if let Some(reason) = reason.filter(|reason| {
+                !result.should_process && *reason != PartialPayloadReason::OverlappingInitial
+            }) {
                 sink.on_rejected_partial(RejectedPartialFragment {
                     header,
                     payload_kind: "current_fragment",
-                    reason: reason.unwrap_or(PartialPayloadReason::OverlappingInitial),
+                    reason,
                     bit_count: bit_count as usize,
                     payload: &fragment_stage[..byte_count],
                     rejection_packet_id: Some(header.packet_id),
@@ -2725,5 +2746,334 @@ mod tests {
             actor_blocks.is_empty(),
             "without the cache path the byte shifts the header, so no block is the actor's RepLayout"
         );
+    }
+
+    // --- partial reassembly has exactly one authority ---
+    //
+    // The packet reader keeps a per-channel partial tracker of its own. It used
+    // to write `has_partial_error` onto the header, and both the accumulator and
+    // the rejected-row condition read that flag, so any disagreement between the
+    // two trackers changed what was reassembled and what was preserved -- with
+    // `partial_errors` still at zero. Each test below is one such disagreement,
+    // reproduced on `main` before the fix.
+
+    /// A static actor open (GUID 3) followed by an empty actor block.
+    fn open_and_empty_block() -> Vec<bool> {
+        let mut bits = Vec::new();
+        write_int_packed(&mut bits, 3);
+        write_empty_actor_block(&mut bits);
+        bits
+    }
+
+    /// The 8-bit payload `write_int_packed(3)` produces: the byte `6`.
+    fn guid_three() -> Vec<bool> {
+        let mut bits = Vec::new();
+        write_int_packed(&mut bits, 3);
+        bits
+    }
+
+    fn partial_packet(open: bool, initial: bool, last: bool, payload: &[bool]) -> Vec<u8> {
+        build_bunch_packet(
+            &BunchSpec {
+                ch_index: 2,
+                b_open: open,
+                b_partial: true,
+                b_partial_initial: initial,
+                b_partial_final: last,
+                ..Default::default()
+            },
+            payload,
+        )
+    }
+
+    fn run_packets(packets: &[Vec<u8>]) -> (ReplicationReader, TestSink) {
+        let mut reader = ReplicationReader::new("++Ares-Core+release-13.01").unwrap();
+        let mut sink = TestSink::default();
+        for (packet_id, packet) in packets.iter().enumerate() {
+            reader.process_packet(packet, packet_id as i32, &mut sink);
+        }
+        (reader, sink)
+    }
+
+    fn rejected_rows(sink: &TestSink) -> Vec<(&'static str, PartialPayloadReason, usize)> {
+        sink.rejected_partials
+            .iter()
+            .map(|row| (row.kind, row.reason, row.bit_count))
+            .collect()
+    }
+
+    fn rejected_bits(sink: &TestSink) -> u64 {
+        sink.rejected_partials
+            .iter()
+            .map(|row| row.bit_count as u64)
+            .sum()
+    }
+
+    /// A partial that is both initial and final is a whole bunch every time it
+    /// arrives. The packet reader never retired its state for that shape, so
+    /// the second one on a channel was flagged as an overlapping initial: the
+    /// accumulator refused to complete it, `partial_errors` stayed 0, and the
+    /// same bits were written twice as rejected rows labelled with a cause
+    /// whose counter never moved.
+    #[test]
+    fn an_initial_final_partial_is_a_whole_bunch_every_time() {
+        let mut second = Vec::new();
+        write_empty_actor_block(&mut second);
+        let (reader, sink) = run_packets(&[
+            partial_packet(true, true, true, &open_and_empty_block()),
+            partial_packet(false, true, true, &second),
+        ]);
+
+        // The same two payloads sent unfragmented are the reference.
+        let plain = |open: bool, payload: &[bool]| {
+            build_bunch_packet(
+                &BunchSpec {
+                    ch_index: 2,
+                    b_open: open,
+                    ..Default::default()
+                },
+                payload,
+            )
+        };
+        let (reference, reference_sink) =
+            run_packets(&[plain(true, &open_and_empty_block()), plain(false, &second)]);
+        assert_eq!(
+            reference_sink.content_blocks.len(),
+            2,
+            "the reference must itself frame both bunches, or the comparison proves nothing"
+        );
+
+        let stats = reader.stats();
+        assert_eq!(stats.partial_completed, 2, "both whole bunches complete");
+        assert_eq!(stats.partial_errors, 0);
+        assert!(
+            sink.rejected_partials.is_empty(),
+            "nothing was rejected: {:?}",
+            rejected_rows(&sink)
+        );
+        assert_eq!(
+            sink.content_blocks.len(),
+            reference_sink.content_blocks.len()
+        );
+        assert_eq!(stats.actor_opens, reference.stats().actor_opens);
+        assert_eq!(stats.skipped_bits, reference.stats().skipped_bits);
+    }
+
+    /// An unaligned continuation is rejected by the accumulator alone; the
+    /// packet reader kept its assembly. A clean whole bunch that follows on the
+    /// same channel must still be processed, and the rejected bits preserved
+    /// exactly once.
+    #[test]
+    fn a_whole_bunch_after_an_unaligned_fragment_is_still_processed() {
+        let (reader, sink) = run_packets(&[
+            partial_packet(true, true, false, &guid_three()),
+            partial_packet(false, false, false, &[true; 5]),
+            partial_packet(true, true, true, &open_and_empty_block()),
+        ]);
+
+        let stats = reader.stats();
+        assert_eq!(stats.actor_opens, 1, "the whole bunch opens its actor");
+        assert_eq!(sink.content_blocks.len(), 1);
+        assert_eq!(stats.partial_completed, 1);
+        assert_eq!(
+            stats.partial_errors, 1,
+            "only the unaligned continuation is an error"
+        );
+        assert_eq!(stats.partial_non_byte_aligned, 1);
+        assert_eq!(stats.partial_overlapping_initial, 0);
+        assert_eq!(
+            rejected_rows(&sink),
+            vec![
+                (
+                    "accumulated_payload",
+                    PartialPayloadReason::NonByteAlignedFragment,
+                    8
+                ),
+                (
+                    "current_fragment",
+                    PartialPayloadReason::NonByteAlignedFragment,
+                    5
+                ),
+            ]
+        );
+        assert_eq!(
+            sink.rejected_partials[0].payload,
+            vec![6],
+            "the displaced initial keeps its bytes"
+        );
+        assert_eq!(
+            rejected_bits(&sink),
+            stats.skipped_bits,
+            "every rejected bit is preserved once"
+        );
+    }
+
+    /// The initial that restarts a channel after an unaligned rejection is
+    /// buffered and later reassembled. It must not also be written as a rejected
+    /// overlapping initial -- that put the same bits into both the decoded
+    /// stream and the preservation table.
+    #[test]
+    fn a_reassembled_fragment_is_never_also_a_rejected_row() {
+        let mut block = Vec::new();
+        write_empty_actor_block(&mut block);
+        let (reader, sink) = run_packets(&[
+            partial_packet(true, true, false, &guid_three()),
+            partial_packet(false, false, false, &[true; 5]),
+            partial_packet(true, true, false, &guid_three()),
+            partial_packet(false, false, true, &block),
+        ]);
+
+        let stats = reader.stats();
+        assert_eq!(stats.partial_completed, 1);
+        assert_eq!(stats.actor_opens, 1);
+        assert_eq!(sink.content_blocks.len(), 1);
+        assert_eq!(stats.partial_overlapping_initial, 0);
+        assert_eq!(
+            rejected_rows(&sink),
+            vec![
+                (
+                    "accumulated_payload",
+                    PartialPayloadReason::NonByteAlignedFragment,
+                    8
+                ),
+                (
+                    "current_fragment",
+                    PartialPayloadReason::NonByteAlignedFragment,
+                    5
+                ),
+            ]
+        );
+        assert_eq!(rejected_bits(&sink), stats.skipped_bits);
+    }
+
+    /// A zero-bit final that overlaps an assembly is an error, not a
+    /// completion. The zero-payload path marked it complete without the guard
+    /// its non-empty sibling carries, so `partial_completed` reported a bunch
+    /// that was never processed and the complete-but-untaken state stayed in
+    /// the accumulator until end of stream.
+    #[test]
+    fn a_zero_bit_overlapping_final_is_not_a_completion() {
+        let (reader, sink) = run_packets(&[
+            partial_packet(true, true, false, &guid_three()),
+            partial_packet(false, true, true, &[]),
+        ]);
+
+        let stats = reader.stats();
+        assert_eq!(stats.partial_completed, 0);
+        assert_eq!(stats.partial_errors, 1);
+        assert_eq!(stats.partial_overlapping_initial, 1);
+        assert_eq!(
+            reader.accumulator.active_count(),
+            0,
+            "no complete-but-untaken state may linger"
+        );
+        assert_eq!(
+            rejected_rows(&sink),
+            vec![(
+                "accumulated_payload",
+                PartialPayloadReason::OverlappingInitial,
+                8
+            )]
+        );
+        assert_eq!(rejected_bits(&sink), stats.skipped_bits);
+    }
+
+    // --- the preservation hand-off itself ---
+    //
+    // The accumulator's own tests cover what it displaces. What they cannot see
+    // is the step after: pipeline -> `on_rejected_partial`. Five simultaneous
+    // mutations of that step (rows not written, payloads emptied, three reasons
+    // relabelled, end-of-stream counters zeroed) left every workspace test
+    // green. Each test below pins one of those hand-offs by its bytes, reason
+    // and counters.
+
+    /// `finish_with_sink` is what the driver calls, not `finish`. It must count
+    /// the unfinished assembly and hand the sink its exact bytes, once.
+    #[test]
+    fn finish_with_sink_preserves_an_unfinished_assembly_exactly() {
+        let (mut reader, mut sink) =
+            run_packets(&[partial_packet(true, true, false, &guid_three())]);
+        reader.finish_with_sink(&mut sink);
+
+        let stats = reader.stats();
+        assert_eq!(
+            (stats.unfinished_partials, stats.unfinished_partial_bits),
+            (1, 8)
+        );
+        assert_eq!(
+            rejected_rows(&sink),
+            vec![("accumulated_payload", PartialPayloadReason::EndOfStream, 8)]
+        );
+        let row = &sink.rejected_partials[0];
+        assert_eq!(row.payload, vec![6]);
+        assert_eq!(row.rejection_packet_id, None);
+        assert_eq!(
+            row.header.packet_id, 0,
+            "the row names the fragment's packet"
+        );
+
+        reader.finish_with_sink(&mut sink);
+        assert_eq!(
+            sink.rejected_partials.len(),
+            1,
+            "a second call preserves nothing twice"
+        );
+    }
+
+    /// A partial bunch refused because per-channel state is exhausted keeps its
+    /// own reason; it is not a missing initial.
+    #[test]
+    fn a_partial_refused_for_channel_state_keeps_that_reason() {
+        let mut reader = ReplicationReader::new("++Ares-Core+release-13.01").unwrap();
+        reader.packet_reader = RawPacketReader::with_max_channels(0);
+        let mut sink = TestSink::default();
+        reader.process_packet(
+            &partial_packet(false, true, false, &guid_three()),
+            0,
+            &mut sink,
+        );
+
+        assert_eq!(reader.stats().channel_state_limit_failures, 1);
+        assert_eq!(
+            rejected_rows(&sink),
+            vec![(
+                "current_fragment",
+                PartialPayloadReason::ChannelStateLimit,
+                8
+            )]
+        );
+        assert_eq!(sink.rejected_partials[0].payload, vec![6]);
+        assert_eq!(reader.stats().skipped_bits, 8);
+    }
+
+    /// Closing a channel while a partial is buffered preserves the buffered
+    /// bytes under `ChannelClosed`, charged to the closing packet.
+    #[test]
+    fn closing_a_channel_mid_partial_preserves_the_buffered_payload() {
+        let close = build_bunch_packet(
+            &BunchSpec {
+                ch_index: 2,
+                b_close: true,
+                ..Default::default()
+            },
+            &[],
+        );
+        let (reader, sink) =
+            run_packets(&[partial_packet(true, true, false, &guid_three()), close]);
+
+        let stats = reader.stats();
+        assert_eq!(stats.partial_channel_close, 1);
+        assert_eq!(stats.partial_errors, 1);
+        assert_eq!(
+            rejected_rows(&sink),
+            vec![(
+                "accumulated_payload",
+                PartialPayloadReason::ChannelClosed,
+                8
+            )]
+        );
+        assert_eq!(sink.rejected_partials[0].payload, vec![6]);
+        assert_eq!(sink.rejected_partials[0].rejection_packet_id, Some(1));
+        assert_eq!(stats.skipped_bits, 8);
     }
 }

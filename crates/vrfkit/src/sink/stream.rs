@@ -880,6 +880,116 @@ mod tests {
         assert_eq!(object_guid_for(false, 99), Some(99), "subobject block");
     }
 
+    fn rejected_partial_row(
+        reason: PartialPayloadReason,
+        bit_count: usize,
+        payload: &[u8],
+    ) -> PartialRecord {
+        let mut cache = NetGuidCache::new();
+        let mut channel_state = ChannelState::new();
+        let mut records = RecordBuffers::default();
+        {
+            let mut sink = ExportSink::new(&mut cache, &mut channel_state, &mut records);
+            let header = vrf_net::bunch::RawBunchHeader {
+                packet_id: 41,
+                ch_index: 7,
+                ch_sequence: 9,
+                b_reliable: true,
+                b_partial: true,
+                b_partial_initial: true,
+                payload_bit_count: 13,
+                payload_bit_offset: 57,
+                ..Default::default()
+            };
+            sink.on_rejected_partial(RejectedPartialFragment {
+                header: &header,
+                payload_kind: "accumulated_payload",
+                reason,
+                bit_count,
+                payload,
+                rejection_packet_id: Some(44),
+            });
+        }
+        assert_eq!(records.partials.len(), 1);
+        records.partials.remove(0)
+    }
+
+    /// A rejected partial keeps the bits it declares and no more: bits past
+    /// `bit_count` in the last byte are staging residue, not payload.
+    #[test]
+    fn a_rejected_partial_row_masks_its_last_byte_and_keeps_its_header() {
+        let row = rejected_partial_row(PartialPayloadReason::ChannelClosed, 13, &[0xFF, 0xFF]);
+        assert_eq!(
+            row.raw_bits,
+            vec![0xFF, 0x1F],
+            "bits past bit_count are masked"
+        );
+        assert_eq!(
+            (row.reason, row.payload_kind, row.bit_count),
+            ("channel_closed", "accumulated_payload", 13)
+        );
+        assert_eq!(
+            (
+                row.source_packet_id,
+                row.rejection_packet_id,
+                row.channel_index,
+                row.channel_sequence
+            ),
+            (41, Some(44), 7, 9)
+        );
+        assert_eq!(
+            (row.source_payload_bit_offset, row.source_payload_bit_count),
+            (57, 13)
+        );
+        assert!(row.reliable && row.partial && row.partial_initial && !row.partial_final);
+
+        let aligned = rejected_partial_row(PartialPayloadReason::EndOfStream, 16, &[0xFF, 0xFF]);
+        assert_eq!(
+            aligned.raw_bits,
+            vec![0xFF, 0xFF],
+            "a whole last byte is kept"
+        );
+    }
+
+    /// Every rejection cause reaches the table under its own name. A relabelled
+    /// cause is a plausible wrong value: the row still looks well-formed.
+    #[test]
+    fn every_rejected_partial_reason_has_a_distinct_name() {
+        let reasons = [
+            (PartialPayloadReason::MissingInitial, "missing_initial"),
+            (
+                PartialPayloadReason::OverlappingInitial,
+                "overlapping_initial",
+            ),
+            (
+                PartialPayloadReason::MismatchedContinuation,
+                "mismatched_continuation",
+            ),
+            (
+                PartialPayloadReason::NonByteAlignedFragment,
+                "non_byte_aligned_fragment",
+            ),
+            (PartialPayloadReason::ActiveStateLimit, "active_state_limit"),
+            (
+                PartialPayloadReason::BufferedBitsLimit,
+                "buffered_bits_limit",
+            ),
+            (
+                PartialPayloadReason::AllocationFailure,
+                "allocation_failure",
+            ),
+            (
+                PartialPayloadReason::ChannelStateLimit,
+                "channel_state_limit",
+            ),
+            (PartialPayloadReason::ChannelClosed, "channel_closed"),
+            (PartialPayloadReason::EndOfStream, "end_of_stream"),
+        ];
+        for (reason, name) in reasons {
+            assert_eq!(rejected_partial_row(reason, 8, &[0]).reason, name);
+        }
+    }
+
     #[test]
     fn on_field_keeps_exact_parent_raw_bits_for_unknown_and_typed_failures() {
         let mut cache = NetGuidCache::new();

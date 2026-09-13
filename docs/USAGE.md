@@ -964,12 +964,12 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 699 passing
+cargo +1.86.0 test --workspace --locked                              # 709 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 127 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 796 tests
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 808 tests
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 187 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
@@ -991,16 +991,21 @@ Rust sources are ASCII down to the comments.
 cargo +1.86.0 build --release -p vrfkit --features export --locked
 
 python tools/check_export_baseline.py --baseline tools/baselines/export_02d4d478.json
-python tools/check_corpus_baseline.py --baseline tools/baselines/build_1302.json
+# The checkpoint baseline needs --checkpoints; without it every checkpoint
+# counter reads as missing and the check fails for that reason alone.
+python tools/check_export_baseline.py --baseline tools/baselines/checkpoint_02d4d478.json --checkpoints
+for b in 1210 1211 1300 1302 1304 1305; do
+  python tools/check_corpus_baseline.py --baseline tools/baselines/build_$b.json
+done
 python tools/validate_corpus.py ./target/release/vrfkit.exe <corpus>
 python tools/check_decode_errors_corpus.py ./target/release/vrfkit.exe <corpus>
 python tools/check_metrics_baseline.py
 python tools/compare_combat_report.py
 
 # Optional, opt-in: also decode every Checkpoint chunk and check its counters.
-# Checkpoint decoding was otherwise verified on exactly one pinned replay
-# (tools/baselines/checkpoint_02d4d478.json), never across a corpus. Costs
-# real extra time and disk per replay, so it is not part of the line above.
+# The committed checkpoint check is the single pinned replay above; this is the
+# corpus-wide one. Costs real extra time and disk per replay, so it is not part
+# of the line above.
 python tools/check_decode_errors_corpus.py ./target/release/vrfkit.exe <corpus> --checkpoints
 ```
 
@@ -1023,7 +1028,7 @@ rather than the exit code.
 | `check_export_baseline.py` | 28 export counters + per-file rows/bytes | Other builds | 1 s |
 | `check_decode_errors_corpus.py` | Overlay type errors + struct blob failures (top level; `--recursive` for subdirectories) | Broken semantics; Checkpoint chunks, unless `--checkpoints` | ~50 s |
 | `check_decode_errors_corpus.py --checkpoints` | The same, plus every Checkpoint chunk's overlay and struct-blob decode | Broken semantics | slower: `vrfkit export` also decodes every Checkpoint chunk per replay |
-| `check_metrics_baseline.py` | **Semantics** -- rounds, score, K/D/A (5 builds) | Errors in the metrics pipeline itself | ~46 s |
+| `check_metrics_baseline.py` | **Semantics** -- rounds, score, K/D/A (7 builds) | Errors in the metrics pipeline itself | ~46 s |
 | `compare_combat_report.py` | Metrics-input multiset | Framing | seconds |
 
 **The layers differ.** The first three of those four read framing counters or
@@ -1061,8 +1066,8 @@ silent change must be impossible.
 | 12.10, 12.11, 13.00 | One preserved fixture each + golden vectors |
 | 13.01 | 215-replay portion of the current multi-build sweep |
 | 13.02 | Preserved replay + 204-replay portion of the current sweep |
-| 13.04 | Upstream golden vectors + 108-replay export/checkpoint sweep |
-| 13.05 | Golden vectors + 187-file portion of the 714-file sweep |
+| 13.04 | Preserved fixture + upstream golden vectors + 108-replay export/checkpoint sweep |
+| 13.05 | Preserved fixture + golden vectors + 187-file portion of the 714-file sweep |
 
 The current 714-file sweep passes ReplayData block validation and separately
 reports zero checkpoint block loss. All 961,004 partial fragments now reassemble
