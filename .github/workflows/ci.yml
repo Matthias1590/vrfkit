@@ -40,9 +40,9 @@ jobs:
             @("vrf-export", ""), @("vrf-export", "parquet"),
             @("vrf-export", "fields"), @("vrf-export", "movement"),
             @("vrf-export", "actors"), @("vrf-export", "net-guids"),
-            @("vrf-export", "events"), @("vrf-export", "snappy"),
-            @("vrf-export", "partials"),
+            @("vrf-export", "events"), @("vrf-export", "partials"),
             @("vrf-export", "checkpoint-context"),
+            @("vrf-export", "snappy"),
             @("vrf-net", ""), @("vrf-net", "diagnostics"),
             @("vrf-schema", ""), @("vrf-schema", "checkpoint")
           )

@@ -76,6 +76,53 @@ class LinkTests(unittest.TestCase):
         for path in (guard.README, guard.USAGE):
             self.assertEqual(guard.check_links(path, guard.read(path)), [], path.name)
 
+    def test_every_top_level_doc_is_link_checked(self):
+        """26 docs were added under docs/ in one week while this guard read
+        two of them. Every top-level doc is now link-checked."""
+        names = {p.name for p in guard.link_checked_docs()}
+        on_disk = {p.name for p in (guard.REPO / "docs").glob("*.md")}
+        self.assertEqual(names & on_disk, on_disk)
+        for path in guard.link_checked_docs():
+            self.assertEqual(guard.check_links(path, guard.read(path)), [], path.name)
+
+
+class FeatureMatrixTests(unittest.TestCase):
+    """README used to say CONTRIBUTING and ci.yml list "the same 25 cases" and
+    that "nothing checks that they agree". By 2026-09-13 both held 27 and three
+    were in a different order, and the sentence still said 25."""
+
+    CONTRIBUTING = (
+        "cargo +1.86.0 check -p vrf-a --no-default-features --locked\n"
+        "cargo +1.86.0 check -p vrf-a --no-default-features --features x --locked\n"
+    )
+    CI = '          $matrix = @(\n            @("vrf-a", ""), @("vrf-a", "x")\n          )\n'
+
+    def test_the_shipped_matrices_agree(self):
+        contributing = guard.read(guard.REPO / "CONTRIBUTING.md")
+        ci = guard.read(guard.REPO / ".github" / "workflows" / "ci.yml")
+        self.assertEqual(guard.check_feature_matrix(contributing, ci), [])
+
+    def test_identical_lists_pass(self):
+        self.assertEqual(guard.check_feature_matrix(self.CONTRIBUTING, self.CI), [])
+
+    def test_a_reordered_matrix_is_reported(self):
+        ci = self.CI.replace('@("vrf-a", ""), @("vrf-a", "x")', '@("vrf-a", "x"), @("vrf-a", "")')
+        problems = guard.check_feature_matrix(self.CONTRIBUTING, ci)
+        self.assertTrue(any("order" in p for p in problems), problems)
+
+    def test_a_case_missing_from_ci_is_reported(self):
+        ci = self.CI.replace(', @("vrf-a", "x")', "")
+        problems = guard.check_feature_matrix(self.CONTRIBUTING, ci)
+        self.assertTrue(any("vrf-a" in p and "x" in p for p in problems), problems)
+
+    def test_an_unparseable_ci_matrix_is_reported_not_passed(self):
+        problems = guard.check_feature_matrix(self.CONTRIBUTING, "no matrix here")
+        self.assertTrue(problems)
+
+    def test_an_empty_contributing_matrix_is_reported_not_passed(self):
+        problems = guard.check_feature_matrix("no cargo lines", self.CI)
+        self.assertTrue(problems)
+
 
 class TableSizeTests(unittest.TestCase):
     def test_a_stale_table_size_is_reported(self):
@@ -309,6 +356,33 @@ class MeasuredCountTests(unittest.TestCase):
         text = "(85 corrections)\nsays 86 corrections\n# 49 corrections present"
         problems = guard.stale_measured_counts({"x.md": text}, {"corrections": 85})
         self.assertEqual(len(problems), 2, problems)
+
+    def test_a_stale_golden_vector_count_is_caught(self):
+        """README said 66 for a week after 13.05 took the file to 77."""
+        text = "66 mechanically extracted upstream golden vectors (11 staging"
+        problems = guard.stale_measured_counts({"x.md": text}, {"golden": 77})
+        self.assertEqual(len(problems), 1, problems)
+        self.assertIn("66", problems[0])
+
+    def test_both_stale_matrix_counts_are_caught(self):
+        text = "as 25 `cargo check`\nlines; ci.yml expresses **the same 25 cases** as"
+        problems = guard.stale_measured_counts(
+            {"x.md": text}, {"matrix": 27, "matrix_cases": 27})
+        self.assertEqual(len(problems), 2, problems)
+
+    def test_a_metrics_build_count_counts_only_beside_its_guard(self):
+        live = {"metrics_builds": 7}
+        unrelated = "The transform is shared across 7 builds (5 builds before)."
+        self.assertEqual(guard.stale_measured_counts({"x.md": unrelated}, live), [])
+        stale = "| `check_metrics_baseline.py` | rounds, score, K/D/A (5 builds) |"
+        self.assertEqual(len(guard.stale_measured_counts({"x.md": stale}, live)), 1)
+
+    def test_the_live_golden_and_matrix_counts_are_measured(self):
+        live = guard.measured_counts()
+        self.assertEqual(live["golden"], 77)
+        self.assertEqual(live["matrix"], live["matrix_cases"])
+        self.assertGreater(live["matrix"], 0)
+        self.assertGreater(live["metrics_builds"], 0)
 
     def test_a_corpus_file_count_is_not_an_ascii_claim(self):
         """README says "all 215 files" about replays, not about the sweep."""

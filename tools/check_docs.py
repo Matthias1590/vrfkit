@@ -328,7 +328,65 @@ MEASURED_RE = {
     # to keep "all 215 files" from being read as the ASCII sweep's count.
     "additions": (re.compile(r"currently (\d+) of them"),
                   re.compile(r"ADDITIONS"), 2),
+    # The feature matrix and the golden vectors both grew while README quoted
+    # their old sizes (25 -> 27 checks, 66 -> 77 vectors) for more than a week.
+    # Each phrase below is specific enough to be that claim with no context.
+    "matrix": (re.compile(r"(\d+) `cargo check`"), None, 0),
+    "matrix_cases": (re.compile(r"the same (\d+) cases"), None, 0),
+    "golden": (re.compile(r"(\d+) mechanically extracted upstream golden vectors"), None, 0),
+    # "N builds" is generic -- the transform table talks about builds too -- so
+    # it counts only on a line that names the semantic guard.
+    "metrics_builds": (re.compile(r"(\d+) builds\b"),
+                       re.compile(r"check_metrics_baseline"), 0),
 }
+
+#: The CONTRIBUTING and ci.yml spellings of the feature-check matrix.
+MATRIX_LINE_RE = re.compile(r"cargo \+1\.86\.0 check -p (\S+) --no-default-features"
+                            r"(?: --features (\S+))? --locked")
+MATRIX_BLOCK_RE = re.compile(r"\$matrix = @\((.*?)\n\s*\)", re.S)
+MATRIX_CASE_RE = re.compile(r'@\("([^"]+)",\s*"([^"]*)"\)')
+GOLDEN_LEN_RE = re.compile(r"pub const VECTORS: \[\(&str, usize, &str\); (\d+)\]")
+
+
+def feature_matrices(contributing: str, ci: str) -> tuple[list[tuple[str, str]], list[tuple[str, str]] | None]:
+    """The (crate, feature) cases each file runs, in order. `None` for ci.yml
+    means its matrix block could not be found at all."""
+    documented = [(crate, feature or "") for crate, feature in MATRIX_LINE_RE.findall(contributing)]
+    block = MATRIX_BLOCK_RE.search(ci)
+    return documented, (MATRIX_CASE_RE.findall(block.group(1)) if block else None)
+
+
+def check_feature_matrix(contributing: str, ci: str) -> list[str]:
+    """CONTRIBUTING's `cargo check` lines and ci.yml's `$matrix` must be the
+    same cases in the same order.
+
+    README described the two as "same set, same order" and added that "nothing
+    checks that they agree" -- and by the time anyone looked, three cases were in
+    a different order and the count it quoted was two short. An empty or
+    unparseable side is a problem, never a vacuous match.
+    """
+    documented, ci_cases = feature_matrices(contributing, ci)
+    if not documented:
+        return ["CONTRIBUTING.md: no `cargo +1.86.0 check -p ... --no-default-features` lines found"]
+    if ci_cases is None:
+        return [".github/workflows/ci.yml: no `$matrix = @(...)` block found"]
+    problems = [f"feature matrix: {case} is in CONTRIBUTING.md but not ci.yml"
+                for case in documented if case not in ci_cases]
+    problems += [f"feature matrix: {case} is in ci.yml but not CONTRIBUTING.md"
+                 for case in ci_cases if case not in documented]
+    if not problems and documented != ci_cases:
+        problems.append("feature matrix: CONTRIBUTING.md and ci.yml list the same "
+                        "cases in a different order")
+    return problems
+
+
+def link_checked_docs() -> list[Path]:
+    """Every doc whose relative links are checked: the five read above plus
+    every top-level file under docs/. docs/archive/ is dated history and keeps
+    whatever it linked to at the time."""
+    paths = {REPO / name for name in ALL_DOCS}
+    paths.update((REPO / "docs").glob("*.md"))
+    return sorted(paths)
 
 
 def check_generated_inventory(docs: dict[str, str]) -> list[str]:
@@ -581,6 +639,28 @@ def measured_counts(problems: list[str] | None = None) -> dict[str, int]:
     # list spans a commented block per entry, so any line-counting heuristic
     # would be a second thing to keep in step with it.
     counts["additions"] = len(module.ADDITIONS)
+
+    documented, _ = feature_matrices(read(REPO / "CONTRIBUTING.md"), "")
+    if documented:
+        counts["matrix"] = counts["matrix_cases"] = len(documented)
+    elif problems is not None:
+        problems.append("could not measure the feature matrix: CONTRIBUTING.md "
+                        "has no `cargo +1.86.0 check -p` lines")
+
+    golden = GOLDEN_LEN_RE.search(read(
+        REPO / "crates" / "vrf-transform" / "tests" / "data" / "golden_vectors.rs"))
+    if golden:
+        counts["golden"] = int(golden.group(1))
+    elif problems is not None:
+        problems.append("could not measure the golden-vector count: no "
+                        "`VECTORS: [...; N]` declaration in golden_vectors.rs")
+
+    metrics = json.loads(read(REPO / "tools" / "baselines" / "metrics_builds.json"))
+    if isinstance(metrics.get("replays"), dict) and metrics["replays"]:
+        counts["metrics_builds"] = len(metrics["replays"])
+    elif problems is not None:
+        problems.append("could not measure the semantic guard's build count: "
+                        "metrics_builds.json has no replays")
     return counts
 
 
@@ -616,7 +696,11 @@ def stale_measured_counts(docs: dict[str, str], live: dict[str, int]) -> list[st
 
 def measure_tests() -> tuple[int, int, list[str]]:
     problems = []
-    r = subprocess.run(["cargo", "test", "--quiet"], cwd=REPO, capture_output=True,
+    # The same toolchain and lockfile the sweep and CI use. A bare `cargo test`
+    # ran whatever the local default toolchain was, so the count it measured
+    # could come from a compiler that accepts code 1.86 rejects.
+    r = subprocess.run(["cargo", "+1.86.0", "test", "--workspace", "--locked", "--quiet"],
+                       cwd=REPO, capture_output=True,
                        text=True, encoding="utf-8", errors="replace", timeout=3600)
     out = (r.stdout or "") + (r.stderr or "")
     passed_matches = re.findall(r"(\d+) passed", out)
@@ -693,9 +777,14 @@ def main() -> int:
         + [p for name in ALL_DOCS
            for p in check_links(REPO / name, every[name])
            if name not in ("README.md", "docs/USAGE.md")]
+        + [p for path in link_checked_docs()
+           if path.relative_to(REPO).as_posix() not in ALL_DOCS
+           for p in check_links(path, read(path))]
+        + check_feature_matrix(read(REPO / "CONTRIBUTING.md"),
+                               read(REPO / ".github" / "workflows" / "ci.yml"))
     )
 
-    checked = 15
+    checked = 17
     if not args.fast:
         rust, tools_n, run_problems = measure_tests()
         problems += run_problems
@@ -714,7 +803,7 @@ def main() -> int:
 
     n_tools = len(list((REPO / "tools").glob("*.py")))
     n_crates = len({p.parent.name for p in (REPO / "crates").glob("*/Cargo.toml")})
-    print(f"docs: {len(ALL_DOCS)} files   "
+    print(f"docs: {len(ALL_DOCS)} files ({len(link_checked_docs())} link-checked)   "
           f"{n_tools} tools, {n_crates} crates, {checked} checks")
 
     if problems:
