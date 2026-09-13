@@ -22,12 +22,12 @@ MAIN_COUNTERS = frozenset(COUNTERS)
 CHECKPOINT_ONLY_COUNTERS = frozenset(CHECKPOINT_COUNTERS)
 MAIN_PARQUET = tuple(PARQUET_FILES)
 CORPUS_TOTALS = ("blocks", "fields", "rpcs", "malformed", "skipped")
-BUILDS = ("12.10", "12.11", "13.00", "13.01", "13.02")
+BUILDS = ("12.10", "12.11", "13.00", "13.01", "13.02", "13.04", "13.05")
 SHA256_RE = re.compile(r"[0-9a-f]{64}\Z")
 KNOWN_BASELINES = {
     "bench.json", "metrics_builds.json", "export_02d4d478.json",
     "checkpoint_02d4d478.json", "build_1210.json", "build_1211.json",
-    "build_1300.json", "build_1302.json",
+    "build_1300.json", "build_1302.json", "build_1304.json", "build_1305.json",
 }
 METRIC_INT_FIELDS = {
     "ability_spawns", "assists", "client_round_starts", "combat_players",
@@ -266,6 +266,7 @@ def validate_repository(
     corpus_files = {
         "12.10": "build_1210.json", "12.11": "build_1211.json",
         "13.00": "build_1300.json", "13.02": "build_1302.json",
+        "13.04": "build_1304.json", "13.05": "build_1305.json",
     }
     for build, filename in corpus_files.items():
         corpus = loaded[filename]
