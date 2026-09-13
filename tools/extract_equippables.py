@@ -7,7 +7,9 @@ carries a hand-maintained table in
 
     ValorantReplayParser/src/Replay.Valorant/Combat/ValorantEquippableResolver.cs
 
-as a list of Define(classPath, name, category) entries. Reproducing
+as a list of Define(classPath, name, category) entries. That file is vendored
+with the rest of the descriptor sources, at
+third_party/vrp/Replay.Valorant/Combat/, and is the default input. Reproducing
 shot.equippable.name therefore requires a table, and this generator extracts it
 from that authoritative source rather than having anyone retype 24 paths.
 
@@ -21,13 +23,14 @@ docs/archive/NEXT_STEPS_FINDINGS.md.
 Usage:
     python tools/extract_equippables.py [--csharp-root <path>] [--check]
 
---check exits non-zero if the generated file is stale, for CI use.
+--csharp-root takes the vendored root (third_party/vrp, the default) or an
+upstream clone's root. --check exits non-zero if the generated file is stale;
+CI runs it.
 """
 
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import sys
 from pathlib import Path
@@ -37,8 +40,14 @@ if __package__:
 else:  # direct script execution
     from atomic_io import atomic_write_text
 
-DEFAULT_CSHARP_ROOT = Path(os.environ.get("VRFKIT_CSHARP_DIR", ""))
-RESOLVER_RELPATH = Path("src/Replay.Valorant/Combat/ValorantEquippableResolver.cs")
+# The input is vendored (third_party/vrp/README.md). It used to default to
+# VRFKIT_CSHARP_DIR, which no one set, so a plain run -- and the --check this
+# docstring advertised for CI -- stopped at "resolver not found".
+DEFAULT_CSHARP_ROOT = Path(__file__).resolve().parent.parent / "third_party" / "vrp"
+RESOLVER_RELPATH = Path("Combat/ValorantEquippableResolver.cs")  # below Replay.Valorant
+# Written into the generated header. Fixed rather than taken from the input, so
+# --check agrees for any root holding the same resolver.
+SOURCE_LABEL = "third_party/vrp/Replay.Valorant/Combat/ValorantEquippableResolver.cs"
 OUTPUT_PATH = Path(__file__).parent / "equippable_table.py"
 
 # Define("<class path>", "<display name>", ValorantEquippableCategory.<Category>)
@@ -144,6 +153,18 @@ def render(definitions: list[tuple[str, str, str]], source_rel: str) -> str:
     return "\n".join(lines)
 
 
+def find_resolver(root: Path) -> Path | None:
+    """The resolver below a vendored root or an upstream clone's root.
+
+    The vendored copy keeps Replay.Valorant directly under its root; upstream
+    has it under src/. Same two layouts compare_descriptor_sources.py accepts.
+    """
+    for descriptors in (root / "Replay.Valorant", root / "src" / "Replay.Valorant"):
+        if (descriptors / RESOLVER_RELPATH).is_file():
+            return descriptors / RESOLVER_RELPATH
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--csharp-root", type=Path, default=DEFAULT_CSHARP_ROOT)
@@ -154,11 +175,11 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    resolver = args.csharp_root / RESOLVER_RELPATH
-    if not resolver.exists():
-        print(f"resolver not found: {resolver}\n"
-              f"set VRFKIT_CSHARP_DIR to the ValorantReplayParser checkout root, "
-              f"or pass --csharp-root", file=sys.stderr)
+    resolver = find_resolver(args.csharp_root)
+    if resolver is None:
+        print(f"resolver not found below {args.csharp_root}: looked for "
+              f"Replay.Valorant/{RESOLVER_RELPATH.as_posix()} and "
+              f"src/Replay.Valorant/{RESOLVER_RELPATH.as_posix()}", file=sys.stderr)
         return 2
 
     definitions = parse_definitions(resolver.read_text(encoding="utf-8"))
@@ -166,7 +187,7 @@ def main() -> int:
         print(f"no Define(...) entries matched in {resolver}", file=sys.stderr)
         return 2
 
-    rendered = render(definitions, RESOLVER_RELPATH.as_posix())
+    rendered = render(definitions, SOURCE_LABEL)
 
     if args.check:
         if not OUTPUT_PATH.exists():

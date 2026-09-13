@@ -3,7 +3,10 @@
 `Replay.Valorant/` holds the 162 C# descriptor files that
 `tools/extract_descriptors.py` reads to generate
 `crates/vrf-decode/src/table.rs`. They are copied verbatim from the commit
-below. Nothing here is compiled; it is generator input.
+below. Nothing here is compiled; it is generator input. Two other tools read it
+by default: `tools/extract_equippables.py` generates `tools/equippable_table.py`
+from `Replay.Valorant/Combat/ValorantEquippableResolver.cs`, and
+`tools/analyze_coverage.py` lists the descriptor paths.
 
 The directory is `vrp/Replay.Valorant`, not upstream's
 `ValorantReplayParser/src/Replay.Valorant`, to keep paths short: without
@@ -25,7 +28,8 @@ it yields 724 entries where this input yields 1,185 (491 removed, 30 added, 6
 retyped) and changes 16 handles.
 
 CI now regenerates `table.rs` from this directory and fails if the result
-differs from the committed file.
+differs from the committed file, and runs `extract_equippables.py --check`
+against it.
 
 ## Provenance
 

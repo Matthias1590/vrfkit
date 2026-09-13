@@ -18,7 +18,7 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Verified state:** Rust has **709 passing** tests; Python has **808 passing**
+**Verified state:** Rust has **709 passing** tests; Python has **810 passing**
 tests. The full 714-file comparison and corpus guards passed; see
 [current status](docs/CURRENT_STATUS.md) for the current evidence boundary.
 
@@ -351,7 +351,7 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**709 passing**; the full Python suite also has **808 passing** tests. The
+**709 passing**; the full Python suite also has **810 passing** tests. The
 all-corpus guards, all-file comparison, and full documentation check pass.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
@@ -924,16 +924,18 @@ Six files in the tree are generated and must never be edited by hand:
 | `crates/vrf-decode/src/scoped_types.rs` | `tools/generate_scoped_types.py` | Exact group/name/checksum primitive types for ambiguous field names; no cross-group propagation |
 | `crates/vrf-transform/src/sbox.rs` | `tools/extract_sboxes.py` | 768-byte S-box, shared across builds |
 | `crates/vrf-transform/tests/data/golden_vectors.rs` | `tools/extract_golden.py` | Per-build golden test vectors |
-| `tools/equippable_table.py` | `tools/extract_equippables.py` | Weapon class path to display name |
+| `tools/equippable_table.py` | `tools/extract_equippables.py` | Weapon class path to display name, from the vendored `ValorantEquippableResolver.cs` |
 
-The overlay table's input is in the tree, so anyone can regenerate it; CI does,
-and fails if the result differs from the committed file:
+The overlay table's and the equippable table's input is in the tree, so anyone
+can regenerate them; CI does, and fails if either result differs from the
+committed file:
 
 ```bash
 python tools/extract_descriptors.py third_party/vrp/Replay.Valorant \
     crates/vrf-decode/src/table.rs
 python tools/apply_type_corrections.py
 cargo +1.86.0 fmt -p vrf-decode
+python tools/extract_equippables.py --check
 ```
 
 The S-box and golden-vector generators require an upstream checkout:

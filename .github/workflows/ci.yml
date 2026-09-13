@@ -156,6 +156,8 @@ jobs:
         run: python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
       - name: generated scoped type guard
         run: python -W error tools/generate_scoped_types.py --check
+      - name: generated equippable table guard
+        run: python -W error tools/extract_equippables.py --check
       - name: baseline schemas
         run: python -W error tools/check_baseline_schemas.py
       - name: docs self-check

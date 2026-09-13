@@ -628,7 +628,7 @@ needs it.
 | `extract_checksum_types.py` | `crates/vrf-decode/src/checksum_table.rs` -- `compatible_checksum` -> `FieldType`, learned from the fields the overlay table already declares. Needs an export directory rather than the C# tree, since checksums come from the replay. Checksums whose donors disagree are dropped, which is the safety property. Repeat `--export` to widen the basis; the run **merges** into the committed table rather than replacing it, because a checksum this basis did not happen to see is still correct. `--check` asks whether the two agree *where they overlap* -- not whether they are byte-identical, which a content-addressed table cannot be across different sets of replays. |
 | `extract_sboxes.py` | `crates/vrf-transform/src/sbox.rs` |
 | `extract_golden.py` | `crates/vrf-transform/tests/data/golden_vectors.rs` |
-| `extract_equippables.py` | `tools/equippable_table.py` |
+| `extract_equippables.py` | `tools/equippable_table.py` from the vendored `third_party/vrp/Replay.Valorant/Combat/ValorantEquippableResolver.cs`; `--check` runs in CI |
 
 **Order matters:** `extract_descriptors.py` -> `apply_type_corrections.py` ->
 `cargo fmt`. The corrections script works on both the just-generated single-line
@@ -649,7 +649,7 @@ CI runs the extract, apply and fmt lines on every push and fails if
 `table.rs` then differs from the committed file.
 
 Those 187 corrections are the whole live expectation set the script re-verifies; `ADDITIONS` is the
-subset absent from the currently pinned C# descriptor input.
+subset absent from the vendored C# descriptor input (`third_party/vrp`).
 
 The `ADDITIONS` pass inserts items the pinned C# input is **silent on**. There are
 currently 125 of them, and every one is admitted on wire evidence written into the
@@ -976,11 +976,17 @@ cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D war
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 127 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 808 tests
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 810 tests
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 187 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
+python -W error tools/extract_equippables.py --check
 python -W error tools/check_baseline_schemas.py
+# table.rs regenerates from the vendored descriptors (CI runs these too):
+python -W error tools/extract_descriptors.py third_party/vrp/Replay.Valorant crates/vrf-decode/src/table.rs
+python -W error tools/apply_type_corrections.py
+cargo +1.86.0 fmt -p vrf-decode
+git diff --exit-code -- crates/vrf-decode/src/table.rs
 ```
 
 The CI interop gate sets `VRFKIT_INTEROP_DIR` to a private root before Rust's
@@ -1021,7 +1027,7 @@ python tools/check_decode_errors_corpus.py ./target/release/vrfkit.exe <corpus> 
 diagnostics with run-local labels such as `replay-0001`; use it whenever logs
 may leave the private analysis machine.
 
-These read their inputs from `VRFKIT_CORPUS_DIR`, `VRFKIT_CSHARP_DIR` and
+These read their inputs from `VRFKIT_CORPUS_DIR` and
 `VRFKIT_VALPLAY_DIR` -- see
 [Environment](../CONTRIBUTING.md#environment) for what each one points at.
 **With the variable unset they print `SKIP` and exit 0**, so read the output

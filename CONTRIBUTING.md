@@ -52,6 +52,11 @@ python -W error tools/apply_type_corrections.py --check
 python -W error tools/check_effect_decoder.py --check
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
 python -W error tools/generate_scoped_types.py --check
+python -W error tools/extract_equippables.py --check
+python -W error tools/extract_descriptors.py third_party/vrp/Replay.Valorant crates/vrf-decode/src/table.rs
+python -W error tools/apply_type_corrections.py
+cargo +1.86.0 fmt -p vrf-decode
+git diff --exit-code -- crates/vrf-decode/src/table.rs   # regenerated table == committed table
 python -W error tools/check_baseline_schemas.py
 python tools/check_docs.py            # not --fast: that skips the count check
 python -W error -m unittest discover -s tools/tests -p "test_*.py"
@@ -141,13 +146,19 @@ them are needed for the sweep above; all of them are needed for §6.
 | Variable | What it points at | Read by |
 |---|---|---|
 | `VRFKIT_CORPUS_DIR` | Directory of `.vrf` replays; a bare filename in a baseline resolves against it | `check_export_baseline.py`, `check_corpus_baseline.py`, `check_metrics_baseline.py` |
-| `VRFKIT_CSHARP_DIR` | Checkout root of the C# reference parser | `analyze_coverage.py`, `extract_equippables.py` |
 | `VRFKIT_VALPLAY_DIR` | valplay checkout root | `check_metrics_baseline.py`, `validate_metrics_corpus.py`, `compare_combat_report.py`, `compare_rpc_params.py` |
 | `VRFKIT_JOBS` | Worker count for the corpus sweeps; default is cores - 2, capped at 16 | `validate_corpus.py` |
 | `VRFKIT_REQUIRE_CORPUS` | Set to anything to turn "corpus absent, skipping" into a failure | `crates/vrf-container/tests/corpus.rs`, `check_export_baseline.py`, `check_corpus_baseline.py` |
 
+`VRFKIT_CSHARP_DIR` is gone. `analyze_coverage.py` and
+`extract_equippables.py` read the C# descriptors vendored under
+[`third_party/vrp/`](third_party/vrp/README.md) by default; nobody had set the
+variable, so both ran without their input (`extract_equippables.py` stopped at
+"resolver not found"). Pass `--csharp-dir` / `--csharp-root` to use another
+checkout.
+
 The `compare_*.py` scripts were listed against `VRFKIT_CSHARP_DIR` here, which
-none of them reads. Two of them (`compare_combat_report.py`,
+none of them read. Two of them (`compare_combat_report.py`,
 `compare_rpc_params.py`) read `VRFKIT_VALPLAY_DIR`, because what they compare
 against is a valplay bundle. The third, `compare_with_csharp.py`, reads **no
 environment variable at all** -- it takes the C# bundle directory and the vrfkit
@@ -217,7 +228,7 @@ These corrupt downstream consumers silently — no test fails when they break.
 | `crates/vrf-decode/src/scoped_types.rs` | `tools/generate_scoped_types.py` from reviewed exact group/name/checksum evidence |
 | `crates/vrf-transform/src/sbox.rs` | `tools/extract_sboxes.py` |
 | `crates/vrf-transform/tests/data/golden_vectors.rs` | `tools/extract_golden.py` |
-| `tools/equippable_table.py` | `tools/extract_equippables.py` |
+| `tools/equippable_table.py` | `tools/extract_equippables.py` from the vendored `third_party/vrp/Replay.Valorant/Combat/ValorantEquippableResolver.cs` |
 
 Ordering for the overlay table is load-bearing:
 `extract_descriptors.py` → `apply_type_corrections.py` → `cargo fmt` →
