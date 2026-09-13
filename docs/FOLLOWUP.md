@@ -167,3 +167,33 @@ preserves every other tail whole.
   damage or purchase counts.
 - Re-run the component-remap and mapping guards on each new supported build;
   the replay does not reveal Blueprint-to-native class aliases by itself.
+- Find out why neither C# build (upstream `b51d674`, vendored `8824794`) emits
+  any event for packet 391880 of `02d4d478`, where vrfkit decodes a
+  killing-blow `MulticastNotifyDamage_Point` on the `DamageableComponent` of
+  Gekko's E-ability projectile (actor 27232, channel 194; the actor closes six
+  packets later). vrfkit already produced it at `d4731c8`, before the partial
+  header correction. `compare_rpc_params.py` exits 1 on this one record until
+  it is explained; `compare_combat_report.py` matches all ten shapes.
+
+Considered on 2026-09-14 and deliberately not done, each with the reason:
+
+- Clearing `has_partial_error` / `partial_error_kind` at the top of
+  `PartialBunchAccumulator::add_fragment` as well. Its only caller, the
+  pipeline, already strips the packet reader's verdicts before the call, and
+  the pipeline tests fail if it stops; no `bunch.rs` test presets the flag. It
+  would only matter to a second caller, so it belongs with the first one.
+- The `BitReader::with_bit_len` failure arm after `take_completed` in
+  `crates/vrf-net/src/pipeline/mod.rs`. The accumulator sizes the buffer to the
+  bit count it returns, so no input reaches it. If one ever did, the partial
+  error would surface as unclassified in the cause cross-check, but the payload
+  would not reach `partials.parquet` and the close handling after it would be
+  skipped. Preserving it needs a new `PartialPayloadReason`, a
+  `partials.parquet` change for a path nothing reaches.
+- Committing raw bits cut from private replays so CI's real-bytes type check
+  covers KillData, SelectedV2, HealCauser and the other fields typed in #10. CI
+  covers the eight typed fields the public fixtures carry; the rest would put
+  private replay content in this public repository, which
+  [SCHEMA_EXPANSION.md](SCHEMA_EXPANSION.md) rules out. They stay covered by
+  the machine-local corpus sweeps.
+- Updating the test counts in [CURRENT_STATUS.md](CURRENT_STATUS.md). They
+  describe its dated 2026-09-09 validation run and say so.

@@ -7,9 +7,11 @@ there was no exit path at all -- so `SOME SHAPES DIFFER` and
 `$?` read a broken decoder as a pass.
 """
 import collections
+import io
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -89,6 +91,32 @@ class ExitCodeTests(unittest.TestCase):
 
     def test_comparing_nothing_does_not_exit_zero(self):
         self.assertNotEqual(guard.main(counters([]), counters([]), {SHAPE}), 0)
+
+    def test_one_shape_missing_from_both_sides_is_not_a_pass(self):
+        """A matching shape used to carry the run past one nobody compared."""
+        other = "Rounds[].Reports[].Interactions[].DidKill"
+        both = [(SHAPE, {35: 2})]
+        self.assertEqual(guard.main(counters(both), counters(both), {SHAPE, other}), 2)
+
+    def test_a_disagreement_outranks_a_missing_shape(self):
+        other = "Rounds[].Reports[].Interactions[].DidKill"
+        self.assertEqual(guard.main(counters([(SHAPE, {35: 2})]),
+                                    counters([(SHAPE, {35: 1})]), {SHAPE, other}), 1)
+
+
+class InputTests(unittest.TestCase):
+    """The reference used to be a valplay path that no longer held it."""
+
+    def test_a_missing_reference_exits_2_and_says_where_it_looked(self):
+        missing = Path(__file__).with_name("no-such-reference.ndjson")
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            code = guard.main(argv=["--reference", str(missing), "--ours", str(missing)])
+        self.assertEqual(code, 2)
+        self.assertIn(str(missing), err.getvalue())
+
+    def test_the_default_reference_is_not_the_valplay_bundle(self):
+        self.assertNotIn("valplay", guard.DEFAULT_REFERENCE.lower())
+        self.assertIn("csharp-reference", guard.DEFAULT_REFERENCE)
 
 
 if __name__ == "__main__":

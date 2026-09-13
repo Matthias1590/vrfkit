@@ -976,7 +976,7 @@ cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D war
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 127 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 810 tests
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 817 tests
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 187 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
@@ -1013,6 +1013,7 @@ done
 python tools/validate_corpus.py ./target/release/vrfkit.exe <corpus>
 python tools/check_decode_errors_corpus.py ./target/release/vrfkit.exe <corpus>
 python tools/check_metrics_baseline.py
+./target/release/vrfkit.exe export <corpus>/02d4d478-1dfb-4412-9a77-29ca29105a9d.vrf --out out/nested
 python tools/compare_combat_report.py
 
 # Optional, opt-in: also decode every Checkpoint chunk and check its counters.
@@ -1032,6 +1033,29 @@ These read their inputs from `VRFKIT_CORPUS_DIR` and
 [Environment](../CONTRIBUTING.md#environment) for what each one points at.
 **With the variable unset they print `SKIP` and exit 0**, so read the output
 rather than the exit code.
+
+`compare_combat_report.py` is the exception: it exits 2 when either input is
+missing. Its C# side is `CliReader export` of the same replay, built from the
+vendored descriptor commit and kept machine-local because it carries
+per-player values (`compare_rpc_params.py` reads the same export). To produce
+it, from a ValorantReplayParser clone that has commit `8824794`:
+
+```bash
+REF="$LOCALAPPDATA/vrfkit/csharp-reference/8824794/02d4d478-1dfb-4412-9a77-29ca29105a9d"
+git -C <ValorantReplayParser> archive 8824794 Directory.Build.props src | tar -x -C <build-dir>
+dotnet build <build-dir>/src/CliReader/CliReader.csproj -c Release -o <cli-dir>   # .NET 10 SDK
+<cli-dir>/CliReader export <corpus>/02d4d478-1dfb-4412-9a77-29ca29105a9d.vrf --output "$REF"
+grep CombatReportComponent "$REF/events.ndjson" > "$REF/combat_report.ndjson"
+grep rpc_received "$REF/events.ndjson" | grep -E \
+  'MulticastNotifyKilledEnemy|MulticastNotifyDamage_Point|MulticastEndRound' > "$REF/rpc_params.ndjson"
+rm "$REF/events.ndjson" "$REF/movement.ndjson"   # 3.2 GB; only the lines above are read
+```
+
+Upstream (`b51d674`) will not do: it leaves CombatReport `Rounds` as a raw
+payload, and its Gekko descriptor misses every RPC on Gekko's character (see
+the README's C# comparison). On this replay `compare_combat_report.py` matches
+all ten shapes; `compare_rpc_params.py` exits 1 on one damage record vrfkit
+has and the C# export does not, documented there.
 
 ### What each check catches -- this is the point
 
