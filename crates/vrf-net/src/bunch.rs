@@ -223,9 +223,18 @@ impl PartialBunchAccumulator {
                     displaced,
                 };
             }
-            // Final with zero payload: complete it.
-            if let Some(state) = self.fragments.get_mut(&ch_index) {
+            // Final with zero payload. The same rule as the non-empty path
+            // below: an errored header -- an overlapping initial that is also
+            // final -- is not a completion. Marking it complete counted a
+            // `partial_completed` that `should_process` (false for an errored
+            // header) immediately contradicted, and left the complete-but-untaken
+            // state in the map until end of stream. The assembly that header
+            // just started holds no bits, so retiring it loses nothing.
+            if header.has_partial_error {
+                self.take(ch_index);
+            } else if let Some(state) = self.fragments.get_mut(&ch_index) {
                 state.is_complete = true;
+                header.is_partial_completed = true;
                 *stats_partial_completed += 1;
             }
             return PartialBunchResult {
@@ -356,6 +365,7 @@ impl PartialBunchAccumulator {
             // happened.
             if header.b_partial_final && !header.has_partial_error {
                 state.is_complete = true;
+                header.is_partial_completed = true;
                 *stats_partial_completed += 1;
             }
         }
