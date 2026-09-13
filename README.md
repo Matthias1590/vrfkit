@@ -18,7 +18,7 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Verified state:** Rust has **709 passing** tests; Python has **810 passing**
+**Verified state:** Rust has **709 passing** tests; Python has **817 passing**
 tests. The full 714-file comparison and corpus guards passed; see
 [current status](docs/CURRENT_STATUS.md) for the current evidence boundary.
 
@@ -351,7 +351,7 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**709 passing**; the full Python suite also has **810 passing** tests. The
+**709 passing**; the full Python suite also has **817 passing** tests. The
 all-corpus guards, all-file comparison, and full documentation check pass.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
@@ -437,7 +437,11 @@ its fields separately. A ReplayData verdict does not validate checkpoints.
 ## Comparison with the C# reference parser
 
 The same replay (`02d4d478`) was diffed against the output of the existing C#
-parser.
+parser. The CombatReport and RPC-parameter comparisons below were re-measured
+on 2026-09-14 against `CliReader export` built from two ValorantReplayParser
+commits: upstream `b51d674`, and `8824794`, the descriptor commit vendored in
+[`third_party/vrp/`](third_party/vrp/README.md). The structure, movement and
+volume figures are from the earlier comparison.
 
 **Structure -- exact match.**
 
@@ -455,7 +459,9 @@ update"; we additionally recover 2,387 intermediate moves.
 
 **CombatReport nested array -- every metric-input value matches.** This
 structure is the sole source of K/D/A, ADR, HS%, multi-kills, and wallbangs,
-so it was diffed as a multiset of values (`tools/compare_combat_report.py`).
+so it was diffed as a multiset of values (`tools/compare_combat_report.py`,
+against `8824794`; upstream leaves `Rounds` as a raw payload, and `8824794`
+binds upstream's own `CombatRoundReportsDecoder` to it):
 
 ```
 ..Interactions[].AssistType                               364    364  IDENTICAL
@@ -476,29 +482,39 @@ differences (C# uses `CrouchHeld`; we use the wire name `bCrouchHeld`). RPCs
 are 342,735 versus 230,893 -- 48% more -- because the C# parser drops RPCs
 without a descriptor.
 
-**RPC parameters -- values match, and 13 kills the C# parser missed are
-recovered.** The ~330,000 RPCs had parameter payloads that were entirely raw;
+**RPC parameters -- every C# value is also ours, and ours has 14 more
+records.** The ~330,000 RPCs had parameter payloads that were entirely raw;
 they were decoded using the 84 parameter-schema groups (`<Class>:<Function>`
-paths) the replay itself declares. Diffed with `tools/compare_rpc_params.py`:
+paths) the replay itself declares. Diffed with `tools/compare_rpc_params.py`
+(record counts; every difference is vrfkit-only, none C#-only):
 
 ```
-MulticastNotifyDamage_Point.DamageDealt          580  580  MATCH
-MulticastNotifyDamage_Point.DamageTaken          580  580  MATCH
-MulticastNotifyDamage_Point.RegionalDamage       580  580  MATCH
-MulticastNotifyDamage_Point.bDamageKilledTarget  580  580  MATCH
-MulticastEndRound.NewRoundNumber                  17   17  MATCH
-MulticastNotifyKilledEnemy.KillerCharacter       119  132  ours +13
+                                              upstream  8824794  vrfkit
+MulticastNotifyKilledEnemy.KillerCharacter         119      132     132
+MulticastNotifyDamage_Point.DamageDealt            580      580     581
+MulticastEndRound.NewRoundNumber                    17       17      17
 ```
 
-The last line is the interesting one. The C# parser sees 119 `KillerCharacter`
-events across 9 characters; we see 132 across 10. The difference is exactly
-the 13 kills by character 576; every other character matches in count.
+The other `KilledEnemy` and `Damage_Point` parameters (`KilledCharacter`,
+`MultikillLevel`; `DamageTaken`, `RegionalDamage`, `bDamageKilledTarget`) have
+the same counts as the line above them.
 
-`MulticastNotifyKilledEnemy` is hosted on the killer's character actor, and in
-this replay one player's character never replicates that RPC. The existing
-pipeline papered over the 13 missing kills by recovering them later as
-CombatReport credit, so they vanished from the timeline. In vrfkit the timeline
-itself is complete.
+The 13 kills are the ones by character 576, Gekko (`AggroBot_PC_C`).
+`MulticastNotifyKilledEnemy` is hosted on the killer's character actor, and
+upstream's Gekko descriptor spells the class path `Aggrobot` where the replay
+says `AggroBot`, so upstream drops every RPC on that actor. `8824794` corrects
+the path (`f67ea66`) and agrees with vrfkit, which takes names from the replay
+and never needed the descriptor. This paragraph used to say the character never
+replicates the RPC; it does. The existing pipeline papered over the 13 missing
+kills by recovering them later as CombatReport credit, so they vanished from
+the timeline. In vrfkit the timeline itself is complete.
+
+The one extra damage record is a killing blow (29.45 dealt, 20 taken) on the
+`DamageableComponent` of Gekko's E-ability projectile -- actor 27232, packet
+391880, channel 194 -- whose actor closes six packets later. Neither C# build
+emits any event for packet 391880, and why is not established
+([follow-up](docs/FOLLOWUP.md#remaining-work)). vrfkit already produced it at
+`d4731c8`, before the partial header correction, so that is not the cause.
 
 ## The Event chunk -- the server's own timeline
 

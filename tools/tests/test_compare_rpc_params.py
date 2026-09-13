@@ -12,9 +12,11 @@ MATCH` having compared nothing at all. The `both empty` arm that was supposed
 to name that case sat below the equality test and could never be reached.
 """
 import collections
+import io
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -64,6 +66,28 @@ class ExitCodeTests(unittest.TestCase):
 
     def test_a_replay_with_none_of_these_rpcs_does_not_claim_a_match(self):
         self.assertNotEqual(guard.main(side(), side(), ONE_RPC), 0)
+
+    def test_one_parameter_missing_from_both_sides_is_not_a_pass(self):
+        """A matching parameter used to carry the run past one nobody compared."""
+        two = {"MulticastEndRound": [("NewRoundNumber", "int"), ("Other", "int")]}
+        self.assertEqual(guard.main(side({1: 2}), side({1: 2}), two), 2)
+
+
+class InputTests(unittest.TestCase):
+    """The reference used to be a valplay path that no longer held it."""
+
+    def test_a_missing_reference_exits_2_and_says_where_it_looked(self):
+        missing = Path(__file__).with_name("no-such-reference.ndjson")
+        with mock.patch("sys.stderr", new_callable=io.StringIO) as err:
+            code = guard.main(argv=["--reference", str(missing), "--ours", str(missing)])
+        self.assertEqual(code, 2)
+        self.assertIn(str(missing), err.getvalue())
+
+    def test_the_parquet_path_is_not_read_from_argv_at_import(self):
+        """It was `Path(sys.argv[1])` at module level, so importing the module
+        under a test runner took the runner's first argument as the parquet."""
+        self.assertFalse(hasattr(guard, "PARQUET_PATH"))
+        self.assertNotIn("valplay", guard.DEFAULT_REFERENCE.lower())
 
 
 class ToleranceTests(unittest.TestCase):

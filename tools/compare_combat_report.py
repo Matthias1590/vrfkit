@@ -20,8 +20,20 @@ this comparison is what would then quietly stop testing anything.
 
 `INTERESTING` stays in the C# spelling because the C# side of this comparison is
 read straight from the reference's own `events.ndjson`.
+
+The reference is CliReader's `export` of the 13.01 reference replay,
+kept machine-local like the corpus baselines because it carries per-player
+values; docs/USAGE.md section 6 has the commands that produce it. It used to be
+read from a slimmed C# export under valplay's pipeline/exports, which no longer
+holds it -- and valplay now builds its bundles from vrfkit's own output
+(tools/to_valplay_bundle.py), so a bundle at that path would not be an
+independent reference any more.
+
+Usage:
+    python tools/compare_combat_report.py [--reference EVENTS] [--ours PARQUET]
 """
 
+import argparse
 import collections
 import json
 import os
@@ -33,9 +45,16 @@ import pyarrow.parquet as pq
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from to_valplay_bundle import _combat_report_leaf_name  # noqa: E402
 
-CS = Path(
-    os.environ.get("VRFKIT_VALPLAY_DIR", "")
-) / "pipeline" / "exports" / "02d4d478-1dfb-4412-9a77-29ca29105a9d" / "events.ndjson"
+#: The CombatReport lines of CliReader's export of replay 02d4d478, built from
+#: ValorantReplayParser 8824794 -- the commit vendored in third_party/vrp, and
+#: the only one that decodes Rounds: upstream (2d2e05e, b51d674) declares it
+#: RawPayload, and 8824794's fe5343a binds upstream's own
+#: CombatRoundReportsDecoder to it. The whole events.ndjson works too; only
+#: lines naming CombatReportComponent are read.
+DEFAULT_REFERENCE = (r"%LOCALAPPDATA%\vrfkit\csharp-reference\8824794"
+                     r"\02d4d478-1dfb-4412-9a77-29ca29105a9d\combat_report.ndjson")
+#: vrfkit's export of the same replay.
+DEFAULT_OURS = "out/nested/fields.parquet"
 
 # The leaves that drive K/D/A, ADR, HS%, multikills and wallbangs.
 INTERESTING = {
@@ -112,7 +131,7 @@ def load_cs(path):
     return cs
 
 
-def load_ours(parquet="out/nested/fields.parquet"):
+def load_ours(parquet=DEFAULT_OURS):
     t = pq.read_table(parquet)
     cols = {
         n: t.column(n).to_pylist()
@@ -180,23 +199,43 @@ def compared_shapes(cs, ours, interesting) -> int:
                if cs.get(s, collections.Counter()) or ours.get(s, collections.Counter()))
 
 
-def main(cs=None, ours=None, interesting=None):
-    """Exit 0 only if every interesting shape matches, and some shape existed.
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--reference", default=DEFAULT_REFERENCE,
+                        help="C# export events.ndjson, or its CombatReport lines "
+                             "(default: %(default)s)")
+    parser.add_argument("--ours", default=DEFAULT_OURS,
+                        help="vrfkit fields.parquet of the same replay "
+                             "(default: %(default)s)")
+    return parser.parse_args(argv)
+
+
+def main(cs=None, ours=None, interesting=None, argv=None):
+    """Exit 0 only if every interesting shape matches and every one was there.
 
     A mismatch here means the CombatReport decoder disagrees with the C#
     reference on values, not just on how they are addressed -- the one thing
     this comparison exists to catch. Returning 0 regardless made it a report.
-    A run that compared nothing exits 2: it is neither agreement nor
-    disagreement, and reporting it as agreement is what this guards against.
+    A run in which any interesting shape carried nothing on either side exits
+    2: that shape was not compared, and a run that compared nothing at all used
+    to report agreement. Every shape is present in the reference replay.
     """
+    if cs is None or ours is None:
+        args = parse_args(argv)
     if cs is None:
-        if not CS.is_file():
-            print(f"set VRFKIT_VALPLAY_DIR to the valplay checkout root; "
-                  f"events.ndjson not found at {CS}", file=sys.stderr)
+        reference = Path(os.path.expandvars(args.reference))
+        if not reference.is_file():
+            print(f"C# reference not found at {reference}; produce it with the "
+                  f"commands in docs/USAGE.md section 6, or pass --reference",
+                  file=sys.stderr)
             return 2
-        cs = load_cs(CS)
+        cs = load_cs(reference)
     if ours is None:
-        ours = load_ours()
+        if not Path(args.ours).is_file():
+            print(f"vrfkit fields.parquet not found at {args.ours}; export the "
+                  f"same replay, or pass --ours", file=sys.stderr)
+            return 2
+        ours = load_ours(args.ours)
 
     shapes = interesting or INTERESTING
     rows, all_match = compare(cs, ours, shapes)
@@ -206,16 +245,19 @@ def main(cs=None, ours=None, interesting=None):
     for row in rows:
         print(row)
     print()
-    if not checked:
-        print(f"NOTHING COMPARED: none of the {len(shapes)} interesting shapes "
-              f"carries a value on either side. This is not agreement -- check "
-              f"the parquet path and the reference bundle.")
+    if not all_match:
+        print("SOME SHAPES DIFFER -- see above")
+        return 1
+    if checked < len(shapes):
+        print(f"INCOMPLETE: {len(shapes) - checked} of the {len(shapes)} "
+              f"interesting shapes carry no value on either side, so they were "
+              f"not compared. This is not agreement -- check the parquet path "
+              f"and the reference.")
         return 2
-    print(f"ALL {checked} INTERESTING SHAPES PRESENT MATCH "
-          f"(values to {FLOAT_PLACES} decimal places)" if all_match
-          else "SOME SHAPES DIFFER -- see above")
-    return 0 if all_match else 1
+    print(f"ALL {checked} INTERESTING SHAPES MATCH "
+          f"(values to {FLOAT_PLACES} decimal places)")
+    return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(argv=sys.argv[1:]))

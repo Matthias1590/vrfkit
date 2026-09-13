@@ -5,17 +5,20 @@ Validates multiset equality for key RPC functions:
   - MulticastNotifyDamage_Point: DamageDealt, DamageTaken, RegionalDamage, bDamageKilledTarget
   - MulticastEndRound: NewRoundNumber
 
-The C# export (events.ndjson) has been slim-processed so only a subset of RPCs
-survive. We compare only the surviving records (by multiset of values, not by
-position/time).
+Records are compared as multisets of values, not by position or time.
+
+The C# side is CliReader's `export` of the 13.01 reference replay,
+kept machine-local because it carries per-player values; docs/USAGE.md section
+6 has the commands that produce it. It used to be a slimmed C# export under
+valplay's pipeline/exports, which no longer holds it -- and valplay now builds
+its bundles from vrfkit's own output, so that path would not be an independent
+reference any more.
 
 Usage:
-    python tools/compare_rpc_params.py [parquet_path]
-
-Defaults to out/nested/fields.parquet for the Rust side and the fixed C# export
-at valplay/pipeline/exports/02d4d478-.../events.ndjson.
+    python tools/compare_rpc_params.py [--reference EVENTS] [--ours PARQUET]
 """
 
+import argparse
 import collections
 import json
 import os
@@ -24,12 +27,14 @@ from pathlib import Path
 
 import pyarrow.parquet as pq
 
-# Paths
-CS_PATH = Path(
-    os.environ.get("VRFKIT_VALPLAY_DIR", "")
-) / "pipeline" / "exports" / "02d4d478-1dfb-4412-9a77-29ca29105a9d" / "events.ndjson"
-
-PARQUET_PATH = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("out/nested/fields.parquet")
+#: The rpc_received lines for the functions below, from CliReader's export of
+#: replay 02d4d478, built from ValorantReplayParser 8824794 (the commit
+#: vendored in third_party/vrp). The whole events.ndjson works too; other
+#: lines are skipped.
+DEFAULT_REFERENCE = (r"%LOCALAPPDATA%\vrfkit\csharp-reference\8824794"
+                     r"\02d4d478-1dfb-4412-9a77-29ca29105a9d\rpc_params.ndjson")
+#: vrfkit's export of the same replay.
+DEFAULT_OURS = "out/nested/fields.parquet"
 
 # RPC functions and the parameters to compare.
 # For each function: list of (param_name, value_type) where value_type is how
@@ -98,7 +103,7 @@ def norm(v, vtype):
     return str(v)
 
 
-def load_cs_rpc_values():
+def load_cs_rpc_values(path):
     """Load RPC parameter values from C# NDJSON export."""
     result = {}  # (function_name, param_name) -> Counter of values
     for func_name, params in RPCS_TO_CHECK.items():
@@ -107,9 +112,9 @@ def load_cs_rpc_values():
 
     aliases = CS_FIELD_ALIASES
 
-    with CS_PATH.open("r", encoding="utf-8") as f:
+    with Path(path).open("r", encoding="utf-8") as f:
         for line in f:
-            if b"rpc_received" if isinstance(line, bytes) else "rpc_received" not in line:
+            if "rpc_received" not in line:
                 continue
             rec = json.loads(line)
             if rec.get("type") != "rpc_received":
@@ -136,14 +141,14 @@ def load_cs_rpc_values():
     return result
 
 
-def load_rust_rpc_values():
+def load_rust_rpc_values(path):
     """Load RPC parameter values from Rust Parquet export."""
     result = {}  # (function_name, param_name) -> Counter of values
     for func_name, params in RPCS_TO_CHECK.items():
         for pname, _ in params:
             result[(func_name, pname)] = collections.Counter()
 
-    t = pq.read_table(str(PARQUET_PATH))
+    t = pq.read_table(str(path))
     fn_col = t.column("field_name").to_pylist()
     vi_col = t.column("value_i64").to_pylist()
     vf_col = t.column("value_f64").to_pylist()
@@ -219,22 +224,42 @@ def compare(cs, rust, rpcs=None):
     return rows, all_match, checked
 
 
-def main(cs=None, rust=None, rpcs=None):
-    """Exit 0 only if every parameter that exists matches.
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--reference", default=DEFAULT_REFERENCE,
+                        help="C# export events.ndjson, or its rpc_received lines "
+                             "(default: %(default)s)")
+    parser.add_argument("--ours", default=DEFAULT_OURS,
+                        help="vrfkit fields.parquet of the same replay "
+                             "(default: %(default)s)")
+    return parser.parse_args(argv)
 
-    A run that compared nothing exits 2: it is neither agreement nor
-    disagreement, and it used to print `ALL RPC PARAMETER VALUES MATCH`.
+
+def main(cs=None, rust=None, rpcs=None, argv=None):
+    """Exit 0 only if every parameter matches and every one was there.
+
+    A run in which any parameter carried nothing on either side exits 2: that
+    parameter was not compared, and a run that compared nothing at all used to
+    print `ALL RPC PARAMETER VALUES MATCH`. Every parameter is present in the
+    reference replay.
     """
     if cs is None or rust is None:
-        if not CS_PATH.is_file():
-            print(f"set VRFKIT_VALPLAY_DIR to the valplay checkout root; "
-                  f"events.ndjson not found at {CS_PATH}", file=sys.stderr)
+        args = parse_args(argv)
+        reference = Path(os.path.expandvars(args.reference))
+        if cs is None and not reference.is_file():
+            print(f"C# reference not found at {reference}; produce it with the "
+                  f"commands in docs/USAGE.md section 6, or pass --reference",
+                  file=sys.stderr)
             return 2
-        print(f"C# source: {CS_PATH}")
-        print(f"Rust source: {PARQUET_PATH}")
+        if rust is None and not Path(args.ours).is_file():
+            print(f"vrfkit fields.parquet not found at {args.ours}; export the "
+                  f"same replay, or pass --ours", file=sys.stderr)
+            return 2
+        print(f"C# source: {reference}")
+        print(f"Rust source: {args.ours}")
         print()
-        cs = load_cs_rpc_values() if cs is None else cs
-        rust = load_rust_rpc_values() if rust is None else rust
+        cs = load_cs_rpc_values(reference) if cs is None else cs
+        rust = load_rust_rpc_values(args.ours) if rust is None else rust
 
     checked_rpcs = rpcs or RPCS_TO_CHECK
     rows, all_match, checked = compare(cs, rust, checked_rpcs)
@@ -245,13 +270,14 @@ def main(cs=None, rust=None, rpcs=None):
         print(row)
 
     print()
-    if not checked:
-        print("NOTHING COMPARED: not one of these RPC parameters carries a "
-              "value on either side. This is not agreement -- check the "
-              "parquet path and the reference bundle.")
+    total = sum(len(params) for params in checked_rpcs.values())
+    if all_match and checked < total:
+        print(f"INCOMPLETE: {total - checked} of the {total} RPC parameters "
+              f"carry no value on either side, so they were not compared. This "
+              f"is not agreement -- check the parquet path and the reference.")
         return 2
     if all_match:
-        print(f"ALL {checked} RPC PARAMETER VALUES PRESENT MATCH "
+        print(f"ALL {checked} RPC PARAMETER VALUES MATCH "
               f"(floats to {FLOAT_PLACES} decimal places)")
     else:
         print("SOME VALUES DIFFER -- see above")
@@ -272,4 +298,4 @@ def main(cs=None, rust=None, rpcs=None):
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(main(argv=sys.argv[1:]))
