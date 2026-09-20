@@ -7,7 +7,6 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 import argparse
-import hashlib
 import json
 import math
 from pathlib import Path
@@ -20,11 +19,11 @@ import pyarrow.parquet as pq
 
 if __package__:
     from . import extract_kill_observations as observation_extractor
-    from .atomic_io import atomic_write_text
+    from .atomic_io import atomic_write_text, sha256_file
     from .extract_kill_observations import InputError, exact_ref
 else:
     import extract_kill_observations as observation_extractor
-    from atomic_io import atomic_write_text
+    from atomic_io import atomic_write_text, sha256_file
     from extract_kill_observations import InputError, exact_ref
 
 MAX_REPLICATION_LAG_MS = 50
@@ -212,10 +211,7 @@ def match_deaths(deaths, complete_main):
             if len(options) == 1 and len(reverse[options[0]]) == 1], candidates, dict(reverse)
 
 
-def file_sha(path):
-    with path.open('rb') as stream:
-        return hashlib.file_digest(stream, 'sha256').hexdigest()
-
+file_sha = sha256_file
 
 def player_state_rows(path):
     """Preserve physical field ordinals while selecting top-level properties."""

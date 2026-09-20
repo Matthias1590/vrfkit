@@ -15,10 +15,10 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 if __package__:
-    from .atomic_io import atomic_write_text
+    from .atomic_io import atomic_write_text, sha256_file
     from .extract_kill_observations import InputError, exact_ref, parse_array
 else:
-    from atomic_io import atomic_write_text
+    from atomic_io import atomic_write_text, sha256_file
     from extract_kill_observations import InputError, exact_ref, parse_array
 
 SCHEMA_VERSION = 1
@@ -50,13 +50,7 @@ class IntegrityError(InputError):
     pass
 
 
-def sha(path):
-    h = hashlib.sha256()
-    with path.open("rb") as f:
-        for b in iter(lambda: f.read(1 << 20), b""):
-            h.update(b)
-    return h.hexdigest()
-
+sha = sha256_file
 
 def aliases(path, protected):
     for item in protected:

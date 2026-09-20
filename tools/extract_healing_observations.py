@@ -8,10 +8,10 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 if __package__:
-    from .atomic_io import atomic_write_text
+    from .atomic_io import atomic_write_text, sha256_file
     from .extract_kill_observations import InputError, parse_array, exact_ref
 else:
-    from atomic_io import atomic_write_text
+    from atomic_io import atomic_write_text, sha256_file
     from extract_kill_observations import InputError, parse_array, exact_ref
 SCHEMA_VERSION = 1
 OUTER_GROUP = "/Script/ShooterGame.DamageableComponent_ClassNetCache"
@@ -66,13 +66,7 @@ class IntegrityError(InputError):
     pass
 
 
-def sha(p):
-    h = hashlib.sha256()
-    with p.open("rb") as f:
-        for b in iter(lambda: f.read(1 << 20), b""):
-            h.update(b)
-    return h.hexdigest()
-
+sha = sha256_file
 
 def aliases(path, protected):
     target = path.resolve()

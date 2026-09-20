@@ -2,11 +2,28 @@
 
 from __future__ import annotations
 
+import hashlib
 import os
 import shutil
 import tempfile
 from pathlib import Path
 
+
+
+def sha256_file(path: Path) -> str:
+    """Stream a file's SHA-256.
+
+    Every extractor records one of these as provenance, and several compare
+    theirs before and after a run to refuse a result produced while their own
+    source was being edited. That makes this function part of those guards, not
+    merely a utility: a tool whose integrity check already hashes `atomic_io.py`
+    keeps covering this code, and a tool whose check does not must keep its own
+    copy. `extract_kill_observations.py` records its hash without comparing it,
+    and `extract_fastarray_observations.py` does not hash this file at all, so
+    both deliberately keep theirs.
+    """
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
 
 def require_descendant(path: Path, root: Path, *, allow_root: bool = False) -> Path:
     """Resolve *path* and require it to stay below the resolved *root*."""
