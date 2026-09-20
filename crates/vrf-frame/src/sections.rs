@@ -20,7 +20,8 @@ use vrf_schema::NetGuidCache;
 
 use crate::error::FrameError;
 
-/// Maximum sane FString bytes when skipping level names.
+/// Maximum sane FString bytes for a level name. The module doc explains why
+/// these are read and validated rather than skipped.
 const MAX_FSTRING_BYTES: i64 = 1024 * 1024;
 
 /// ExportData: read net field exports + export GUIDs into the cache.
@@ -34,8 +35,8 @@ pub(crate) fn read_export_data(
     reader: &mut BitReader<'_>,
     cache: &mut NetGuidCache,
 ) -> Result<(), FrameError> {
-    vrf_schema::read_net_field_exports(reader, cache).map_err(FrameError::schema)?;
-    vrf_schema::read_export_guids(reader, cache).map_err(FrameError::schema)?;
+    vrf_schema::read_net_field_exports(reader, cache)?;
+    vrf_schema::read_export_guids(reader, cache)?;
     Ok(())
 }
 
@@ -46,16 +47,14 @@ pub(crate) fn read_streaming_level_fixes(
     reader: &mut BitReader<'_>,
     has_streaming_fixes: bool,
 ) -> Result<(), FrameError> {
-    let num_levels = reader.read_int_packed().map_err(FrameError::bit)?;
+    let num_levels = reader.read_int_packed()?;
 
     if has_streaming_fixes {
         // Compact form: just FString names + a u64 externalOffset.
         for _ in 0..num_levels {
-            let _ = reader
-                .read_fstring(MAX_FSTRING_BYTES)
-                .map_err(FrameError::bit)?;
+            let _ = reader.read_fstring(MAX_FSTRING_BYTES)?;
         }
-        let _ = reader.read_u64().map_err(FrameError::bit)?;
+        let _ = reader.read_u64()?;
     } else {
         // Verbose form: packageName + packageNameToLoad + FTransform per entry.
         // The C# code calls `_archive.ReadFTransform()`, which in their
@@ -64,13 +63,9 @@ pub(crate) fn read_streaming_level_fixes(
         //
         // No corpus replay takes this branch: all 215 set HasStreamingFixes.
         for _ in 0..num_levels {
-            let _ = reader
-                .read_fstring(MAX_FSTRING_BYTES)
-                .map_err(FrameError::bit)?;
-            let _ = reader
-                .read_fstring(MAX_FSTRING_BYTES)
-                .map_err(FrameError::bit)?;
-            reader.skip_bits(40 * 8).map_err(FrameError::bit)?;
+            let _ = reader.read_fstring(MAX_FSTRING_BYTES)?;
+            let _ = reader.read_fstring(MAX_FSTRING_BYTES)?;
+            reader.skip_bits(40 * 8)?;
         }
     }
 
@@ -82,13 +77,13 @@ pub(crate) fn read_streaming_level_fixes(
 /// Source: `PlaybackPacketReader.ReadExternalData()`
 pub(crate) fn read_external_data(reader: &mut BitReader<'_>) -> Result<(), FrameError> {
     loop {
-        let num_bits = reader.read_int_packed().map_err(FrameError::bit)?;
+        let num_bits = reader.read_int_packed()?;
         if num_bits == 0 {
             return Ok(());
         }
-        let _net_guid = reader.read_int_packed().map_err(FrameError::bit)?;
+        let _net_guid = reader.read_int_packed()?;
         let byte_count = u64::from(num_bits.div_ceil(8));
-        reader.skip_bits(byte_count * 8).map_err(FrameError::bit)?;
+        reader.skip_bits(byte_count * 8)?;
     }
 }
 
@@ -105,7 +100,7 @@ pub(crate) fn read_game_specific_frame_data(
     if !has_game_specific {
         return Ok(());
     }
-    let skip_offset = reader.read_u64().map_err(FrameError::bit)?;
+    let skip_offset = reader.read_u64()?;
     if skip_offset == 0 {
         return Ok(());
     }
@@ -118,7 +113,7 @@ pub(crate) fn read_game_specific_frame_data(
             "game-specific skip offset overflows: {skip_offset}"
         ))
     })?;
-    reader.skip_bits(skip_bits).map_err(FrameError::bit)?;
+    reader.skip_bits(skip_bits)?;
     Ok(())
 }
 

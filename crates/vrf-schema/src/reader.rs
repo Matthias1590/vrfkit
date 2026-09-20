@@ -213,12 +213,11 @@ fn internal_load_object(
         let _checksum = reader.read_u32()?;
     }
 
-    let outer = if outer_guid.is_valid() {
-        Some(outer_guid)
-    } else {
-        None
-    };
-    cache.set_net_guid_path(net_guid.0, path_name, outer);
+    cache.set_net_guid_path(
+        net_guid.0,
+        path_name,
+        outer_guid.is_valid().then_some(outer_guid),
+    );
 
     Ok(net_guid)
 }

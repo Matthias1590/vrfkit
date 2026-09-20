@@ -165,8 +165,8 @@ pub fn iter_demo_frames(
     while !reader.at_end() {
         frame_count += 1;
         // -- Frame header --------------------------------------------------
-        let _current_level_index = reader.read_i32().map_err(FrameError::bit)?;
-        let time_seconds = reader.read_f32().map_err(FrameError::bit)?;
+        let _current_level_index = reader.read_i32()?;
+        let time_seconds = reader.read_f32()?;
         // Mirror the reference exactly (ReplayEventJsonWriter.cs:194):
         //   float.IsFinite(seconds)
         //     ? (long)Math.Round(seconds * 1000d, MidpointRounding.AwayFromZero)
@@ -224,10 +224,10 @@ pub fn iter_demo_frames(
         // -- Packet loop ---------------------------------------------------
         loop {
             if has_streaming_fixes {
-                let _seen_level_index = reader.read_int_packed().map_err(FrameError::bit)?;
+                let _seen_level_index = reader.read_int_packed()?;
             }
 
-            let packet_size = reader.read_i32().map_err(FrameError::bit)?;
+            let packet_size = reader.read_i32()?;
             if packet_size == 0 {
                 break;
             }
@@ -256,7 +256,7 @@ pub fn iter_demo_frames(
             // so absolute bit position = reader.position().
             let byte_offset = (reader.position() / 8) as usize;
             let packet_data = &data[byte_offset..byte_offset + packet_size_usize];
-            reader.skip_bits(bit_count).map_err(FrameError::bit)?;
+            reader.skip_bits(bit_count)?;
 
             on_packet(
                 DemoPacket {

@@ -44,14 +44,20 @@ pub enum FrameError {
     },
 }
 
-impl FrameError {
-    /// Wrap a `BitError` into `FrameError::Bit`.
-    pub(crate) fn bit(e: vrf_bitio::BitError) -> Self {
+// `From` rather than named adapters, so `?` performs the conversion and the 18
+// call sites do not each spell out `.map_err(FrameError::bit)`. Both variants
+// hold the rendered string rather than the source error: this crate's failures
+// are reported, not matched on, and keeping the source types out of the public
+// enum means a `vrf-bitio` or `vrf-schema` error-shape change is not a
+// breaking change here.
+impl From<vrf_bitio::BitError> for FrameError {
+    fn from(e: vrf_bitio::BitError) -> Self {
         Self::Bit(e.to_string())
     }
+}
 
-    /// Wrap a `SchemaError` into `FrameError::Schema`.
-    pub(crate) fn schema(e: vrf_schema::SchemaError) -> Self {
+impl From<vrf_schema::SchemaError> for FrameError {
+    fn from(e: vrf_schema::SchemaError) -> Self {
         Self::Schema(e.to_string())
     }
 }
