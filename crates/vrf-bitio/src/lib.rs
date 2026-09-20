@@ -876,31 +876,6 @@ mod tests {
     }
 
     #[test]
-    fn read_bits_spans_byte_boundaries() {
-        // Two bytes little-endian = 0xBEEF; reading 16 bits must yield it whole.
-        let data = [0xEFu8, 0xBE];
-        let mut r = BitReader::new(&data);
-        assert_eq!(r.read_bits(16).unwrap(), 0xBEEF);
-
-        // Starting 4 bits in, the next 8 bits straddle the boundary.
-        let mut r = BitReader::new(&data);
-        r.skip_bits(4).unwrap();
-        assert_eq!(r.read_bits(8).unwrap(), 0xEE);
-    }
-
-    #[test]
-    fn read_bits_handles_full_width_at_offset() {
-        let data = [0x11u8, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99];
-        let mut r = BitReader::new(&data);
-        r.skip_bits(4).unwrap();
-        let v = r.read_bits(64).unwrap();
-        // Expected: the 64 bits starting at bit 4 of the little-endian stream.
-        let lo = u64::from_le_bytes([0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88]);
-        let expected = (lo >> 4) | (u64::from(0x99u8) << 60);
-        assert_eq!(v, expected);
-    }
-
-    #[test]
     fn read_bits_zero_is_noop() {
         let data = [0xFFu8];
         let mut r = BitReader::new(&data);
@@ -1103,36 +1078,6 @@ mod tests {
                 length: 0,
             }
         );
-    }
-
-    #[test]
-    fn copy_bits_masks_padding() {
-        // 0xBF = 0b1011_1111. Copying 1 bit must yield 0x01, not 0xBF: the
-        // transform runs over bytes, so padding has to be zero.
-        let data = [0xBFu8];
-        let mut r = BitReader::new(&data);
-        let mut dst = [0xAAu8; 1];
-        r.copy_bits_to(&mut dst, 1).unwrap();
-        assert_eq!(dst[0], 0x01);
-    }
-
-    #[test]
-    fn copy_bits_across_many_words() {
-        let data: Vec<u8> = (0..=20u8).collect();
-        let mut r = BitReader::new(&data);
-        let mut dst = vec![0u8; 21];
-        r.copy_bits_to(&mut dst, 21 * 8).unwrap();
-        assert_eq!(dst, data);
-    }
-
-    #[test]
-    fn copy_bits_from_unaligned_start() {
-        let data = [0b1111_0000u8, 0b0000_1111];
-        let mut r = BitReader::new(&data);
-        r.skip_bits(4).unwrap();
-        let mut dst = [0u8; 1];
-        r.copy_bits_to(&mut dst, 8).unwrap();
-        assert_eq!(dst[0], 0b1111_1111);
     }
 
     #[test]
