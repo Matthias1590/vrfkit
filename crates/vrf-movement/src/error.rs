@@ -3,7 +3,17 @@
 use vrf_bitio::BitError;
 
 /// Errors that can occur during movement RPC payload decoding.
+///
+/// `#[non_exhaustive]` for the same reason `vrf_export::ExportError` carries
+/// it: this crate is published, so a caller may `match` on this enum, and the
+/// wire format it describes changes every game build. `UpdateIndexOutOfRange`
+/// was removed here once it turned out nothing ever constructed it -- a
+/// deletion that no test and no corpus replay could see, because a variant
+/// nothing emits has no failing input. Without this attribute that deletion
+/// was a silent breaking change for anyone matching exhaustively; with it,
+/// adding or removing a variant is not.
 #[derive(Debug, Clone, thiserror::Error)]
+#[non_exhaustive]
 pub enum MovementError {
     /// The underlying bit reader ran out of data or was malformed.
     #[error("bit read error: {0}")]
