@@ -312,7 +312,8 @@ impl NetStats {
     /// reserved row (see `UNRESOLVED_CLASS_NET_CACHE_PAYLOAD_FIELD_NAME` in
     /// `vrf-export`), so the bits are still on disk even though no handle
     /// could be named. On the 02d4d478 reference that netting separates 7,889
-    /// unattributed blocks from 0 lost ones. Older, pre-preservation-aware
+    /// unattributed blocks from 0 lost ones (measured 2026-08-18, per git
+    /// history on this file; not re-measured since). Older, pre-preservation-aware
     /// output scored that shape as 98.94%; the current oracle correctly reports
     /// 100% while still exposing the unresolved/raw counter.
     ///

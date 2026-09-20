@@ -271,10 +271,9 @@ fn parse_rep_layout_impl(
 ///
 /// Returns the number of RPCs emitted and the count of bits the stream
 /// abandoned mid-block (either too few bits remained for an IntPacked
-/// payload-length read, or a declared payload overran the remainder). The
-/// caller folds the abandoned count into `skipped_bits` so the loss is visible:
-/// previously these bits were consumed by `skip_remaining` with zero accounting
-/// because the framing layer only counted `skipped_bits` on `Err`.
+/// payload-length read, or a declared payload overran the remainder). See
+/// [`parse_rep_layout`]'s doc comment for why the caller folds this into
+/// `skipped_bits` instead of the old silent `skip_remaining`.
 pub fn parse_class_net_cache(
     reader: &mut BitReader<'_>,
     function_count: u32,

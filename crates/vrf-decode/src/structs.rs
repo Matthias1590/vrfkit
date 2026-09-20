@@ -27,14 +27,12 @@
 //!
 //! # Members are selected by DECLARED NAME, not by handle number
 //!
-//! Handle numbers are a per-build layout detail. Build 13.02 removed
-//! `TeamEconomy` and `TeamComponents` from `BombGameState` and added
-//! `TeamStates`, shifting every later handle down by eight; `RoundResults`
-//! moved from 92 and its members from 93..=96 to 80 and 81..=84. Decoders
-//! pinned to the old numbers produced NOTHING on that build -- not a wrong
-//! value, no value -- and because the failure was discarded without a counter
-//! it read as a clean parse for a whole build. See `framing::member_name`
-//! for why resolution runs handle -> name and never the reverse.
+//! Handle numbers are a per-build layout detail: build 13.02 shifted
+//! `RoundResults`' handles by eight and a decoder pinned to the old numbers
+//! decoded nothing, silently, for a whole build. See
+//! docs/archive/PROJECT_STATUS.md 26-B/26-D for the measurement and
+//! `framing::member_name` for why resolution runs handle -> name and never
+//! the reverse.
 //!
 //! Members and payload types per blob, with the handles each build happens to
 //! use written down as a reading aid ONLY. Nothing matches on them:

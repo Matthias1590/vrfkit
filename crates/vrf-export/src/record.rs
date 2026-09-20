@@ -70,12 +70,8 @@ pub struct FieldRecord {
     /// last-resort type lookup; exporting it lets a reader do the same
     /// reasoning offline.
     ///
-    /// That matters because "no type" has two causes an export otherwise
-    /// cannot separate: a field nothing has ever described, and a field with a
-    /// checksum the overlay never learned. The second is a real gap -- it is
-    /// what Phoenix's smoke wall was, 2,791 rows of null with decode errors at
-    /// 0 -- and it was found only because a sibling class happened to share the
-    /// RPC's name. With this column the two are one query apart.
+    /// See docs/USAGE.md "fields.parquet" for the three-bucket breakdown this
+    /// column enables and the Phoenix smoke-wall example that motivated it.
     ///
     /// **`None` means the replay declares no checksum for this handle**, not
     /// that the value was unavailable here. Rows reach this table by several
@@ -137,17 +133,13 @@ pub struct MovementRecord {
     pub vel_z: f32,
     /// Server-assigned tick decoded from the move header.
     pub timestamp: u32,
-    /// Move-header byte at bits [9..17]. Named for a posture it has never been
-    /// observed to carry: it is 0 on all 1,034,035,170 exported movement rows
-    /// across 527 corpus replays (builds 13.01, 13.02 and 13.04). Exported anyway,
-    /// because it is a byte the wire spends and
-    /// a later build may start using it -- but do not read posture out of it.
-    /// Crouch is `bCrouchHeld` on the character actor, or the ~19 cm step in
+    /// Move-header byte at bits [9..17]. See docs/USAGE.md "movement.parquet"
+    /// for why it is exported despite reading 0 on every corpus row. Posture
+    /// is `bCrouchHeld` on the character actor, or the ~19 cm step in
     /// `pos_z`.
     pub movement_state: u8,
-    /// 0 = variant0 (velocity absent on the wire), 1 = variant1. The same
-    /// 527-replay sweep observed variant1 on every exported row; retain the
-    /// discriminator so a future build cannot silently change that invariant.
+    /// See docs/USAGE.md "movement.parquet" for the variant-0/variant-1
+    /// meaning and the corpus measurement backing it.
     pub move_type: u8,
 }
 

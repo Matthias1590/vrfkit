@@ -17,11 +17,8 @@
 //! | ... | i32 | SizeInBytes |
 //! | ... | [u8; SizeInBytes] | payload |
 //!
-//! Measured over 527 replays from releases 13.01, 13.02 and 13.04 (109,126
-//! Event chunks): every chunk is consumed exactly by this layout with no bytes
-//! left over, and Time1 always equals Time2. Checkpoint chunks open with the
-//! same six fields, so the framing is not Event-specific; this module parses
-//! Event chunks only.
+//! See docs/USAGE.md, the "events.parquet" section, for the corpus sweep that
+//! verified this layout.
 //!
 //! # Structural payload view
 //!
@@ -34,9 +31,9 @@
 //! but it is not self-describing. `N` varies by group (0 for SpikePlanted, 1
 //! for RoundStart, 2 for CharacterDeath) and no count precedes the words, so a
 //! forward read cannot tell where they end. For the seven known groups, a
-//! fixed `N`, tag and public enum-name FString consumed all 109,126 payloads
-//! exactly across the three measured builds. That remains corpus evidence, not
-//! a self-describing format guarantee. [`parse_event_payload`] therefore
+//! fixed `N`, tag and public enum-name FString consumed every payload exactly
+//! in that same corpus sweep. That remains corpus evidence, not a
+//! self-describing format guarantee. [`parse_event_payload`] therefore
 //! requires the caller to supply an already-established `N`; the guarded
 //! [`parse_known_event_payload`] additionally requires the measured tag and
 //! name. The original payload is still handed to the caller byte for byte, and
@@ -132,9 +129,10 @@ pub const fn known_event_payload_name(group: &str) -> Option<&'static str> {
 /// Return the group tag measured across the supported corpus for a known
 /// Event group.
 ///
-/// Each mapping was constant over 109,126 Event payloads spanning releases
-/// 13.01, 13.02 and 13.04. Keeping it beside the arity and enum-name guards
-/// makes a future enum reorder fail closed instead of publishing a stale tag.
+/// Each mapping was constant across the corpus sweep documented in
+/// docs/USAGE.md, the "events.parquet" section. Keeping it beside the arity
+/// and enum-name guards makes a future enum reorder fail closed instead of
+/// publishing a stale tag.
 #[must_use]
 pub const fn known_event_payload_tag(group: &str) -> Option<u32> {
     match group.as_bytes() {

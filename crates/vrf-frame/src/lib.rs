@@ -116,12 +116,10 @@ const MAX_PACKET_SIZE_BYTES: i32 = 16384 / 8; // 2048
 ///
 /// `time_ms` is derived from the frame's `timeSeconds` field: scaled by 1000
 /// in f64, rounded half away from zero, and 0 when `timeSeconds` is not
-/// finite. All three match the C# reference; see the conversion site.
-///
-/// Parity stops at the type. The reference holds the result in a signed
-/// `long`, so it can carry a negative or very large frame time; this is a
-/// `u32` and cannot, and a value that does not fit is reported as
-/// [`FrameError::TimeOutOfRange`] rather than saturated onto 0 or `u32::MAX`.
+/// finite. All three match the C# reference; see the conversion comment in
+/// `iter_demo_frames` below for the full derivation, including why a value
+/// that does not fit becomes [`FrameError::TimeOutOfRange`] instead of a
+/// saturated 0 or `u32::MAX`.
 #[derive(Debug, Clone)]
 pub struct DemoPacket<'a> {
     /// Time of the enclosing DemoFrame, in milliseconds.

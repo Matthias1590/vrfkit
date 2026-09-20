@@ -147,16 +147,10 @@ fn write_vector_json(f: &mut fmt::Formatter<'_>, v: &FVector) -> fmt::Result {
 }
 
 /// `ReplicatedMovement` serializes as a JSON object, not the compact form the
-/// other types use.
-///
-/// The compact form cannot carry the whole struct. `simulated_physics_sleep`
-/// and `server_physics_handle` have nowhere to go in a `loc/rot/vel` triple,
-/// and `value_str` is a single string column -- there is no struct column to
-/// put them in. So they were dropped: 14,377 rows on 02d4d478 shipped a
-/// human-readable string where the reference (ReplayJsonNormalizer.cs:255)
-/// emits an eight-member object, and two of those members were simply gone.
-///
-/// Member names and order follow the reference exactly.
+/// other types use, because the compact form has nowhere to put
+/// `simulated_physics_sleep` or `server_physics_handle`. Member names and
+/// order follow the reference exactly. See docs/archive/PROJECT_STATUS.md
+/// 13-B for the 14,377-row regression this fixed.
 ///
 /// # Finiteness is enforced, not structural
 ///
@@ -166,14 +160,16 @@ fn write_vector_json(f: &mut fmt::Formatter<'_>, v: &FVector) -> fmt::Result {
 /// **packed** quantized path and the rotators, and it silently omits the case
 /// where `componentBitCount == 0`: there the decoder falls back to three raw
 /// `f32`s (or `f64`s), which carry whatever the bits spell. A component of
-/// `0x7fc00000` is `NaN`, and this `Display` would emit `"x":NaN` -- not valid
-/// JSON -- while every decode counter reported success.
+/// `0x7fc00000` is `NaN`, and neither `NaN` nor an infinity is a JSON
+/// literal, so this `Display` would emit `"x":NaN` -- not valid JSON -- while
+/// every decode counter reported success.
 ///
 /// So the guarantee is now upheld by
 /// [`DecodeError::NonFiniteComponent`](crate::decode::DecodeError), which
 /// rejects such a payload in `geometry::read_quantized_vector` before one can
-/// reach this formatter. Anything that constructs an `FRepMovement` by another
-/// route owes the same check.
+/// reach this formatter -- the same rejected-rather-than-coerced call
+/// `EffectBlobError::NonFiniteFloat` already makes. Anything that constructs
+/// an `FRepMovement` by another route owes the same check.
 impl fmt::Display for FRepMovement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("{\"linear_velocity\":")?;

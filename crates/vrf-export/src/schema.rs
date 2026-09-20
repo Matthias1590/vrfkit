@@ -238,16 +238,15 @@ pub fn movement_schema() -> Schema {
         // Server-assigned tick from the move header. Distinct from `time_ms`,
         // which is the replay-relative packet time this crate stamps on.
         Field::new("timestamp", DataType::UInt32, false),
-        // Move-header byte at bits [9..17]. Named for a posture it has never
-        // been observed to carry: constant 0 on all 1,034,035,170 exported
-        // movement rows across 527 corpus replays -- see
-        // `MovementRecord::movement_state`. Do not read posture out of
-        // it. One wire byte, so UInt8 -- widening would cost 3 bytes per row
-        // before compression for no added range.
+        // One wire byte, so UInt8 -- widening would cost 3 bytes per row
+        // before compression for no added range. See docs/USAGE.md
+        // "movement.parquet" for why it reads 0 on every corpus row and why
+        // posture must come from `bCrouchHeld` instead.
         Field::new("movement_state", DataType::UInt8, false),
-        // 0 = variant0 (no velocity on the wire), 1 = variant1 (velocity
-        // present). Effectively a bool, but kept as the decoder's u8 so the
-        // column stays a faithful copy of the wire value.
+        // Effectively a bool, but kept as the decoder's u8 so the column
+        // stays a faithful copy of the wire value. See docs/USAGE.md
+        // "movement.parquet" for the variant-0/variant-1 meaning and the
+        // corpus measurement backing it.
         Field::new("move_type", DataType::UInt8, false),
     ])
 }

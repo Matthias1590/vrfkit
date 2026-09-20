@@ -91,8 +91,8 @@ pub(crate) fn read_external_data(reader: &mut BitReader<'_>) -> Result<(), Frame
 ///
 /// Source: `GameSpecificFrameDataReader.Read()`
 ///
-/// The reference replay does NOT set this flag (its header flags are `0x0002`),
-/// so this returns on the first branch for every frame in the corpus.
+/// See the "Flag semantics" table in lib.rs's module doc for which flag
+/// enables this section and its measured absence in the corpus.
 pub(crate) fn read_game_specific_frame_data(
     reader: &mut BitReader<'_>,
     has_game_specific: bool,

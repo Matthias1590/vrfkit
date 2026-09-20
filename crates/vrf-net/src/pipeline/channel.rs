@@ -57,22 +57,12 @@ pub(super) fn is_player_controller_path(path: &str) -> bool {
 /// C# reference: `ReadNetPlayerIndexStage.cs` -- checks `OpenedDynamicActor &&
 /// IsPlayerController(channel archetype/class/actor path)`.
 ///
-/// The path comes from the sink's cache. An earlier version of this crate also
-/// maintained its own `HashSet` of controller GUIDs, filled by intercepting
-/// `register_path`; it was never consulted, because `vrf-schema`'s reader
-/// writes chunk-level GUID exports straight into the cache and so the cache
-/// knows the archetype path when the set does not. An instrumented run
-/// confirmed the set stayed empty for the whole reference replay while this
-/// lookup answered true 2 028 times. The set is gone; the cache lookup that
-/// always decided this is what remains.
-///
-/// Missing the byte does not desync visibly. Combined with the spawn velocity
-/// bit in [`super::spawn`] it started the controller's opening bunch nine bits
-/// early, and the misframed header happened to re-synchronise: it consumed 11
-/// bits where the real header consumes 2, so the content-bit count was read at
-/// the same offset and every later block framed identically. The controller's
-/// own property block was simply routed to the ClassNetCache path and never
-/// walked. See docs/archive/PROJECT_STATUS.md 17-A.
+/// The path comes from the sink's cache, which is always populated -- an
+/// earlier, now-removed `HashSet` fed by intercepting `register_path` was not.
+/// Missing this byte does not desync visibly: combined with the spawn-velocity
+/// bit in [`super::spawn`], the misframed header happens to re-synchronise a
+/// few bits later. See docs/archive/PROJECT_STATUS.md 17-A for the bit-level
+/// mechanism and measurements.
 pub(super) fn is_player_controller_channel(
     actor_net_guid: NetworkGuid,
     archetype_net_guid: NetworkGuid,

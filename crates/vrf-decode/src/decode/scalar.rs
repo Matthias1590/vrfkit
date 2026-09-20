@@ -100,7 +100,10 @@ pub(super) fn decode_ftext(r: &mut BitReader<'_>) -> Result<DecodedValue, Decode
 /// Mirrors `FArchive.ReadFNameCore` in the reference. When the bit is set the
 /// name is an index into the engine's hardcoded name table, sent as a single
 /// IntPacked and rendered as its decimal value; there is no string. When it is
-/// clear the name is inline: FString plus an i32 suffix.
+/// clear the name is inline: FString plus an i32 instance number, where 0
+/// renders the bare name and `N != 0` renders `Name_{N-1}`. See docs/DATA.md
+/// "FName instance numbers are part of the name" for the corpus-measured
+/// collapse dropping that number used to cause.
 ///
 /// The comment here used to assert "isHardcoded=false for replays" and the
 /// code read the bit and discarded it, always taking the inline path. That is
@@ -108,17 +111,6 @@ pub(super) fn decode_ftext(r: &mut BitReader<'_>) -> Result<DecodedValue, Decode
 /// is exactly the hardcoded shape (1 flag + one IntPacked byte). Reading them
 /// as an FString ran off the end of the payload and produced mojibake, which
 /// is why the field had to be forced to Raw in the type-correction pass.
-///
-/// # The instance number is part of the identity
-///
-/// Unreal's `FName` is a (comparison index, number) pair, and the number is
-/// stored as **the displayed suffix plus one**: 0 renders the bare name, and
-/// `N != 0` renders `Name_{N-1}`. It used to be read into `let _suffix` and
-/// dropped, so `Source_1` and `Source_2` both decoded to `Source` -- two
-/// distinct objects collapsed onto one string with nothing reporting it.
-///
-/// [`crate::structs::framing`]'s `read_fname` renders the same way, so a name
-/// means the same thing whichever decoder produced it.
 pub(super) fn decode_fname(r: &mut BitReader<'_>) -> Result<DecodedValue, DecodeError> {
     if r.read_bit()? {
         let index = r.read_int_packed()?;

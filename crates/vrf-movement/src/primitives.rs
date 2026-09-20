@@ -6,9 +6,10 @@
 //! reference to **zero** error on yaw, pitch and velocity and a maximum of
 //! 0.0005 on position. The 48-bit FixedVector, the `SerializedInt(128)` header
 //! on a QuantizedVector, and the sign-extension of arbitrary-width components
-//! are all wire layout. Rewriting any of the arithmetic here -- even into a
-//! form that looks equivalent -- changes decoded output, so it is left exactly
-//! as validated.
+//! are all wire layout. So are the 25-bit move header and the VLQ timestamp
+//! that [`crate::moves`] reads alongside them. Rewriting any of the
+//! arithmetic here -- even into a form that looks equivalent -- changes
+//! decoded output, so it is left exactly as validated.
 
 use vrf_bitio::BitReader;
 

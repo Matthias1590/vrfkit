@@ -443,10 +443,8 @@ mod tests {
         data.extend(encode_int_packed(1)); // 1 export
         data.extend(encode_int_packed(42)); // pathNameIndex
         data.extend(encode_int_packed(0)); // isExported = false (reference)
-        // Still need the field-exported flag for the iteration to be well-formed,
-        // but the error should fire before reading it. However looking at the C#
-        // code, it throws immediately. Let's just provide the minimal bytes.
-        // Actually the error is thrown before reading isFieldExported.
+        // The error fires before isFieldExported is read (the C# reference also
+        // throws immediately here), so these minimal bytes are enough.
 
         let mut reader = BitReader::new(&data);
         let mut cache = NetGuidCache::new();

@@ -46,13 +46,8 @@
 //! function call. The C# reference reader dispatches custom-delta properties
 //! separately from `ReceivedRPC` after reading this shared outer framing.
 //!
-//! The measured `AbilitiesAndBuffsComponent` handle-1 body follows FastArray
-//! custom-delta framing: a support bit, four i32 header words, deleted item
-//! IDs, and changed items with packed handle/width property streams. The
-//! Python observation extractor validates that structure while retaining raw
-//! input windows. `decode_abilities_and_buffs_inner` is a legacy bit-slicing
-//! helper, not a semantic decoder: arbitrary words or a successful split do
-//! not identify an ability, effect, PredictionKey, or player action.
+//! See [`AbilitiesActivation`] for the measured `AbilitiesAndBuffsComponent`
+//! inner structure and what it does and does not establish.
 
 use vrf_bitio::BitReader;
 
@@ -233,16 +228,23 @@ fn walk_cnc(payload: &[u8], bit_count: u32, function_count: u32) -> Option<Vec<C
 /// thousands of payloads the layout is fully deterministic. A single flag bit
 /// (always `1`) is followed by a stream of little-endian `u32` words and an
 /// optional sub-32-bit trailing residual, and `bit_count == 1 + 32 * words +
-/// trailing` holds exactly on every payload.
+/// trailing` holds exactly on every payload. This Rust helper stops there --
+/// it is a legacy bit-slicing routine, not a semantic decoder.
 ///
-/// Word positions are not semantic field declarations. A September 2026
-/// twelve-export audit observed increasing first words within actor/object/
-/// channel sequences, but the second word did not always equal the previously
-/// observed first word. Leading pairs also occurred on different identities.
-/// These observations do not establish an engine prediction-key type,
-/// gameplay state-sync event, cast identity, or buff meaning. The complete
-/// word list and residual remain available without assigning those roles;
-/// see `docs/GAS_AND_PATCHVOLUME_INVESTIGATION.md` for the evidence scope.
+/// A separate Python reader (`tools/extract_fastarray_observations.py`) reads
+/// the same payload under a different grammar and measures it as custom-delta
+/// FastArray framing: a support bit, four i32 header words, deleted item IDs,
+/// and changed items with packed handle/width property streams.
+///
+/// Word positions are not semantic field declarations either way. A September
+/// 2026 twelve-export audit observed increasing first words within
+/// actor/object/channel sequences, but the second word did not always equal
+/// the previously observed first word. Leading pairs also occurred on
+/// different identities. These observations do not establish an engine
+/// prediction-key type, gameplay state-sync event, cast identity, or buff
+/// meaning. The complete word list and residual remain available without
+/// assigning those roles; see `docs/GAS_AND_PATCHVOLUME_INVESTIGATION.md` for
+/// the evidence scope, including the FastArray measurement above.
 #[derive(Debug, Clone)]
 pub struct AbilitiesActivation {
     /// The leading flag bit. Observed to be `1` on every payload; kept as a

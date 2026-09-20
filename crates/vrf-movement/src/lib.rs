@@ -142,10 +142,9 @@
 //!
 //! # Accuracy
 //!
-//! The decoder is validated against the C# reference to **zero** error on yaw,
-//! pitch and velocity, and a maximum of 0.0005 on position. The 25-bit move
-//! header, the VLQ timestamp and every scale constant are wire format, not
-//! style: an equivalent-looking rewrite of the arithmetic changes the numbers.
+//! See the module doc at the top of `src/primitives.rs` ("These are format,
+//! not style") for the validated error bounds and why the arithmetic is not
+//! restyled.
 //!
 //! # Cargo features
 //!

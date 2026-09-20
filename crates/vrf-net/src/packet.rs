@@ -4,14 +4,9 @@
 //!
 //! Unreal pads packets to byte boundaries but marks the true end with a
 //! sentinel: one `1` bit followed by zero-padding to the byte boundary. The
-//! reader finds this sentinel by scanning the last byte from MSB downward:
-//!
-//! ```text
-//! bitSize = len*8 - 1
-//! while (lastByte & 0x80) == 0:
-//!     lastByte <<= 1
-//!     bitSize -= 1
-//! ```
+//! reader finds this sentinel by scanning the last byte from MSB downward.
+//! See `compute_bit_size` below for the walk and the proof that it cannot
+//! underflow.
 //!
 //! If the last byte is zero the packet is malformed (no sentinel exists).
 
