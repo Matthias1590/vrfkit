@@ -46,6 +46,7 @@
 use vrf_bitio::BitReader;
 
 use crate::error::ContainerError;
+use crate::io::{read_fstring, read_i32, read_u32};
 use crate::limits::MAX_FSTRING_BYTES;
 
 /// A parsed Checkpoint chunk header plus its still-compressed archive.
@@ -89,9 +90,9 @@ pub struct CheckpointChunk<'a> {
 pub fn parse_checkpoint_chunk(payload: &[u8]) -> Result<CheckpointChunk<'_>, ContainerError> {
     let mut reader = BitReader::new(payload);
 
-    let id = read_fstring(&mut reader, "checkpoint id")?;
-    let group = read_fstring(&mut reader, "checkpoint group")?;
-    let metadata = read_fstring(&mut reader, "checkpoint metadata")?;
+    let id = read_fstring(&mut reader, "checkpoint id", MAX_FSTRING_BYTES)?;
+    let group = read_fstring(&mut reader, "checkpoint group", MAX_FSTRING_BYTES)?;
+    let metadata = read_fstring(&mut reader, "checkpoint metadata", MAX_FSTRING_BYTES)?;
     let time1 = read_u32(&mut reader, "checkpoint time1")?;
     let time2 = read_u32(&mut reader, "checkpoint time2")?;
     let size_in_bytes = read_i32(&mut reader, "checkpoint archive size")?;
@@ -166,32 +167,6 @@ pub fn decompress_checkpoint(
 }
 
 // --- Helpers ------------------------------------------------------------------
-
-fn read_u32(reader: &mut BitReader<'_>, context: &'static str) -> Result<u32, ContainerError> {
-    reader.read_u32().map_err(|_| ContainerError::Truncated {
-        context,
-        needed: 4,
-        available: (reader.bits_remaining() / 8) as usize,
-    })
-}
-
-fn read_i32(reader: &mut BitReader<'_>, context: &'static str) -> Result<i32, ContainerError> {
-    reader.read_i32().map_err(|_| ContainerError::Truncated {
-        context,
-        needed: 4,
-        available: (reader.bits_remaining() / 8) as usize,
-    })
-}
-
-fn read_fstring(
-    reader: &mut BitReader<'_>,
-    context: &'static str,
-) -> Result<String, ContainerError> {
-    reader
-        .read_fstring(MAX_FSTRING_BYTES)
-        .map_err(|source| ContainerError::FString { context, source })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -77,6 +77,7 @@ mod chunk;
 mod error;
 mod header;
 mod info;
+mod io;
 mod limits;
 mod oodle;
 mod preamble;
