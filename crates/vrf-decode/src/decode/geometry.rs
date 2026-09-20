@@ -171,32 +171,31 @@ fn read_fixed_vector_normal(r: &mut BitReader<'_>) -> Result<FVector, vrf_bitio:
 }
 
 fn read_rotation_short(r: &mut BitReader<'_>) -> Result<FRotator, vrf_bitio::BitError> {
-    let pitch = read_compressed_short_component(r)?;
-    let yaw = read_compressed_short_component(r)?;
-    let roll = read_compressed_short_component(r)?;
+    let pitch = read_compressed_rotation_component(r, 16, 360.0 / 65536.0)?;
+    let yaw = read_compressed_rotation_component(r, 16, 360.0 / 65536.0)?;
+    let roll = read_compressed_rotation_component(r, 16, 360.0 / 65536.0)?;
     Ok(FRotator { pitch, yaw, roll })
 }
 
 fn read_rotation_byte(r: &mut BitReader<'_>) -> Result<FRotator, vrf_bitio::BitError> {
-    let pitch = read_compressed_byte_component(r)?;
-    let yaw = read_compressed_byte_component(r)?;
-    let roll = read_compressed_byte_component(r)?;
+    let pitch = read_compressed_rotation_component(r, 8, 360.0 / 256.0)?;
+    let yaw = read_compressed_rotation_component(r, 8, 360.0 / 256.0)?;
+    let roll = read_compressed_rotation_component(r, 8, 360.0 / 256.0)?;
     Ok(FRotator { pitch, yaw, roll })
 }
 
-fn read_compressed_short_component(r: &mut BitReader<'_>) -> Result<f32, vrf_bitio::BitError> {
+/// A presence bit followed by an unsigned component of `width` bits (16 for
+/// the short form, 8 for the byte form), scaled to degrees. Shared by
+/// [`read_rotation_short`] and [`read_rotation_byte`], which differ only in
+/// that width and scale.
+fn read_compressed_rotation_component(
+    r: &mut BitReader<'_>,
+    width: u32,
+    scale: f32,
+) -> Result<f32, vrf_bitio::BitError> {
     if r.read_bit()? {
-        let v = r.read_u16()?;
-        Ok(f32::from(v) * (360.0 / 65536.0))
-    } else {
-        Ok(0.0)
-    }
-}
-
-fn read_compressed_byte_component(r: &mut BitReader<'_>) -> Result<f32, vrf_bitio::BitError> {
-    if r.read_bit()? {
-        let v = r.read_u8()?;
-        Ok(f32::from(v) * (360.0 / 256.0))
+        let v = r.read_bits(width)?;
+        Ok(v as f32 * scale)
     } else {
         Ok(0.0)
     }

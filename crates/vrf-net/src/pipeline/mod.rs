@@ -515,8 +515,7 @@ impl ReplicationReader {
                 }
                 Self::abandon_bunch(&mut payload.clone(), &mut stage);
                 if header.b_close {
-                    channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-                    Self::retire_destroyed_channel(header, &mut stage, accumulator, sink);
+                    Self::close_channel(header, &mut stage, accumulator, sink);
                 }
                 bunch_index_in_packet += 1;
                 return;
@@ -594,60 +593,16 @@ impl ReplicationReader {
 
             let reason = result
                 .error_kind
-                .map(|kind| match kind {
-                    crate::error::PartialSequenceKind::MissingInitial => {
-                        PartialPayloadReason::MissingInitial
-                    }
-                    crate::error::PartialSequenceKind::OverlappingInitial => {
-                        PartialPayloadReason::OverlappingInitial
-                    }
-                    crate::error::PartialSequenceKind::MismatchedContinuation => {
-                        PartialPayloadReason::MismatchedContinuation
-                    }
-                    crate::error::PartialSequenceKind::NonByteAlignedFragment => {
-                        PartialPayloadReason::NonByteAlignedFragment
-                    }
-                })
-                .or_else(|| {
-                    result.resource_limit.map(|limit| match limit {
-                        crate::bunch::PartialResourceLimit::ActiveStates => {
-                            PartialPayloadReason::ActiveStateLimit
-                        }
-                        crate::bunch::PartialResourceLimit::BufferedBits => {
-                            PartialPayloadReason::BufferedBitsLimit
-                        }
-                        crate::bunch::PartialResourceLimit::Allocation => {
-                            PartialPayloadReason::AllocationFailure
-                        }
-                    })
-                });
+                .map(reason_for_sequence_kind)
+                .or_else(|| result.resource_limit.map(reason_for_resource_limit));
             for (displaced, discard_cause) in &result.displaced {
                 let displaced_reason = match discard_cause {
-                    crate::bunch::PartialDiscardCause::Sequence(kind) => match kind {
-                        crate::error::PartialSequenceKind::MissingInitial => {
-                            PartialPayloadReason::MissingInitial
-                        }
-                        crate::error::PartialSequenceKind::OverlappingInitial => {
-                            PartialPayloadReason::OverlappingInitial
-                        }
-                        crate::error::PartialSequenceKind::MismatchedContinuation => {
-                            PartialPayloadReason::MismatchedContinuation
-                        }
-                        crate::error::PartialSequenceKind::NonByteAlignedFragment => {
-                            PartialPayloadReason::NonByteAlignedFragment
-                        }
-                    },
-                    crate::bunch::PartialDiscardCause::Resource(limit) => match limit {
-                        crate::bunch::PartialResourceLimit::ActiveStates => {
-                            PartialPayloadReason::ActiveStateLimit
-                        }
-                        crate::bunch::PartialResourceLimit::BufferedBits => {
-                            PartialPayloadReason::BufferedBitsLimit
-                        }
-                        crate::bunch::PartialResourceLimit::Allocation => {
-                            PartialPayloadReason::AllocationFailure
-                        }
-                    },
+                    crate::bunch::PartialDiscardCause::Sequence(kind) => {
+                        reason_for_sequence_kind(*kind)
+                    }
+                    crate::bunch::PartialDiscardCause::Resource(limit) => {
+                        reason_for_resource_limit(*limit)
+                    }
                 };
                 sink.on_rejected_partial(RejectedPartialFragment {
                     header: &displaced.header,
@@ -709,8 +664,7 @@ impl ReplicationReader {
 
             if !result.should_process {
                 if header.b_close {
-                    channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-                    Self::retire_destroyed_channel(header, stage, accumulator, sink);
+                    Self::close_channel(header, stage, accumulator, sink);
                 }
                 return;
             }
@@ -740,8 +694,7 @@ impl ReplicationReader {
             // channel at all: the actor stayed open for the rest of the replay,
             // its close row was never emitted, and `actor_closes` never moved.
             if header.b_close {
-                channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-                Self::retire_destroyed_channel(header, stage, accumulator, sink);
+                Self::close_channel(header, stage, accumulator, sink);
             }
             return;
         }
@@ -750,8 +703,7 @@ impl ReplicationReader {
         if bit_count == 0 {
             // Handle close
             if header.b_close {
-                channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-                Self::retire_destroyed_channel(header, stage, accumulator, sink);
+                Self::close_channel(header, stage, accumulator, sink);
             }
             return;
         }
@@ -760,9 +712,25 @@ impl ReplicationReader {
         Self::process_complete_payload(header, &mut payload, stage, sink, ids);
 
         if header.b_close {
-            channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-            Self::retire_destroyed_channel(header, stage, accumulator, sink);
+            Self::close_channel(header, stage, accumulator, sink);
         }
+    }
+
+    /// Close a channel and retire any reassembly state it was holding.
+    ///
+    /// `bClose` always names both steps together: closing the channel without
+    /// also retiring its accumulator entry leaves a partial assembly that can
+    /// never complete (when the channel is destroyed rather than dormant) but
+    /// is never counted as lost either. Every `if header.b_close` site in this
+    /// module calls both, in this order, so they are given one name.
+    fn close_channel(
+        header: &RawBunchHeader,
+        stage: &mut Stage<'_>,
+        accumulator: &mut PartialBunchAccumulator,
+        sink: &mut dyn ReplicationSink,
+    ) {
+        channel::handle_channel_close(header, stage.channels, stage.stats, sink);
+        Self::retire_destroyed_channel(header, stage, accumulator, sink);
     }
 
     fn retire_destroyed_channel(
@@ -898,6 +866,36 @@ fn stage_fragment(payload: BitReader<'_>, buffer: &mut Vec<u8>) -> usize {
         let _ = src.copy_bits_to(buffer, bit_count);
     }
     byte_count
+}
+
+/// Map a partial-sequence error to the reason reported to the sink.
+///
+/// Shared by the current fragment's own rejection and by every earlier
+/// assembly the same fragment displaced, so both name a discard with the
+/// same [`PartialPayloadReason`] rather than drifting out of step.
+fn reason_for_sequence_kind(kind: crate::error::PartialSequenceKind) -> PartialPayloadReason {
+    match kind {
+        crate::error::PartialSequenceKind::MissingInitial => PartialPayloadReason::MissingInitial,
+        crate::error::PartialSequenceKind::OverlappingInitial => {
+            PartialPayloadReason::OverlappingInitial
+        }
+        crate::error::PartialSequenceKind::MismatchedContinuation => {
+            PartialPayloadReason::MismatchedContinuation
+        }
+        crate::error::PartialSequenceKind::NonByteAlignedFragment => {
+            PartialPayloadReason::NonByteAlignedFragment
+        }
+    }
+}
+
+/// Map a partial-reassembly resource refusal to the reason reported to the
+/// sink. See [`reason_for_sequence_kind`]: same sharing, same reason why.
+fn reason_for_resource_limit(limit: crate::bunch::PartialResourceLimit) -> PartialPayloadReason {
+    match limit {
+        crate::bunch::PartialResourceLimit::ActiveStates => PartialPayloadReason::ActiveStateLimit,
+        crate::bunch::PartialResourceLimit::BufferedBits => PartialPayloadReason::BufferedBitsLimit,
+        crate::bunch::PartialResourceLimit::Allocation => PartialPayloadReason::AllocationFailure,
+    }
 }
 
 #[cfg(test)]

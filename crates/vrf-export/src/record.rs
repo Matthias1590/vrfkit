@@ -8,7 +8,8 @@
 //! # Why the string columns are `Arc<str>`
 //!
 //! `FieldRecord` is produced 1,246,812 times on the reference replay, and the
-//! writer buffers 131,072 of them before flushing a row group. With `String`
+//! writer buffered 131,072 of them before flushing a row group
+//! (`MAX_BUFFERED_ROWS` is 8,192 today; the measurement below predates that). With `String`
 //! that was up to three heap allocations per row and ~393,000 live allocations
 //! at the peak. There are only 475 distinct `group_path` values in the whole
 //! replay and a few thousand distinct field names, so an `Arc<str>` the

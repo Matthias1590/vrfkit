@@ -37,7 +37,7 @@ use crate::net_guid::{self, GuidPathSink};
 use crate::types::NetworkGuid;
 
 /// Parsed content block header.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ContentBlockHeader {
     /// Whether the payload uses RepLayout (properties) vs ClassNetCache (RPCs).
     pub has_rep_layout: bool,
@@ -57,22 +57,6 @@ pub struct ContentBlockHeader {
     pub is_stably_named: bool,
     /// Deletion flags (only valid when is_deleted).
     pub delete_flags: u8,
-}
-
-impl Default for ContentBlockHeader {
-    fn default() -> Self {
-        Self {
-            has_rep_layout: false,
-            is_actor: false,
-            is_deleted: false,
-            object_net_guid: NetworkGuid(0),
-            class_net_guid: NetworkGuid(0),
-            has_class_net_guid: false,
-            outer_net_guid: NetworkGuid(0),
-            is_stably_named: false,
-            delete_flags: 0,
-        }
-    }
 }
 
 /// Read a content block header from the stream.

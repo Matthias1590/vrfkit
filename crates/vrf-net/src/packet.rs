@@ -86,33 +86,27 @@ impl RawPacketReader {
     where
         F: FnMut(&mut RawBunchHeader, BitReader<'_>),
     {
+        // These three early-outs share the same all-zero counters and differ
+        // only in `is_malformed`: nothing has been parsed yet in any of them.
+        let empty_result = |is_malformed: bool| PacketReadResult {
+            bunch_count: 0,
+            is_malformed,
+            partial_error_count: 0,
+            channel_limit_count: 0,
+        };
+
         if packet_data.is_empty() {
-            return PacketReadResult {
-                bunch_count: 0,
-                is_malformed: false,
-                partial_error_count: 0,
-                channel_limit_count: 0,
-            };
+            return empty_result(false);
         }
 
         let last_byte = packet_data[packet_data.len() - 1];
         if last_byte == 0 {
-            return PacketReadResult {
-                bunch_count: 0,
-                is_malformed: true,
-                partial_error_count: 0,
-                channel_limit_count: 0,
-            };
+            return empty_result(true);
         }
 
         let bit_size = compute_bit_size(packet_data, last_byte);
         let Ok(mut reader) = BitReader::with_bit_len(packet_data, bit_size as u64) else {
-            return PacketReadResult {
-                bunch_count: 0,
-                is_malformed: true,
-                partial_error_count: 0,
-                channel_limit_count: 0,
-            };
+            return empty_result(true);
         };
 
         let mut bunch_count = 0u32;

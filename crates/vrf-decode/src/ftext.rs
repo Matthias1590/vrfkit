@@ -144,6 +144,25 @@ impl FTextTree {
         }
     }
 }
+/// Charge one node against the total-node budget, shared by the tree root
+/// (each recursive [`decode_tree`] call) and each format argument's own node
+/// in the history-3 loop below.
+///
+/// `checked_add` guards `nodes` itself from wrapping past `u16::MAX`; in
+/// practice the `> MAX_NODES` check below already returns before `nodes` can
+/// approach that, since `MAX_NODES` is far below `u16::MAX`. The overflow arm
+/// stays because it is what makes this budget check correct on its own terms,
+/// not dependent on `MAX_NODES` never changing.
+fn charge_node_budget(nodes: &mut u16) -> Result<(), FTextTreeError> {
+    *nodes = nodes
+        .checked_add(1)
+        .ok_or(FTextTreeError::NodeLimit { limit: MAX_NODES })?;
+    if *nodes > MAX_NODES {
+        return Err(FTextTreeError::NodeLimit { limit: MAX_NODES });
+    }
+    Ok(())
+}
+
 fn decode_tree(
     r: &mut BitReader<'_>,
     depth: u16,
@@ -152,12 +171,7 @@ fn decode_tree(
     if depth >= MAX_DEPTH {
         return Err(FTextTreeError::DepthLimit { limit: MAX_DEPTH });
     }
-    *nodes = nodes
-        .checked_add(1)
-        .ok_or(FTextTreeError::NodeLimit { limit: MAX_NODES })?;
-    if *nodes > MAX_NODES {
-        return Err(FTextTreeError::NodeLimit { limit: MAX_NODES });
-    }
+    charge_node_budget(nodes)?;
     let flags = r.read_bits(32)? as u32;
     let history = r.read_bits(8)? as u8;
     match history {
@@ -188,12 +202,7 @@ fn decode_tree(
             };
             let mut arguments = Vec::with_capacity(actual as usize);
             for _ in 0..actual {
-                *nodes = nodes
-                    .checked_add(1)
-                    .ok_or(FTextTreeError::NodeLimit { limit: MAX_NODES })?;
-                if *nodes > MAX_NODES {
-                    return Err(FTextTreeError::NodeLimit { limit: MAX_NODES });
-                }
+                charge_node_budget(nodes)?;
                 let name = read_string(r)?;
                 let tag = r.read_bits(8)? as u8;
                 let value = match tag {

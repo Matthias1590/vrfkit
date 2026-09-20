@@ -144,8 +144,14 @@ pub(crate) fn render_fname(name: String, number: i32) -> Result<String, DecodeEr
     }
 }
 
-pub(super) fn decode_object_net_guid(r: &mut BitReader<'_>) -> Result<DecodedValue, DecodeError> {
+/// Both an object NetGUID and a gameplay tag are wire IntPacked values;
+/// only the name at the call site says which wire concept they are.
+fn decode_int_packed(r: &mut BitReader<'_>) -> Result<DecodedValue, DecodeError> {
     Ok(DecodedValue::I64(i64::from(r.read_int_packed()?)))
+}
+
+pub(super) fn decode_object_net_guid(r: &mut BitReader<'_>) -> Result<DecodedValue, DecodeError> {
+    decode_int_packed(r)
 }
 
 /// 128-bit GUID: 4 x u32 LE -> formatted as standard hex GUID.
@@ -203,13 +209,14 @@ pub(super) fn decode_enum_remaining_bits(
     r: &mut BitReader<'_>,
     bit_count: u32,
 ) -> Result<DecodedValue, DecodeError> {
+    // The single call site (`dispatch_decode`) hands us a reader freshly built
+    // from exactly `bit_count` bits, before anything has been read from it, so
+    // `bit_count == 0` and `r.bits_remaining() == 0` are the same condition
+    // here. Testing `bit_count` once covers both.
     if bit_count == 0 {
         return Ok(DecodedValue::I64(0));
     }
     let bits_left = r.bits_remaining();
-    if bits_left == 0 {
-        return Ok(DecodedValue::I64(0));
-    }
     let to_read = bits_left.min(32);
     Ok(DecodedValue::I64(i64::from(
         r.read_bits(to_read as u32)? as u32
@@ -217,7 +224,7 @@ pub(super) fn decode_enum_remaining_bits(
 }
 
 pub(super) fn decode_gameplay_tag(r: &mut BitReader<'_>) -> Result<DecodedValue, DecodeError> {
-    Ok(DecodedValue::I64(i64::from(r.read_int_packed()?)))
+    decode_int_packed(r)
 }
 
 /// Lowercase hex digits, indexed by nibble.

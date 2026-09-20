@@ -326,7 +326,7 @@ impl EffectArrayKind {
     /// Map an RPC parameter's declared name to its element type.
     ///
     /// Name-driven rather than handle-driven: the handle is the parameter's
-    /// index within its own function, so it differs between the eleven
+    /// index within its own function, so it differs between the ten
     /// functions that carry these arrays, while the name is stable across all
     /// of them. Returns `None` for every other parameter name.
     #[must_use]

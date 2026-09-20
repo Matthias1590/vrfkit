@@ -2,7 +2,7 @@
 //!
 //! # Why this exists
 //!
-//! Resolving the reference replay's 988,983 offered rows costs about 1.5
+//! Resolving the reference replay's 988,995 offered rows costs about 1.5
 //! million `(group_path, field_name)` probes -- one per row, plus a second for
 //! the `b`-prefixed spelling on each of the 511,881 that miss -- and another
 //! ~0.5 million `(group_path, handle)` probes. Every one of those was a binary
@@ -17,16 +17,22 @@
 //! This replaces it with open addressing on a 64-bit key hash. A lookup hashes
 //! `group_path` and `field_name` once (8 bytes per multiply) and probes once;
 //! the stored 32-bit tag rejects a non-matching slot without touching the
-//! strings at all. Most lookups on a real replay MISS -- 511,881 of 988,983
-//! offered rows are not in the table -- and a miss now ends at an empty slot
-//! with zero string comparisons.
+//! strings at all. Most lookups on a real replay MISS -- 511,881 of 988,995
+//! offered rows miss the direct `(group_path, field_name)` probe -- and a miss
+//! now ends at an empty slot with zero string comparisons.
+//!
+//! That 511,881 is the cost this index exists to pay, NOT a coverage figure.
+//! Most of those rows are typed anyway, by the `b`-prefix, handle, alias and
+//! checksum steps that run after this probe; the reference replay ends with
+//! `overlay_not_in_table = 163,650`. Reading the first-probe miss count as the
+//! untyped count overstates the gap more than threefold.
 //!
 //! # Answer identity
 //!
 //! The hash only chooses *which* entries to compare. Every candidate is still
 //! confirmed by full string equality on both key halves before it is returned,
 //! so a collision costs time and never an answer. `tests::overlay` walks all
-//! 1,191 entries plus their `b`-stripped spellings plus synthetic misses and
+//! 1,310 entries plus their `b`-stripped spellings plus synthetic misses and
 //! asserts this index agrees with the binary search on every one.
 //!
 //! # The `b`-prefix table
