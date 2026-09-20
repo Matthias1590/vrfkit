@@ -327,7 +327,8 @@ row** and cannot be expanded into fields.
 | `handle` | `u32::MAX` |
 | `raw_bits` | Full payload |
 
-These blocks are counted under `validate`'s `RPC stream failed`. Their retained
+These blocks are counted under `validate`'s `RPC payload lost` and
+`RPC unresolved/raw` lines. Their retained
 raw bytes can be investigated directly; naming their inner fields also needs
 the correct class/function schema and replication context.
 
@@ -663,7 +664,7 @@ first, and read the "Deliberately NOT added" note in the same comment, which
 records the fields that failed the bar and why.
 
 Both counts above are measured, not maintained by hand. `check_docs.py` reads the
-133 against `expectation_count(table.rs)`, so a stale one is caught -- but
+187 against `expectation_count(table.rs)`, so a stale one is caught -- but
 **nothing checks the `ADDITIONS` figure**, which is why it sat at 70 while the
 list held 73. Re-measure it by importing the module rather than counting the
 source by eye (`tools/` has to be on the path; the module imports `atomic_io`
@@ -971,7 +972,7 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 709 passing
+cargo +1.86.0 test --workspace --locked                              # 708 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 128 files

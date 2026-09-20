@@ -548,10 +548,13 @@ guessing -- which is the only reason the failure was findable.
   `AresInventory`. The `KNOWN_SUBOBJECT_CLASS_PATHS` remap (InventoryComponent
   -> AresInventory, AbilitiesAndBuffsComponent -> AresAbilitySystemComponent)
   connects them, so the handles pick up names and types -- `CurrentEquippable`
-  (equipped weapon / spike carrier) included. Remaining bare component groups
-  (ZoomStateMachine, ReserveAmmo, CalloutRegionTracker, ...) need the same kind
-  of Blueprint->native-parent map; their parents are not name-derivable and
-  require the game's class hierarchy.
+  (equipped weapon / spike carrier) included. ZoomStateMachine, ReserveAmmo and
+  CalloutRegionTracker were listed here as still needing that map; they have it.
+  All three are in `KNOWN_SUBOBJECT_CLASS_PATHS` and are pinned by the test at
+  `crates/vrfkit/src/sink/paths.rs`. The procedure that produced them is under
+  "Reading component classes out of the game" below. A bare component group that
+  turns up on a new build still needs the same treatment, and the map is not
+  name-derivable -- it comes from the game's class hierarchy.
 - **AbilitiesAndBuffsComponent** — the replay never declares its `_ClassNetCache`
   group, so `function_count` is brute-forced (fc=34). The outer RPC framing is
   fully recovered, and the inner payload is decomposed (a flag bit followed by a
@@ -702,9 +705,14 @@ It also corrected one guess. `MagazineAmmo` and `ReserveAmmo` are both
 `HANDLE_ADDITIONS` ever had, was in the right place with the wrong word. Both
 ammo counters now read the real declaration and that mechanism is empty.
 
-Effect on 02d4d478: unnamed handles 17,013 -> 2,460, decoded OK 702,149 ->
-714,070, `Typed` 71.0% -> 72.2%, decode errors still 0. Corpus-wide, 215/215
-replays with decode errors 0.
+Effect on 02d4d478, measured when that change landed: unnamed handles
+17,013 -> 2,460, decoded OK 702,149 -> 714,070, `Typed` 71.0% -> 72.2%, decode
+errors still 0. Corpus-wide at the time, 215/215 replays with decode errors 0.
+
+Those are the deltas that change produced, not current totals. Later work moved
+both ends: `tools/baselines/export_02d4d478.json` pins today's figures
+(`overlay_no_field_name = 2,034`, `overlay_decoded_ok = 796,804`). Read this
+paragraph as a dated before/after, which is what it was written as.
 
 **This is the one thing here that a game patch can silently invalidate.** A
 renamed component stops matching and its handles go quiet again, and the replay

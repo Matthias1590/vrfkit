@@ -18,7 +18,7 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Verified state:** Rust has **709 passing** tests; Python has **817 passing**
+**Verified state:** Rust has **708 passing** tests; Python has **817 passing**
 tests. The full 714-file comparison and corpus guards passed; see
 [current status](docs/CURRENT_STATUS.md) for the current evidence boundary.
 
@@ -106,7 +106,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **709 Rust tests** plus a layered validation suite (framing / bytes / decode
+- **708 Rust tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -351,7 +351,7 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**709 passing**; the full Python suite also has **817 passing** tests. The
+**708 passing**; the full Python suite also has **817 passing** tests. The
 all-corpus guards, all-file comparison, and full documentation check pass.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
@@ -896,7 +896,7 @@ independent) can be separated. The transform is determined solely by
 
 Columnar storage collapses the repeated path and name strings via dictionary
 encoding, zstd compresses it well, and it reads directly in `pyarrow` /
-`polars` / `pandas` / `duckdb`. NDJSON is reader-bound: on a 2.8-million-row
+`polars` / `pandas` / `duckdb`. NDJSON is reader-bound: on a 1.8-million-row
 movement stream, JSON parsing was measured at 84% of processing time.
 
 ## Validation suite
