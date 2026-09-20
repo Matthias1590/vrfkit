@@ -621,6 +621,9 @@ pub(super) fn copy_raw_bits(reader: BitReader<'_>, bit_count: u32) -> Option<Sma
     }
     let mut buf = smallvec![0u8; (bit_count as usize).div_ceil(8)];
     let mut reader = reader;
+    // Discarded, not ignored blind: every call site hands in a reader whose
+    // bits_remaining() is exactly bit_count, and buf is sized to match, so
+    // neither of copy_bits_to's error paths (EOF, undersized dst) can fire.
     let _ = reader.copy_bits_to(&mut buf, u64::from(bit_count));
     Some(buf)
 }

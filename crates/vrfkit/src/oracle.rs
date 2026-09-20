@@ -210,21 +210,19 @@ impl Verdict {
 /// scored block population. An accumulator still holding bytes at EOF is
 /// different -- those bytes were present and the walk abandoned them, hence
 /// `unfinished_partials` is a hard failure.
+///
+/// The framing/malformed/transform/field-stream/RPC-loss terms are not
+/// restated here: `NetStats::lost_content_blocks` already owns that sum, and
+/// duplicating it by hand is exactly how this verdict and
+/// `quality.content_blocks_lost` would drift apart.
 fn verdict_from_stats(stats: &NetStats, replay_data_trailing_bytes: u64) -> Verdict {
     let total_with_content = stats.rep_layout_blocks + stats.class_net_cache_blocks;
-    let rpc_payloads_lost = stats
-        .rpc_stream_failures
-        .saturating_sub(stats.unresolved_rpc_payloads_preserved);
     let failures = stats.malformed_packets
         + stats.unfinished_partials
         + stats.channel_state_limit_failures
         + stats.partial_resource_limit_failures
         + stats.bunch_header_failures
-        + stats.content_block_framing_failures
-        + stats.malformed_content_blocks
-        + stats.transform_failures
-        + stats.field_stream_failures
-        + rpc_payloads_lost
+        + stats.lost_content_blocks()
         + u64::from(replay_data_trailing_bytes != 0);
     Verdict::decide(total_with_content, failures)
 }

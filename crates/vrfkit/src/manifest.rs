@@ -309,14 +309,8 @@ pub fn write_manifest(
             out.push_str("    { ");
             out.push_str(&format!(
                 "\"actor_net_guid\": {guid}, \"subject\": {}, \"character_net_guid\": {}",
-                match subject {
-                    Some(s) => json_str(s),
-                    None => String::from("null"),
-                },
-                match character {
-                    Some(c) => c.to_string(),
-                    None => String::from("null"),
-                }
+                json_opt(subject, |s| json_str(s)),
+                json_opt(character, u32::to_string),
             ));
             out.push_str(" }");
             if i + 1 < players.len() {
@@ -851,6 +845,16 @@ fn wkv_array(out: &mut String, key: &str, values: &[String], indent: usize) {
 /// JSON literal for a boolean.
 fn json_bool(b: bool) -> &'static str {
     if b { "true" } else { "false" }
+}
+
+/// Render an optional value as its JSON text, or the literal `null` when
+/// absent. `players` renders `subject` and `character_net_guid` this way;
+/// only how a present value becomes text differs between the two.
+fn json_opt<T>(value: &Option<T>, present: impl FnOnce(&T) -> String) -> String {
+    match value {
+        Some(v) => present(v),
+        None => String::from("null"),
+    }
 }
 
 /// JSON number for an `f32`, or `null` when the value is not finite.
