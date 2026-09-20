@@ -282,24 +282,20 @@ def validate_repository(
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument(
-        "--allow-missing-hashes",
-        action="store_true",
-        help="migration aid: validate legacy structure/cross-file identities "
-             "without accepting malformed hashes that are present",
-    )
-    args = ap.parse_args()
-    problems = validate_repository(require_hashes=not args.allow_missing_hashes)
+    # No flags. `--allow-missing-hashes` was a migration aid that nothing ever
+    # invoked -- not CI, not CONTRIBUTING, not docs/USAGE.md. The
+    # `require_hashes=False` PARAMETER it drove is still used, by
+    # tools/tests/test_baseline_schemas.py, so only the CLI surface is gone.
+    argparse.ArgumentParser(description=__doc__).parse_args()
+    problems = validate_repository()
     if problems:
         print(f"FAILED: {len(problems)} baseline schema/cross-file problem(s)", file=sys.stderr)
         for problem in problems:
             print(f"  {problem}", file=sys.stderr)
         return 1
-    qualifier = " (legacy hashes allowed)" if args.allow_missing_hashes else ""
     print(
         f"OK: {len(list(BASELINES.glob('*.json')))} committed baselines are "
-        f"consistent{qualifier}"
+        f"consistent"
     )
     return 0
 

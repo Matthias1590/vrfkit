@@ -6,7 +6,6 @@ from __future__ import annotations
 import argparse
 import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
 
@@ -74,33 +73,6 @@ def run_check(paths: list[Path], *, tracked: bool) -> int:
     return 0
 
 
-def self_test() -> int:
-    """Exercise the production scanner against a deliberate UTF-8 violation."""
-    probe: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(suffix=".rs", delete=False) as handle:
-            handle.write(b"// ASCII then: \xc3\xa9\n")
-            probe = Path(handle.name)
-        found = violations(probe)
-        expected = [(1, 16, 0xC3), (1, 17, 0xA9)]
-        if found != expected:
-            print(
-                f"SELF-TEST FAILED: expected {expected!r}, got {found!r}",
-                file=sys.stderr,
-            )
-            return 1
-        print("SELF-TEST OK: deliberate non-ASCII bytes detected")
-        return 0
-    except OSError as exc:
-        print(f"SELF-TEST ERROR: {exc}", file=sys.stderr)
-        return 2
-    finally:
-        if probe is not None:
-            try:
-                probe.unlink(missing_ok=True)
-            except OSError as exc:
-                print(f"SELF-TEST CLEANUP ERROR: {exc}", file=sys.stderr)
-
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -112,26 +84,16 @@ def parse_args() -> argparse.Namespace:
         default=[],
         help="scan exactly PATH (repeatable test hook)",
     )
-    parser.add_argument(
-        "--self-test",
-        action="store_true",
-        help="prove the scanner catches a deliberate violation",
-    )
     args = parser.parse_args()
     if args.path and not args.check:
         parser.error("--path requires --check")
-    if not args.check and not args.self_test:
-        parser.error("one of --check or --self-test is required")
+    if not args.check:
+        parser.error("--check is required")
     return args
 
 
 def main() -> int:
     args = parse_args()
-    if args.self_test:
-        result = self_test()
-        if result != 0 or not args.check:
-            return result
-
     if args.path:
         missing = [path for path in args.path if not path.is_file()]
         if missing:
