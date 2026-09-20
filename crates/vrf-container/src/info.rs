@@ -9,7 +9,7 @@
 //! | 8 | i32 | CustomVersionCount |
 //! | 12 | [20 x N] | CustomVersionEntries (GUID 16B + i32 version) |
 //! | ... | i32 | LengthInMs |
-//! | ... | u32 | NetworkVersion (must be 19) |
+//! | ... | u32 | NetworkVersion (NOT 19 here; unvalidated -- see the field doc) |
 //! | ... | u32 | Changelist |
 //! | ... | FString | FriendlyName |
 //! | ... | u32 | IsLive (bool as u32) |
@@ -192,9 +192,13 @@ pub(crate) fn parse_replay_info(data: &[u8]) -> Result<(ReplayInfo, usize), Cont
 
 // --- Helpers ------------------------------------------------------------------
 fn read_i64(reader: &mut BitReader<'_>, context: &'static str) -> Result<i64, ContainerError> {
+    // 4, not 8: this arm fires when the LOW word alone could not be read, and
+    // every other Truncated in this crate reports the width of the read that
+    // actually failed. Reporting the whole i64 here made a 4-byte shortfall
+    // look like an 8-byte one in the error text.
     let lo = reader.read_u32().map_err(|_| ContainerError::Truncated {
         context,
-        needed: 8,
+        needed: 4,
         available: (reader.bits_remaining() / 8) as usize,
     })?;
     let hi = reader.read_u32().map_err(|_| ContainerError::Truncated {

@@ -437,14 +437,14 @@ mod tests {
         // double precision exactly as ReplayEventJsonWriter.cs does. This
         // catches both the rounding rule and any f32-vs-f64 drift in the
         // multiply, which a handful of named cases would not.
-        let mut checked = 0;
+        // No `checked` counter: it was incremented unconditionally inside a
+        // `0..2000` loop and then asserted to equal 2000, which no input could
+        // make false. The loop bound already states the sample count.
         for step in 0..2000 {
             let secs = (step as f32) * 1.1597; // ~0 to ~2319 s, uneven fractions
             let expected = (f64::from(secs) * 1000.0).round() as u32;
             assert_eq!(time_ms_of(secs), expected, "at {secs} s");
-            checked += 1;
         }
-        assert_eq!(checked, 2000);
     }
 
     #[test]

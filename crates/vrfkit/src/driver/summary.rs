@@ -416,6 +416,19 @@ fn print_checkpoints(cp: &CheckpointStats) {
         "  Checkpoint blobs: {} decoded / {} failed",
         cp.sink.struct_blobs_decoded, cp.sink.struct_blobs_failed
     );
+    // The same five the main pass prints as "Sink tally". They were accumulated
+    // for the checkpoint pass by the shared SinkTotals::absorb and reached no
+    // output at all, which is the state totals.rs's own doc warns about: a
+    // mismatch against the framing-layer counts "is a real desync signal, not
+    // noise -- but only if this side is ever summed".
+    eprintln!(
+        "  Checkpoint sink:  {} fields / {} RPCs / {} opens / {} closes / {} content blocks",
+        cp.sink.fields_emitted,
+        cp.sink.rpcs_emitted,
+        cp.sink.actor_opens,
+        cp.sink.actor_closes,
+        cp.sink.content_blocks
+    );
     if let Some(error) = &cp.sink.struct_blob_first_error {
         eprintln!("  Checkpoint blob error: {error}");
     }

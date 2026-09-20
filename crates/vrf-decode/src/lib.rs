@@ -91,6 +91,12 @@ mod types;
 pub mod cnc;
 
 /// Numeric FastArray headers, item IDs and raw property windows.
+///
+/// No in-tree caller: the export path preserves these windows as raw bits and
+/// `tools/extract_fastarray_observations.py` does the extraction independently
+/// in Python. This is the Rust reading of the same grammar, published for
+/// consumers and kept in step with that tool; see
+/// docs/GAS_AND_PATCHVOLUME_INVESTIGATION.md.
 pub mod fastarray;
 
 #[cfg(feature = "array")]

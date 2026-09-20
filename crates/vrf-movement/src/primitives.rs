@@ -106,6 +106,11 @@ fn read_signed_quantized_components(
     // no error, and a cursor left 189 bits behind so everything after it
     // decodes from the wrong offset. Zero is the only width that legitimately
     // reads nothing, and the caller already handles it.
+    // Unreachable from `read_quantized_vector`, which derives component_bits
+    // from a header width it has already rejected as zero. Kept because this is
+    // a `pub(crate)` helper and a second caller would not inherit that check --
+    // and returning a zero vector for a zero-width read is the plausible wrong
+    // value this crate exists to avoid.
     if component_bits == 0 {
         return Ok((0, 0, 0));
     }

@@ -60,6 +60,12 @@ pub struct ActorChannelState {
     /// Whether the channel is currently open.
     pub is_open: bool,
     /// Whether the channel is dormant (closed but actor alive).
+    /// Set on open and on close, and deliberately part of the public snapshot
+    /// even though this crate's own sink reads `header.b_dormant` directly at
+    /// the close callback instead. Dormancy is not destruction -- only a
+    /// non-dormant close is a despawn -- so a consumer reconstructing actor
+    /// lifetimes from `ActorChannelState` needs it without re-deriving it from
+    /// the bunch header.
     pub is_dormant: bool,
     /// Actor's network GUID.
     pub actor_net_guid: NetworkGuid,
@@ -756,9 +762,18 @@ impl ReplicationReader {
     /// `bunch_header_failures` used to move: the abandoned bits appeared in no
     /// tally at all, which is what let an out-of-range GUID count drop a whole
     /// run of path declarations while every bit counter read zero.
+    ///
+    /// The whole window, not `bits_remaining()`, for the reason
+    /// [`super::framing::abandoned_on_error`] already spells out: a failing
+    /// `read_int_packed` consumes its chunks *before* discovering the value runs
+    /// off the end, so a header stage that expires exactly at the payload end
+    /// leaves `bits_remaining() == 0` and charged nothing for a bunch that lost
+    /// every bit it had. That is the same undercount, at a different depth, and
+    /// it read as a clean zero. `payload` is a sub-reader whose window IS this
+    /// bunch's payload, so `len_bits()` is the loss.
     fn abandon_bunch(payload: &mut BitReader<'_>, stage: &mut Stage<'_>) {
         stage.stats.bunch_header_failures += 1;
-        stage.stats.skipped_bits += payload.bits_remaining();
+        stage.stats.skipped_bits += payload.len_bits();
         payload.skip_remaining();
     }
 
@@ -1372,8 +1387,8 @@ mod tests {
         assert_eq!(stats.bunch_header_failures, 1);
         assert_eq!(stats.exported_guids, 0);
         assert_eq!(
-            stats.skipped_bits, 24,
-            "the abandoned declaration bits must be tallied"
+            stats.skipped_bits, 57,
+            "the whole abandoned payload is tallied, not just the unread tail:              the bits the failing stage had already consumed declared exports              that were dropped (package_map_exports and exported_guids are both              0 above), so they are lost too"
         );
     }
 
@@ -1402,7 +1417,7 @@ mod tests {
 
         assert_eq!(reader.stats().bunch_header_failures, 1);
         assert_eq!(reader.stats().package_map_exports, 0);
-        assert_eq!(reader.stats().skipped_bits, 16);
+        assert_eq!(reader.stats().skipped_bits, 49);
     }
 
     /// A RepLayout-export bunch is skipped whole -- that is a deliberate

@@ -27,8 +27,15 @@ pub(crate) fn read_export_data(
     reader: &mut BitReader<'_>,
     cache: &mut NetGuidCache,
 ) -> Result<(), FrameError> {
-    vrf_schema::read_net_field_exports(reader, cache)?;
-    vrf_schema::read_export_guids(reader, cache)?;
+    // Both counts are deliberately dropped, and said so rather than left to a
+    // bare `?`. `#[must_use]` does not catch this: `?` unwraps the Result and
+    // discarding the resulting `u32` is not a warning, so nothing would have
+    // flagged the silent drop. The numbers are per-frame schema-delta sizes;
+    // the accumulated schema is what downstream reads, via `cache`, and the
+    // group total reaches the summary as `Export groups`. If a per-frame
+    // export rate is ever wanted, this is where to start counting.
+    let _exports = vrf_schema::read_net_field_exports(reader, cache)?;
+    let _guids = vrf_schema::read_export_guids(reader, cache)?;
     Ok(())
 }
 

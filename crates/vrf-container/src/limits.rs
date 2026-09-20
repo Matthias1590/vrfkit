@@ -24,7 +24,13 @@ pub(crate) const NETWORK_MAGIC: u32 = 0x2CF5_A13D;
 /// value; older versions used a different serialisation layout.
 pub(crate) const EXPECTED_FILE_VERSION: u32 = 7;
 
-/// Expected network version in both the info section and the header chunk.
+/// Expected network version in the HEADER chunk.
+///
+/// Not the info section, despite what this said before: `parse_replay_info`
+/// reads `network_version` and never compares it to this. Real replays carry
+/// an unrelated value there -- 02d4d478 has 480767974 -- so a reader who
+/// "restores" the missing check would reject every file in the corpus. See
+/// `ReplayInfo::network_version`'s own doc.
 ///
 /// Source: `Constants.cs` -- `public const uint ExpectedNetworkVersion = 19`.
 pub(crate) const EXPECTED_NETWORK_VERSION: u32 = 19;

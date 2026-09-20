@@ -217,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn reverse64_variant_is_an_involution_free_permutation() {
+    fn reverse64_variant_is_an_involution() {
         // Applying it twice must return the original: each stage is a pairwise
         // swap, and the final half-exchange is its own inverse.
         for v in [

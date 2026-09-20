@@ -156,6 +156,9 @@ pub struct TableWriter<T: Table, W: Write + Send> {
     /// Rows per Arrow batch. See [`MAX_BUFFERED_ROWS`]; never larger than the
     /// row-group size, so a caller asking for tiny row groups still gets them.
     batch_rows: usize,
+    /// Reachable only through `finish_ref`. `finish` takes `self` by value, so
+    /// after it nothing holds the writer to push into; the guard exists for the
+    /// by-reference variant and for a caller that keeps the writer alive.
     finished: bool,
     buffered_bytes: usize,
     _table: PhantomData<fn() -> T>,

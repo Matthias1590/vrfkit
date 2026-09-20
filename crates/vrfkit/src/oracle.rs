@@ -678,6 +678,19 @@ mod tests {
         assert_eq!(verdict_from_stats(&clean, 0), Verdict::Passed);
 
         for failed in [
+            // malformed_packets and bunch_header_failures are terms of
+            // verdict_from_stats that this loop did not cover: either could have
+            // been dropped from the sum and every case here would still pass.
+            NetStats {
+                rep_layout_blocks: 1,
+                malformed_packets: 1,
+                ..NetStats::default()
+            },
+            NetStats {
+                rep_layout_blocks: 1,
+                bunch_header_failures: 1,
+                ..NetStats::default()
+            },
             NetStats {
                 rep_layout_blocks: 1,
                 transform_failures: 1,

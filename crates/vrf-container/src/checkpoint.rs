@@ -106,7 +106,12 @@ pub fn parse_checkpoint_chunk(payload: &[u8]) -> Result<CheckpointChunk<'_>, Con
 
     // Every read above is byte-granular, so the reader sits on a byte boundary.
     let header_end = (reader.position() / 8) as usize;
-    if header_end > payload.len() || payload.len() - header_end < size {
+    // Only the shortfall test: `header_end > payload.len()` cannot be true.
+    // Every read above returned Ok, and BitReader::need refuses to advance
+    // past the buffer before any successful read, so position()/8 is always
+    // within payload. The disjunct that used to be here read as a second
+    // guard and could not fire.
+    if payload.len() - header_end < size {
         return Err(ContainerError::Truncated {
             context: "checkpoint archive",
             needed: size,
