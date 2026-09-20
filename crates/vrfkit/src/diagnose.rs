@@ -167,6 +167,7 @@ pub fn run(path: &str, json_path: Option<&str>, include_payloads: bool) -> Resul
 
     let mut total_packets: u32 = 0;
     let mut replay_data_chunks: u64 = 0;
+    let mut replay_data_frames: u64 = 0;
     let mut event_chunks: u64 = 0;
     let mut replay_data_trailing_bytes: u64 = 0;
     let mut sink_totals = DiagSinkTotals::default();
@@ -204,26 +205,28 @@ pub fn run(path: &str, json_path: Option<&str>, include_payloads: bool) -> Resul
                     decompress_replay_data_with_trailing(payload, compressed, encrypted)?;
                 replay_data_trailing_bytes += trailing as u64;
                 replay_data_chunks += 1;
-                iter_demo_frames(&decompressed, flags, &mut cache, |pkt, packet_cache| {
-                    let pkt_id = total_packets;
-                    total_packets += 1;
-                    {
-                        let mut sink =
-                            ExportSink::new(packet_cache, &mut channel_state, &mut buffers);
-                        sink.enable_measured_array_routes(&branch);
-                        sink.time_ms = pkt.time_ms;
-                        sink.packet_id = pkt_id;
-                        repl_reader.process_packet(pkt.data, pkt_id as i32, &mut sink);
-                        sink_totals.absorb(&mut sink.stats);
-                    }
-                    // The records are dropped, not written; the counters they
-                    // produced were already absorbed above. Draining keeps the
-                    // buffers from growing to the largest packet's worth of
-                    // rows times every packet after a big one.
-                    buffers.fields.clear();
-                    buffers.movement.clear();
-                    buffers.actors.clear();
-                })?;
+                let (_, chunk_frames) =
+                    iter_demo_frames(&decompressed, flags, &mut cache, |pkt, packet_cache| {
+                        let pkt_id = total_packets;
+                        total_packets += 1;
+                        {
+                            let mut sink =
+                                ExportSink::new(packet_cache, &mut channel_state, &mut buffers);
+                            sink.enable_measured_array_routes(&branch);
+                            sink.time_ms = pkt.time_ms;
+                            sink.packet_id = pkt_id;
+                            repl_reader.process_packet(pkt.data, pkt_id as i32, &mut sink);
+                            sink_totals.absorb(&mut sink.stats);
+                        }
+                        // The records are dropped, not written; the counters they
+                        // produced were already absorbed above. Draining keeps the
+                        // buffers from growing to the largest packet's worth of
+                        // rows times every packet after a big one.
+                        buffers.fields.clear();
+                        buffers.movement.clear();
+                        buffers.actors.clear();
+                    })?;
+                replay_data_frames += u64::from(chunk_frames);
             }
             other => {
                 // `Unknown(u32)` and `Header` -- nothing the replication pass
@@ -258,6 +261,8 @@ pub fn run(path: &str, json_path: Option<&str>, include_payloads: bool) -> Resul
     json.push_str("},\n");
     json.push_str("  \"chunks\": {\"replay_data\": ");
     json.push_str(&replay_data_chunks.to_string());
+    json.push_str(", \"replay_data_frames\": ");
+    json.push_str(&replay_data_frames.to_string());
     json.push_str(", \"event\": ");
     json.push_str(&event_chunks.to_string());
     json.push_str(", \"replay_data_trailing_bytes\": ");

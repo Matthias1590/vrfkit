@@ -252,6 +252,9 @@ pub fn run(path: &str, diagnostics: bool) -> Result<Verdict, CliError> {
         .map_err(|e| CliError::Usage(format!("unsupported branch: {e}")))?;
 
     let mut total_packets: u32 = 0;
+    // Frames walked, not just packets. Packets are counted inside the frame
+    // callback, so a frame that ends before its packet loop moves nothing.
+    let mut frames_walked: u32 = 0;
     // Counted, not merely skipped: see `checkpoint_scope_note`.
     let mut checkpoint_chunks: u64 = 0;
     let mut replay_data_trailing_bytes = 0u64;
@@ -275,14 +278,16 @@ pub fn run(path: &str, diagnostics: bool) -> Result<Verdict, CliError> {
             decompress_replay_data_with_trailing(payload, compressed, encrypted)?;
         replay_data_trailing_bytes += trailing as u64;
 
-        iter_demo_frames(&decompressed, flags, &mut cache, |pkt, packet_cache| {
-            let mut sink = ExportSink::new(packet_cache, &mut channel_state, &mut buffers);
-            sink.enable_measured_array_routes(branch);
-            sink.time_ms = pkt.time_ms;
-            sink.packet_id = total_packets;
-            repl_reader.process_packet(pkt.data, total_packets as i32, &mut sink);
-            total_packets += 1;
-        })?;
+        let (_, chunk_frames) =
+            iter_demo_frames(&decompressed, flags, &mut cache, |pkt, packet_cache| {
+                let mut sink = ExportSink::new(packet_cache, &mut channel_state, &mut buffers);
+                sink.enable_measured_array_routes(branch);
+                sink.time_ms = pkt.time_ms;
+                sink.packet_id = total_packets;
+                repl_reader.process_packet(pkt.data, total_packets as i32, &mut sink);
+                total_packets += 1;
+            })?;
+        frames_walked += chunk_frames;
     }
 
     repl_reader.finish();
@@ -354,6 +359,7 @@ pub fn run(path: &str, diagnostics: bool) -> Result<Verdict, CliError> {
         "  ReplayData unread:    {} bytes",
         replay_data_trailing_bytes
     );
+    println!("  ReplayData frames:    {frames_walked}");
     println!("  Packets:              {}", stats.packets);
     println!("  Bunches:              {}", stats.bunches);
     println!("  Actor opens:          {}", stats.actor_opens);
