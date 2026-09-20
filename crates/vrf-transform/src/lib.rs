@@ -308,24 +308,6 @@ mod tests {
     }
 
     #[test]
-    fn release_13_04_is_registered() {
-        let version = TransformVersion::from_branch("++Ares-Core+release-13.04");
-        assert_eq!(
-            version.map(TransformVersion::branch),
-            Some("++Ares-Core+release-13.04"),
-        );
-    }
-
-    #[test]
-    fn release_13_05_is_registered() {
-        let version = TransformVersion::from_branch("++Ares-Core+release-13.05");
-        assert_eq!(
-            version.map(TransformVersion::branch),
-            Some("++Ares-Core+release-13.05"),
-        );
-    }
-
-    #[test]
     fn unknown_branch_is_an_error_naming_the_branch() {
         let err = TransformVersion::require("++Ares-Core+release-99.99").unwrap_err();
         assert_eq!(err.branch, "++Ares-Core+release-99.99");

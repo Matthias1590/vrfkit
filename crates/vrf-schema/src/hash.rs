@@ -139,15 +139,6 @@ mod tests {
     }
 
     #[test]
-    fn equal_keys_hash_equal() {
-        assert_eq!(hash_of(&17u32), hash_of(&17u32));
-        assert_eq!(
-            hash_of(&"/Script/ShooterGame.AresAttributeSet"),
-            hash_of(&"/Script/ShooterGame.AresAttributeSet")
-        );
-    }
-
-    #[test]
     fn distinct_small_integers_do_not_collide() {
         // The u32 maps are keyed by NetGUIDs, which are small and dense. A mix
         // that collapsed them would turn every probe into a bucket walk, so

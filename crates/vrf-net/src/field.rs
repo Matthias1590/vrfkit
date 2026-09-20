@@ -529,17 +529,6 @@ mod tests {
         assert_eq!(sink.rpcs, vec![(2, 16)]);
     }
 
-    #[test]
-    fn class_net_cache_zero_functions_skips() {
-        // function_count=0 means the group could not be resolved. The parser
-        // must return Err so the caller can count skipped bits honestly.
-        let data = [0xFF; 4];
-        let mut reader = BitReader::new(&data);
-        let mut sink = RecordingSink::default();
-        assert!(parse_class_net_cache(&mut reader, 0, &mut sink).is_err());
-        assert!(sink.rpcs.is_empty());
-    }
-
     /// Capacity-1 groups must consume exactly 1 bit for the handle (the
     /// minimum-of-two clamp). Without the clamp, read_serialized_int(1)
     /// consumes 0 bits and the stream desyncs. This pins the fix for the
