@@ -18,6 +18,20 @@ use super::totals::SinkTotals;
 /// Everything the run counted that is not in [`NetStats`].
 pub(super) struct RunTotals {
     pub chunks_processed: u32,
+    /// DemoFrames walked in the ReplayData stream.
+    ///
+    /// `iter_demo_frames` returns `(packets, frames)` and the main pass
+    /// discarded both, so until now the only `Frames:` in this report was the
+    /// checkpoint one. That is the shape this repo refuses: packets are counted
+    /// inside the frame callback, so a frame that ends before its packet loop
+    /// moves no counter at all, and "the walk covered everything" reads exactly
+    /// like "the walk stopped early".
+    ///
+    /// Printed as `ReplayData frames:`, NOT `Frames:`. The checkpoint pattern in
+    /// `tools/check_export_baseline.py` is the unanchored `Frames:\s+(\d+)`,
+    /// so a second line spelled that way earlier in the output would silently
+    /// feed this number to the `cp_frames` check.
+    pub frames: u32,
     pub total_packets: u32,
     pub export_groups: usize,
     pub movement_rows: u64,
@@ -72,6 +86,7 @@ pub(super) fn print(
     eprintln!();
     eprintln!("=== Export complete ===");
     eprintln!("  Chunks:           {}", totals.chunks_processed);
+    eprintln!("  ReplayData frames: {}", totals.frames);
     eprintln!("  Packets:          {}", totals.total_packets);
     eprintln!("  Export groups:    {}", totals.export_groups);
     eprintln!("  Content blocks:   {}", net_stats.content_blocks);
