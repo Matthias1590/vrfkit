@@ -29,18 +29,7 @@ const DEFAULT_OBJECT_PREFIX: &str = "Default__";
 /// `Default__` prefix toggle, the `/_Core/` substitution). Order matches the
 /// C# `ReplayPath.LookupKeys` enumeration.
 ///
-/// # Why a visitor and not a `Vec<String>`
-///
-/// This used to return one. The sink calls it once per content block -- 608,020
-/// times per replay -- and the vector plus its first element were two heap
-/// allocations on every call, whether or not an alias existed. Most paths have
-/// no alias at all: `default_object_alias` declines anything qualified without
-/// the prefix, and `core_alias` declines anything outside `/Game/Characters/`.
-/// So the common case allocated twice to hand back a copy of a string the
-/// caller already had.
-///
-/// Handing out `&str` makes that case allocation-free. An alias still costs one
-/// `String`, because it is genuinely new text.
+/// A visitor, not a `Vec<String>`: measured allocation cost is in docs/PERFORMANCE_NOTES.md#path-alias-enumeration.
 pub fn for_each_replay_path_key(path: &str, mut visit: impl FnMut(&str)) {
     visit(path);
     if let Some(alias) = default_object_alias(path) {

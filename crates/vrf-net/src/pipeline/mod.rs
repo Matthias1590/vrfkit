@@ -7,20 +7,14 @@
 //!   lifecycle, etc.)
 //! - A replay branch string for payload transform selection
 //!
-//! # Layout
+//! Layout: channel (open/close, GUID preambles), spawn (dynamic-actor spawn block), framing (content blocks, fields, RPCs) -- measured rates in docs/PERFORMANCE_NOTES.md#measured-rates-reference-replay-02d4d478.
 //!
 //! The public surface (this file) is deliberately thin: the sink trait, the
 //! types it exchanges, and the packet-level driver. The three stages below it
 //! live in their own modules so each can be read against the wire format it
-//! implements:
+//! implements.
 //!
-//! | module | scope | rate on the reference replay |
-//! |---|---|---|
-//! | `channel` | open/close, GUID preambles | ~2 000 opens, ~1 800 closes |
-//! | `spawn` | dynamic-actor spawn block | ~2 000 |
-//! | `framing` | content blocks, fields, RPCs | 608 020 blocks |
-//!
-//! # Allocation strategy
+//! Channel-table growth rate on the reference replay: docs/PERFORMANCE_NOTES.md#allocation-strategy.
 //!
 //! The steady state of this reader allocates nothing per packet, per bunch or
 //! per content block. Three buffers are owned by the reader and reused for the
@@ -28,8 +22,8 @@
 //!
 //! - `scratch` holds one decoded content-block payload;
 //! - `fragment_stage` holds one partial-bunch fragment, byte-aligned;
-//! - the channel table grows once per distinct channel index (232 on the
-//!   reference replay) and never per bunch.
+//! - the channel table grows once per distinct channel index and never per
+//!   bunch.
 //!
 //! Bunch payloads are *views* into the caller's packet bytes:
 //! `RawPacketReader` hands the framing loop a sub-reader, and content blocks
@@ -444,6 +438,8 @@ impl ReplicationReader {
             return;
         }
 
+        // Why inline beat two phases, and what the old copies cost on the reference replay: docs/PERFORMANCE_NOTES.md#packet-processing-is-interleaved.
+        //
         // Bunches are processed inline, inside the packet reader's callback.
         //
         // This used to be two phases: parse every bunch header, copying each
@@ -453,12 +449,6 @@ impl ReplicationReader {
         // the fields it needs while `packet_reader` stays borrowed by
         // `read_packet`, which the borrow checker accepts because the fields
         // are disjoint.
-        //
-        // What the copies cost: 530 401 bunches on the reference replay, one
-        // `vec![0u8; n]` each (zero-fill, then `copy_bits_to` overwrote the
-        // same bytes), plus one `Vec` per packet for the staging list. About
-        // 1.06 million allocate/free pairs and two passes over ~108 MB of
-        // payload, to hand the framing loop bits it could already see.
         //
         // Interleaving is safe because the two phases touch disjoint state:
         // header parsing mutates only `packet_reader` (partial tracking and the

@@ -1,50 +1,6 @@
-//! Hash index over the overlay entry slices.
-//!
-//! # Why this exists
-//!
-//! Resolving the reference replay's 988,995 offered rows costs about 1.5
-//! million `(group_path, field_name)` probes -- one per row, plus a second for
-//! the `b`-prefixed spelling on each of the 511,881 that miss -- and another
-//! ~0.5 million `(group_path, handle)` probes. Every one of those was a binary
-//! search over a 1,310-entry table. That is ~10 comparisons, and every
-//! comparison looks at `group_path` first -- paths like
-//! `/Game/Characters/AggroBot/AggroBot_PC.AggroBot_PC_C` that share 20 to 40
-//! leading bytes with their neighbours, so each comparison is a real memcmp
-//! rather than a first-byte reject. Measured on the reference replay by running
-//! the search twice and differencing, one lookup pass costs ~180 ms of a 1.58 s
-//! export.
-//!
-//! This replaces it with open addressing on a 64-bit key hash. A lookup hashes
-//! `group_path` and `field_name` once (8 bytes per multiply) and probes once;
-//! the stored 32-bit tag rejects a non-matching slot without touching the
-//! strings at all. Most lookups on a real replay MISS -- 511,881 of 988,995
-//! offered rows miss the direct `(group_path, field_name)` probe -- and a miss
-//! now ends at an empty slot with zero string comparisons.
-//!
-//! That 511,881 is the cost this index exists to pay, NOT a coverage figure.
-//! Most of those rows are typed anyway, by the `b`-prefix, handle, alias and
-//! checksum steps that run after this probe; the reference replay ends with
-//! `overlay_not_in_table = 163,650`. Reading the first-probe miss count as the
-//! untyped count overstates the gap more than threefold.
-//!
-//! # Answer identity
-//!
-//! The hash only chooses *which* entries to compare. Every candidate is still
-//! confirmed by full string equality on both key halves before it is returned,
-//! so a collision costs time and never an answer. `tests::overlay` walks all
-//! 1,310 entries plus their `b`-stripped spellings plus synthetic misses and
-//! asserts this index agrees with the binary search on every one.
-//!
-//! # The `b`-prefix table
-//!
-//! The overlay's boolean fallback asks for `b` + the wire's field name (see
-//! [`super::apply_overlay_with_handle`] for why). Building that key allocated a
-//! `String` on every miss -- over half a million per replay. Instead, every
-//! entry whose name starts with `b` is *also* inserted under its stripped name,
-//! so the fallback probe reuses the hash already computed for the direct probe
-//! and never builds a key. Stripped keys are unique for the same reason direct
-//! keys are: `(group_path, field_name)` is unique in the generated table, so
-//! two entries in one group cannot both be `b` + X for the same X.
+//! Hash index over the overlay entry slices; why a hash index (not binary
+//! search), how it stays correct, and the b-prefix table are in
+//! docs/OVERLAY_RESOLUTION.md "Why a hash index (and not binary search)".
 
 use super::{OverlayEntry, OverlayHandleEntry};
 
@@ -254,6 +210,10 @@ impl OverlayIndex {
         for (position, entry) in entries.iter().enumerate() {
             by_name.insert(name_hash(entry.group_path, entry.field_name), position);
             if let Some(stripped) = entry.field_name.strip_prefix('b') {
+                // Instead, every entry whose name starts with `b` is also
+                // inserted under its stripped name, so the fallback probe
+                // reuses the hash already computed for the direct probe and
+                // never builds a key.
                 by_stripped_name.insert(name_hash(entry.group_path, stripped), position);
             }
         }

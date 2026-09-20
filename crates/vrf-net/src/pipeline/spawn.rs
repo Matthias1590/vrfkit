@@ -1,10 +1,12 @@
 //! Dynamic-actor spawn data: archetype, level, transform and velocity.
 //!
+//! Open-count on the reference replay: docs/PERFORMANCE_NOTES.md#measured-rates-reference-replay-02d4d478.
+//!
 //! This is the block Unreal writes immediately after the actor GUID when a
 //! channel opens for a *dynamic* (even, non-zero GUID) actor. It is small and
-//! rare -- 2 028 opens on the reference replay against 530 401 bunches -- but
-//! its bit width is load-bearing for everything after it in the same bunch, so
-//! the reasoning below is kept next to the reads rather than in a design doc.
+//! rare but its bit width is load-bearing for everything after it in the same
+//! bunch, so the reasoning below is kept next to the reads rather than in a
+//! design doc.
 
 use vrf_bitio::BitReader;
 

@@ -23,14 +23,10 @@
 //! # What the sink costs
 //!
 //! `vrfkit validate` runs this whole path and writes no file, so it measures
-//! the sink alone. Five interleaved runs against the pre-rewrite binary on
-//! 02d4d478 (46 MB, 530,401 packets, 608,020 content blocks): median 1.395 s
-//! -> 1.062 s. That 333 ms is the group-path memo in [`paths`] plus the name
-//! pool in [`intern`]; nothing else in the decode path changed.
+//! the sink alone.
 //!
-//! Peak working set for `validate` moved 64.5 MB -> 65.0 MB. The memo and the
-//! pool are the only new state and together they are under a megabyte -- see
-//! the measured entry counts in those two modules.
+//! Sink cost before/after the memo+pool change, reference replay:
+//! docs/PERFORMANCE_NOTES.md#what-the-whole-sink-costs.
 
 mod blobs;
 mod failure_stats;
@@ -379,12 +375,12 @@ mod movement_stats_tests {
 
 /// The record buffers a sink fills for one packet.
 ///
-/// These live outside the sink and are lent to it. The sink is rebuilt for each
-/// of a replay's ~530 k packets, so a `Vec` allocated in its constructor is
-/// allocated (and freed) half a million times; that construct-and-drop cost
-/// measured at ~290 ms of a 1.79 s export, larger than the whole movement
-/// decoder. The buffers are empty at the end of every packet, so keeping their
-/// capacity across packets costs one allocation for the entire run.
+/// These live outside the sink and are lent to it. The buffers are empty at
+/// the end of every packet, so keeping their capacity across packets costs
+/// one allocation for the entire run.
+///
+/// Construct-and-drop cost avoided by reuse, reference replay:
+/// docs/PERFORMANCE_NOTES.md#recordbuffers-are-lent-not-owned.
 ///
 /// [`ExportSink::new`] clears them, so a sink always starts empty no matter what
 /// the previous holder did. That is what stops a caller which never drains them

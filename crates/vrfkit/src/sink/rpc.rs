@@ -3,7 +3,10 @@
 //! A ClassNetCache block carries function calls, not properties. Each call's
 //! payload is a sub-archive following the RepLayout `FunctionParameters`
 //! grammar, and walking it turns one opaque blob into one row per named
-//! parameter -- 559,346 of the reference replay's 1,246,812 field rows.
+//! parameter.
+//!
+//! Row share of ClassNetCache RPC parameters vs all field rows, reference
+//! replay: docs/PERFORMANCE_NOTES.md#rpc-parameter-walking.
 
 use std::collections::HashSet;
 use std::sync::Arc;

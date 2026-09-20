@@ -5,15 +5,7 @@
 //! count wrong here desynchronises the whole frame rather than failing, so each
 //! reader is kept separate and named after the reference type it mirrors.
 //!
-//! # Measured shape on real replays
-//!
-//! Over the reference replay's 226,190 frames the streaming-level-fixes section
-//! carries **29** level names in total and the external-data loop terminates
-//! immediately **every** time (zero blobs). Both loops are therefore
-//! effectively frame overhead, not throughput: optimising the level-name read
-//! to skip its `String` allocation would remove 29 allocations from a run that
-//! makes millions, so it is deliberately left reading (and validating) the
-//! string rather than blind-skipping the bytes.
+//! Measured frame/allocation counts: docs/PERFORMANCE_NOTES.md#measured-shape-on-real-replays. Level names are still read and validated rather than blind-skipped.
 
 use vrf_bitio::BitReader;
 use vrf_schema::NetGuidCache;

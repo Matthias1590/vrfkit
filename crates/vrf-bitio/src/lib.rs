@@ -247,12 +247,9 @@ impl<'a> BitReader<'a> {
     #[inline]
     fn need(&self, bits: u64) -> Result<()> {
         if self.bits_remaining() < bits {
-            // Constructed inline on purpose. Hoisting this into a `#[cold]`
-            // out-of-line builder measured neutral at best on the reference
-            // replay: taking `&self` there made the reader address-taken and
-            // cost ~2%, and passing the three fields by value instead only got
-            // back to parity. The optimiser already sinks this into the
-            // unlikely branch, so the simpler code stays.
+            // Kept inline, not hoisted to a #[cold] builder: measured ~2% cost
+            // when tried. See
+            // docs/PERFORMANCE_NOTES.md#cold-path-builders-stay-free-functions.
             return Err(BitError::Eof {
                 position: self.pos,
                 length: self.len,
@@ -262,17 +259,13 @@ impl<'a> BitReader<'a> {
         Ok(())
     }
 
-    /// Load 64 bits starting at absolute byte `byte`, zero-padding past the end.
+    /// Spelled as a fixed-size chunk to force one unaligned 8-byte load, not a
+    /// runtime memcpy. See
+    /// docs/PERFORMANCE_NOTES.md#load_u64-avoiding-a-memcpy.
     ///
-    /// Padding is safe because callers have already checked that the *bits* they
-    /// want are in range; the padding only ever covers bits that get masked off.
-    ///
-    /// The fast path must be spelled as a fixed-size chunk so the compiler sees
-    /// one unaligned 8-byte load. Copying a runtime-length slice into a stack
-    /// buffer instead compiled to a real `callq memcpy` -- plus zeroing the
-    /// buffer and spilling it -- on *every* bit read, which dominated the
-    /// reader's cost. Only the final seven bytes of `data` need padding, so that
-    /// case is out of line and out of the way.
+    /// Padding is safe because callers have already checked that the *bits*
+    /// they want are in range; the padding only ever covers bits that get
+    /// masked off.
     #[inline]
     fn load_u64(&self, byte: usize) -> u64 {
         match self.data.get(byte..).and_then(<[u8]>::first_chunk::<8>) {
@@ -385,22 +378,18 @@ impl<'a> BitReader<'a> {
     /// position after however many chunks were consumed -- and that error
     /// decides which blocks a caller records as malformed.
     ///
-    /// # The fifth chunk is peeled
+    /// Peeled out of the loop, not guarded inside it, to keep the common 1-4
+    /// byte path free of an added branch. See
+    /// docs/PERFORMANCE_NOTES.md#read_int_packed-peeling-the-overflow-check.
     ///
     /// Only the last chunk can overrun a `u32`: it lands at shift 28, where
     /// four payload bits fit and seven are on the wire. `16u32 << 28` is zero,
     /// so folding it in unchecked returned `Ok(0)` for a value that is not
     /// zero -- and zero is the terminator of every property loop above this
     /// crate, so the wrong number ended the record rather than merely
-    /// mis-reporting one field.
-    ///
-    /// The check is *peeled out of the loop* rather than guarded inside it, so
-    /// the one-to-four byte path -- every value below 2^28, which is very
-    /// nearly all of them -- executes exactly the instructions it did before:
-    /// no added compare, no added branch, and no reliance on the optimiser
-    /// unrolling a five-trip loop to fold a constant comparison away. The
-    /// continuation bit is tested first so a runaway value still reports
-    /// [`BitError::MalformedIntPacked`] rather than the overflow.
+    /// mis-reporting one field. The continuation bit is tested first so a
+    /// runaway value still reports [`BitError::MalformedIntPacked`] rather
+    /// than the overflow.
     #[inline]
     pub fn read_int_packed(&mut self) -> Result<u32> {
         let start = self.pos;
@@ -577,12 +566,9 @@ impl<'a> BitReader<'a> {
         // `next << (63 - off) << 1` is `next << (64 - off)` spelled so that
         // `off == 0` stays defined; a single shift by 64 is not.
         //
-        // A byte-aligned `copy_from_slice` fast path guarded on `off == 0` was
-        // tried alongside this and measured exactly neutral on the reference
-        // replay -- 1.224s/1.211s against 1.225s/1.211s over two interleaved
-        // best-of-7 runs. Payloads sit behind variable-bit headers, so alignment
-        // should be the exception rather than the rule; either way the second
-        // path did not pay for itself, so one loop is what is kept.
+        // A byte-aligned fast path was tried and measured neutral; one loop is
+        // kept either way. See
+        // docs/PERFORMANCE_NOTES.md#copy_bits_to-the-byte-aligned-path.
         let full_words = (count / 64) as usize;
         let (words, tail) = dst[..byte_count].split_at_mut(full_words * 8);
 
@@ -601,14 +587,9 @@ impl<'a> BitReader<'a> {
             let leftover = (count % 64) as u32;
             let next = self.load_u64(byte + 8);
             let word = ((carry >> off) | (next << (63 - off) << 1)) & mask_u64(leftover);
-            // This lowers to a `callq memcpy` of 1..=8 bytes, because the length
-            // is a runtime value; nearly every call reaches it, since only an
-            // exact multiple of 64 bits leaves no tail. Replacing it with a
-            // shift-and-peel loop does remove the call -- verified in the
-            // emitted asm -- but measured neutral on both `validate` and
-            // `export`, so the one-liner stays. A plain zip is not an option
-            // either way: LLVM's loop-idiom pass turns that straight back into
-            // the same memcpy.
+            // Lowers to a runtime-length memcpy; a shift-and-peel loop removed
+            // the call but measured neutral. See
+            // docs/PERFORMANCE_NOTES.md#copy_bits_to-the-tail-write-stays-a-memcpy.
             tail.copy_from_slice(&word.to_le_bytes()[..tail.len()]);
         }
         Ok(())
@@ -651,12 +632,8 @@ impl<'a> BitReader<'a> {
 /// Tail of [`BitReader::load_u64`]: fewer than 8 bytes remain, so the absent
 /// high bytes read as zero.
 ///
-/// A free function taking the slice, not a method taking `&BitReader`. A cold
-/// method borrowing the reader makes it address-taken, so the optimiser has to
-/// keep the reader in memory across every read rather than in registers; that
-/// cost a measured ~2% when the same shape was tried on the EOF path. Here the
-/// two forms measured within noise of each other, so this is the form chosen on
-/// the grounds that it cannot provoke the problem, not on a measured win.
+/// Free function, not a &BitReader method: same measured ~2% cost avoided. See
+/// docs/PERFORMANCE_NOTES.md#cold-path-builders-stay-free-functions.
 #[cold]
 #[inline(never)]
 fn load_u64_padded(data: &[u8], byte: usize) -> u64 {

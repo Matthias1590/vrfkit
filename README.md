@@ -18,7 +18,7 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Verified state:** Rust has **708 passing** tests; Python has **817 passing**
+**Verified state:** Rust has **698 passing** tests; Python has **817 passing**
 tests. The full 714-file comparison and corpus guards passed; see
 [current status](docs/CURRENT_STATUS.md) for the current evidence boundary.
 
@@ -106,7 +106,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **708 Rust tests** plus a layered validation suite (framing / bytes / decode
+- **698 Rust tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -351,7 +351,7 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**708 passing**; the full Python suite also has **817 passing** tests. The
+**698 passing**; the full Python suite also has **817 passing** tests. The
 all-corpus guards, all-file comparison, and full documentation check pass.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted

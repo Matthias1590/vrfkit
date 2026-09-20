@@ -152,24 +152,13 @@ fn write_vector_json(f: &mut fmt::Formatter<'_>, v: &FVector) -> fmt::Result {
 /// order follow the reference exactly. See docs/archive/PROJECT_STATUS.md
 /// 13-B for the 14,377-row regression this fixed.
 ///
-/// # Finiteness is enforced, not structural
+/// Finiteness is enforced by DecodeError::NonFiniteComponent, not by
+/// construction -- see docs/OVERLAY_RESOLUTION.md "FRepMovement finiteness
+/// is enforced" for why (the componentBitCount == 0 raw-float fallback can
+/// carry NaN).
 ///
-/// This comment used to claim every component was finite *by construction* --
-/// "vectors are an integer quotient of an integer scale factor, rotator axes an
-/// integer multiple of 360/65536 or 360/256". That reasoning covers the
-/// **packed** quantized path and the rotators, and it silently omits the case
-/// where `componentBitCount == 0`: there the decoder falls back to three raw
-/// `f32`s (or `f64`s), which carry whatever the bits spell. A component of
-/// `0x7fc00000` is `NaN`, and neither `NaN` nor an infinity is a JSON
-/// literal, so this `Display` would emit `"x":NaN` -- not valid JSON -- while
-/// every decode counter reported success.
-///
-/// So the guarantee is now upheld by
-/// [`DecodeError::NonFiniteComponent`](crate::decode::DecodeError), which
-/// rejects such a payload in `geometry::read_quantized_vector` before one can
-/// reach this formatter -- the same rejected-rather-than-coerced call
-/// `EffectBlobError::NonFiniteFloat` already makes. Anything that constructs
-/// an `FRepMovement` by another route owes the same check.
+/// Anything that constructs an `FRepMovement` by another route owes the same
+/// check.
 impl fmt::Display for FRepMovement {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("{\"linear_velocity\":")?;

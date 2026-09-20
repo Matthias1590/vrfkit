@@ -7,14 +7,11 @@
 //!
 //! # Why the string columns are `Arc<str>`
 //!
-//! `FieldRecord` is produced 1,246,812 times on the reference replay, and the
-//! writer buffered 131,072 of them before flushing a row group
-//! (`MAX_BUFFERED_ROWS` is 8,192 today; the measurement below predates that). With `String`
-//! that was up to three heap allocations per row and ~393,000 live allocations
-//! at the peak. There are only 475 distinct `group_path` values in the whole
-//! replay and a few thousand distinct field names, so an `Arc<str>` the
-//! producer interns once and clones per row replaces the allocation with a
-//! refcount increment.
+//! Row/allocation counts behind `Arc<str>` (shared with vrfkit::sink::intern): docs/PERFORMANCE_NOTES.md#name-interning.
+//!
+//! There are only 475 distinct `group_path` values in the whole replay and a
+//! few thousand distinct field names, so an `Arc<str>` the producer interns
+//! once and clones per row replaces the allocation with a refcount increment.
 //!
 //! Arrow is unaffected: the dictionary builders are fed `&str` either way (see
 //! `tables::fields`), so the value sequence handed to the encoder -- and
@@ -82,23 +79,18 @@ pub struct FieldRecord {
     pub bit_count: u32,
     /// Raw bit payload; `None` for zero-bit fields.
     ///
-    /// Inlined as `SmallVec<[u8; 16]>`: most field payloads are <=16 bytes
-    /// (u32/u64/FVector/FString-prefix), so the inline array eliminates the
-    /// heap allocation on the ~1.25 M-row reference export. Larger payloads
-    /// spill to the heap transparently -- SmallVec derefs to `&[u8]`, so the
-    /// Arrow `BinaryArray` sees an identical byte sequence either way and the
-    /// Parquet output is byte-for-byte unchanged.
+    /// Allocation counts behind the SmallVec<16> choice and validate's writer-path memory bound: docs/PERFORMANCE_NOTES.md#raw_bits-smallvec-and-the-rejected-arena.
+    ///
+    /// Larger payloads spill to the heap transparently -- SmallVec derefs to
+    /// `&[u8]`, so the Arrow `BinaryArray` sees an identical byte sequence
+    /// either way and the Parquet output is byte-for-byte unchanged.
     ///
     /// Not interned, and not an arena. Interning is the wrong shape: these are
     /// payload bytes rather than names, so the pool would approach one entry
     /// per row and buy nothing. An arena -- one shared buffer with per-row
     /// offsets -- would be sound, but it has to travel with the rows across the
     /// channel to the writer thread, which turns the batch type from
-    /// `Vec<FieldRecord>` into a struct carrying a blob. The reason it was not
-    /// taken is that the case for it shrank first: bounding the writer's buffer
-    /// (see `writer::MAX_BUFFERED_ROWS`) cut the live payload vectors from
-    /// ~390,000 to ~90,000, and `validate` -- which builds every record and
-    /// writes no file -- brackets the whole remaining writer path at ~41 MB.
+    /// `Vec<FieldRecord>` into a struct carrying a blob.
     pub raw_bits: Option<SmallVec<[u8; 16]>>,
     pub value_i64: Option<i64>,
     pub value_f64: Option<f64>,
