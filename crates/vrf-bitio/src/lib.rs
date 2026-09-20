@@ -962,10 +962,11 @@ mod tests {
     #[test]
     fn int_packed_runaway_outranks_overflow() {
         // `[0xFF; 8]`'s fifth byte carries both a set continuation bit and a
-        // payload of 127. Which error it reports is not cosmetic: callers
-        // record malformed blocks by error shape, and this is the case
-        // `int_packed_rejects_runaway` has always pinned. Testing the
-        // continuation bit before the payload width is what keeps it.
+        // payload of 127, so it satisfies the runaway and the overflow check at
+        // once. Which error it reports is not cosmetic: callers record malformed
+        // blocks by error shape, so a continuation past the fifth byte must
+        // report MalformedIntPacked and not IntPackedOverflow. Testing the
+        // continuation bit before the payload width is what keeps that order.
         let data = [0xFFu8; 8];
         let mut r = BitReader::new(&data);
         assert_eq!(
@@ -988,22 +989,10 @@ mod tests {
     }
 
     #[test]
-    fn int_packed_rejects_runaway() {
-        let data = [0xFFu8; 8];
-        let mut r = BitReader::new(&data);
-        assert_eq!(
-            r.read_int_packed().unwrap_err(),
-            BitError::MalformedIntPacked { position: 0 }
-        );
-    }
-
-    #[test]
     fn int_packed_is_bit_aligned_not_byte_aligned() {
         // Same value, but the stream starts one bit in: the reader must still
         // consume 8 bits per chunk from the *bit* position.
-        let value = 0x3Fu8 << 1;
-        let shifted = [(value as u16) << 1].map(|v| v);
-        let data = [(shifted[0] & 0xFF) as u8, (shifted[0] >> 8) as u8];
+        let data = (u16::from(0x3Fu8 << 1) << 1).to_le_bytes();
         let mut r = BitReader::new(&data);
         r.skip_bits(1).unwrap();
         assert_eq!(r.read_int_packed().unwrap(), 0x3F);
