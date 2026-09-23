@@ -32,6 +32,20 @@ pub struct MovementMove {
     pub move_type: u8,
 }
 
+/// A single character update descriptor (carries moves).
+///
+/// Retained for callers that construct this public descriptor, even though
+/// the decoder currently emits moves directly through its callback.
+#[derive(Debug, Clone)]
+pub struct MovementUpdate {
+    /// Index within the batch.
+    pub index: u32,
+    /// The character GUID this update belongs to.
+    pub shooter_character_net_guid: Option<u32>,
+    /// Number of moves decoded for this update.
+    pub move_count: u32,
+}
+
 /// Result of decoding the full RPC payload.
 #[derive(Debug, Clone, Copy)]
 pub struct RpcDecodeResult {

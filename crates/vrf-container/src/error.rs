@@ -11,17 +11,13 @@ use crate::chunk::ChunkType;
 
 /// All errors the container parser can produce.
 ///
-/// `#[non_exhaustive]`: this crate is published and callers may match on this
-/// enum, while the format it describes changes every game build. Variants have
-/// been added and one (`UnregisteredCustomVersion`) is currently constructed
-/// nowhere; removing such a variant from a bare `pub enum` is a silent breaking
-/// change that no test here can see, because a variant nothing emits has no
-/// failing input.
+/// Keep the existing exhaustive shape and variants for downstream callers,
+/// including variants the current parser does not construct. Adding
+/// `#[non_exhaustive]` would itself break their existing exhaustive matches.
 ///
 /// Designed for match-based handling: callers can distinguish "wrong magic" from
 /// "truncated" from "Oodle failure" without string inspection.
 #[derive(Debug, Error)]
-#[non_exhaustive]
 pub enum ContainerError {
     /// The 4-byte file magic at offset 0 did not match `0x43F4EFDD`.
     #[error("file magic mismatch: expected 0x43F4EFDD, got 0x{actual:08X}")]

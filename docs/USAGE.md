@@ -327,8 +327,8 @@ row** and cannot be expanded into fields.
 | `handle` | `u32::MAX` |
 | `raw_bits` | Full payload |
 
-These blocks are counted under `validate`'s `RPC payload lost` and
-`RPC unresolved/raw` lines. Their retained
+These preserved blocks are counted under `validate`'s `RPC unresolved/raw`
+line, and excluded from `RPC payload lost`. Their retained
 raw bytes can be investigated directly; naming their inner fields also needs
 the correct class/function schema and replication context.
 

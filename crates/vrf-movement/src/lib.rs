@@ -137,7 +137,7 @@
 //! | `rpc` | Batch, updates array, one update, the component data stream |
 //! | `moves` | The movement section and one move record |
 //! | `primitives` | FixedVector, QuantizedVector, sign extension, VLQ |
-//! | `types` | [`MovementMove`], [`RpcDecodeResult`] |
+//! | `types` | [`MovementMove`], [`MovementUpdate`], [`RpcDecodeResult`] |
 //! | `error` | [`MovementError`] |
 //!
 //! # Accuracy
@@ -162,7 +162,7 @@ mod types;
 
 pub use error::MovementError;
 pub use rpc::decode_movement_rpc;
-pub use types::{MovementMove, RpcDecodeResult};
+pub use types::{MovementMove, MovementUpdate, RpcDecodeResult};
 
 #[cfg(test)]
 mod tests;

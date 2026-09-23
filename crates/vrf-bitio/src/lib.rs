@@ -632,7 +632,9 @@ impl<'a> BitReader<'a> {
 /// Tail of [`BitReader::load_u64`]: fewer than 8 bytes remain, so the absent
 /// high bytes read as zero.
 ///
-/// Free function, not a &BitReader method: same measured ~2% cost avoided. See
+/// Free function as a precaution against making the reader address-taken:
+/// the two forms measured within noise here; the ~2% cost was on the EOF path.
+/// See
 /// docs/PERFORMANCE_NOTES.md#cold-path-builders-stay-free-functions.
 #[cold]
 #[inline(never)]
