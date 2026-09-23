@@ -29,7 +29,7 @@ pub const fn initial_prng_b(seed: u32) -> u64 {
 ///
 /// Every known build uses this exact expression and varies only `seed_addend`,
 /// `init_a_offset`, and whether the offset is subtracted or added. release-12.11
-/// is the sole build that adds; the rest subtract.
+/// and release-13.05 add; the rest subtract.
 #[inline]
 #[must_use]
 pub const fn initial_prng_a(
@@ -217,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn reverse64_variant_is_an_involution_free_permutation() {
+    fn reverse64_variant_is_an_involution() {
         // Applying it twice must return the original: each stage is a pairwise
         // swap, and the final half-exchange is its own inverse.
         for v in [

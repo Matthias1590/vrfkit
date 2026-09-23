@@ -210,21 +210,19 @@ impl Verdict {
 /// scored block population. An accumulator still holding bytes at EOF is
 /// different -- those bytes were present and the walk abandoned them, hence
 /// `unfinished_partials` is a hard failure.
+///
+/// The framing/malformed/transform/field-stream/RPC-loss terms are not
+/// restated here: `NetStats::lost_content_blocks` already owns that sum, and
+/// duplicating it by hand is exactly how this verdict and
+/// `quality.content_blocks_lost` would drift apart.
 fn verdict_from_stats(stats: &NetStats, replay_data_trailing_bytes: u64) -> Verdict {
     let total_with_content = stats.rep_layout_blocks + stats.class_net_cache_blocks;
-    let rpc_payloads_lost = stats
-        .rpc_stream_failures
-        .saturating_sub(stats.unresolved_rpc_payloads_preserved);
     let failures = stats.malformed_packets
         + stats.unfinished_partials
         + stats.channel_state_limit_failures
         + stats.partial_resource_limit_failures
         + stats.bunch_header_failures
-        + stats.content_block_framing_failures
-        + stats.malformed_content_blocks
-        + stats.transform_failures
-        + stats.field_stream_failures
-        + rpc_payloads_lost
+        + stats.lost_content_blocks()
         + u64::from(replay_data_trailing_bytes != 0);
     Verdict::decide(total_with_content, failures)
 }
@@ -254,6 +252,9 @@ pub fn run(path: &str, diagnostics: bool) -> Result<Verdict, CliError> {
         .map_err(|e| CliError::Usage(format!("unsupported branch: {e}")))?;
 
     let mut total_packets: u32 = 0;
+    // Frames walked, not just packets. Packets are counted inside the frame
+    // callback, so a frame that ends before its packet loop moves nothing.
+    let mut frames_walked: u32 = 0;
     // Counted, not merely skipped: see `checkpoint_scope_note`.
     let mut checkpoint_chunks: u64 = 0;
     let mut replay_data_trailing_bytes = 0u64;
@@ -277,14 +278,16 @@ pub fn run(path: &str, diagnostics: bool) -> Result<Verdict, CliError> {
             decompress_replay_data_with_trailing(payload, compressed, encrypted)?;
         replay_data_trailing_bytes += trailing as u64;
 
-        iter_demo_frames(&decompressed, flags, &mut cache, |pkt, packet_cache| {
-            let mut sink = ExportSink::new(packet_cache, &mut channel_state, &mut buffers);
-            sink.enable_measured_array_routes(branch);
-            sink.time_ms = pkt.time_ms;
-            sink.packet_id = total_packets;
-            repl_reader.process_packet(pkt.data, total_packets as i32, &mut sink);
-            total_packets += 1;
-        })?;
+        let (_, chunk_frames) =
+            iter_demo_frames(&decompressed, flags, &mut cache, |pkt, packet_cache| {
+                let mut sink = ExportSink::new(packet_cache, &mut channel_state, &mut buffers);
+                sink.enable_measured_array_routes(branch);
+                sink.time_ms = pkt.time_ms;
+                sink.packet_id = total_packets;
+                repl_reader.process_packet(pkt.data, total_packets as i32, &mut sink);
+                total_packets += 1;
+            })?;
+        frames_walked += chunk_frames;
     }
 
     repl_reader.finish();
@@ -356,6 +359,7 @@ pub fn run(path: &str, diagnostics: bool) -> Result<Verdict, CliError> {
         "  ReplayData unread:    {} bytes",
         replay_data_trailing_bytes
     );
+    println!("  ReplayData frames:    {frames_walked}");
     println!("  Packets:              {}", stats.packets);
     println!("  Bunches:              {}", stats.bunches);
     println!("  Actor opens:          {}", stats.actor_opens);
@@ -674,6 +678,19 @@ mod tests {
         assert_eq!(verdict_from_stats(&clean, 0), Verdict::Passed);
 
         for failed in [
+            // malformed_packets and bunch_header_failures are terms of
+            // verdict_from_stats that this loop did not cover: either could have
+            // been dropped from the sum and every case here would still pass.
+            NetStats {
+                rep_layout_blocks: 1,
+                malformed_packets: 1,
+                ..NetStats::default()
+            },
+            NetStats {
+                rep_layout_blocks: 1,
+                bunch_header_failures: 1,
+                ..NetStats::default()
+            },
             NetStats {
                 rep_layout_blocks: 1,
                 transform_failures: 1,

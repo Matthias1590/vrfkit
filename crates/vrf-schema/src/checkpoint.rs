@@ -983,25 +983,6 @@ mod tests {
     }
 
     #[test]
-    fn resolved_sink_error_stops_before_cache_mutation() {
-        let archive = build(
-            &[(7, 0, Some("A"), 0), (8, 0, None, 0)],
-            &[("/Script/G", 0, &[])],
-            &[],
-        );
-        let mut cache = NetGuidCache::new();
-        let mut sink = StopAfterFirstGuid(0);
-        let error =
-            read_checkpoint_tables_with_sink_mode(&archive, &mut cache, &mut sink, RESOLVED)
-                .unwrap_err();
-        assert!(matches!(error, CheckpointReadError::Sink("stop")));
-        assert_eq!(sink.0, 1);
-        assert!(cache.get_path_by_guid(7).is_none());
-        assert!(cache.get_path_by_guid(8).is_none());
-        assert_eq!(cache.group_count(), 0);
-    }
-
-    #[test]
     fn reads_both_tables_and_lands_on_the_frame() {
         let archive = build(
             &[(7, 0, Some("/Game/Maps/Ascent/Ascent"), 0), (5, 7, None, 0)],

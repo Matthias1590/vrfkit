@@ -120,14 +120,23 @@ fn generated_name(destination_name: &std::ffi::OsStr, kind: &str, nonce: u64) ->
     name
 }
 
+/// Draw the next nonce and build the candidate path from it -- the one step
+/// `create_unique_directory` and `unique_sibling` both repeat inside their
+/// loop. What differs between the two is deliberately not folded in here:
+/// one claims the path atomically with `create_dir`, the other only checks
+/// `exists()` because it is naming a path it does not create yet.
+fn next_candidate(parent: &Path, destination_name: &std::ffi::OsStr, kind: &str) -> PathBuf {
+    let nonce = NEXT_OUTPUT_PATH.fetch_add(1, Ordering::Relaxed);
+    parent.join(generated_name(destination_name, kind, nonce))
+}
+
 fn create_unique_directory(
     parent: &Path,
     destination_name: &std::ffi::OsStr,
     kind: &str,
 ) -> io::Result<PathBuf> {
     loop {
-        let nonce = NEXT_OUTPUT_PATH.fetch_add(1, Ordering::Relaxed);
-        let candidate = parent.join(generated_name(destination_name, kind, nonce));
+        let candidate = next_candidate(parent, destination_name, kind);
         match fs::create_dir(&candidate) {
             Ok(()) => return Ok(candidate),
             Err(error) if error.kind() == io::ErrorKind::AlreadyExists => continue,
@@ -142,8 +151,7 @@ fn unique_sibling(destination: &Path, kind: &str) -> io::Result<PathBuf> {
     })?;
     let parent = usable_parent(destination);
     loop {
-        let nonce = NEXT_OUTPUT_PATH.fetch_add(1, Ordering::Relaxed);
-        let candidate = parent.join(generated_name(name, kind, nonce));
+        let candidate = next_candidate(parent, name, kind);
         if !candidate.exists() {
             return Ok(candidate);
         }

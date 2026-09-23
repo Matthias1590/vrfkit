@@ -6,9 +6,10 @@
 //! reference to **zero** error on yaw, pitch and velocity and a maximum of
 //! 0.0005 on position. The 48-bit FixedVector, the `SerializedInt(128)` header
 //! on a QuantizedVector, and the sign-extension of arbitrary-width components
-//! are all wire layout. Rewriting any of the arithmetic here -- even into a
-//! form that looks equivalent -- changes decoded output, so it is left exactly
-//! as validated.
+//! are all wire layout. So are the 25-bit move header and the VLQ timestamp
+//! that [`crate::moves`] reads alongside them. Rewriting any of the
+//! arithmetic here -- even into a form that looks equivalent -- changes
+//! decoded output, so it is left exactly as validated.
 
 use vrf_bitio::BitReader;
 
@@ -105,6 +106,9 @@ fn read_signed_quantized_components(
     // no error, and a cursor left 189 bits behind so everything after it
     // decodes from the wrong offset. Zero is the only width that legitimately
     // reads nothing, and the caller already handles it.
+    // The current caller only passes non-zero widths. Keep this private
+    // helper's zero-width case defined without evaluating a sign-bit shift;
+    // it consumes no bits and represents three empty components.
     if component_bits == 0 {
         return Ok((0, 0, 0));
     }

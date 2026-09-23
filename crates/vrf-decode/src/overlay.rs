@@ -554,30 +554,9 @@ fn resolve_entry<'a>(
     lookup_checksum(checksum?).map(|field_type| (field_type, name))
 }
 
-/// Resolve which table entry a wire field belongs to within ONE group, and the
-/// name to report it under if the decode later fails.
-///
-/// Order: the declared name, then the `b`-prefixed spelling of it, then the
-/// explicit property handle.
-///
-/// # Why the `b`-prefix step exists
-///
-/// The C# descriptors bind a property to its handle number and carry a name
-/// only as a label, so a descriptor that spells a boolean
-/// `bDeathMontageEffectOverrideIsQueued` still matches a wire field the replay
-/// declares as `DeathMontageEffectOverrideIsQueued`. Our table is keyed on the
-/// name, so that spelling difference makes the lookup miss and the field stays
-/// raw where the reference has a plain bool.
-///
-/// Narrow by construction: it only fires when the direct lookup already missed,
-/// and it can only hit an entry that the C# author spelled with the Unreal
-/// boolean prefix. Re-measured against the current 1,310-entry table by joining
-/// every distinct `(group, name)` 02d4d478 exports against it, RPC parameters
-/// under the group `sink/rpc.rs` actually asks with: 632 rows resolve this way
-/// and no others. They are ONE property name, arriving on two RPC groups --
-/// `MulticastNotifyDamage_Point` (581 rows) and `_Base` (51). The figure stood
-/// at "581 rows, exactly one field", measured when the table held 1,054
-/// entries; it counted the larger group and not its sibling.
+/// Resolve which table entry a wire field belongs to within ONE group: name,
+/// then b-prefix, then handle -- see docs/OVERLAY_RESOLUTION.md "The
+/// b-prefix fallback" for why and the measured row counts.
 fn resolve_in_group<'a>(
     table: &OverlayTable,
     group_path: &str,
@@ -586,6 +565,8 @@ fn resolve_in_group<'a>(
     handle: Option<u32>,
     refused: &mut bool,
 ) -> Option<(FieldType, &'a str)> {
+    // Order: the declared name, then the `b`-prefixed spelling of it, then
+    // the explicit property handle.
     if let Some(name) = field_name {
         // One hash serves both probes; see the `index` module docs. The group
         // path half is already in `group_state`, so only the field name is

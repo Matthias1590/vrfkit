@@ -1,45 +1,7 @@
-//! The hasher the cache's internal maps use.
-//!
-//! # Why not the standard hasher
-//!
-//! Every map in [`NetGuidCache`](crate::NetGuidCache) is keyed by data the
-//! replay supplies, and they are probed on the export's hottest path: the
-//! sink resolves a group for each of ~780k content blocks, and each resolution
-//! costs several `get_group_by_path` probes plus a `get_path_by_guid` per
-//! actor, class and subobject GUID it touches.
-//!
-//! `std`'s default is SipHash-1-3, which is chosen for HashDoS resistance on
-//! attacker-controlled keys in a network service. Two of these maps
-//! (`guid_to_path`, `guid_to_outer`, `by_index`) are keyed by a bare `u32`,
-//! where SipHash's keying, block setup and finalisation cost far more than the
-//! probe they protect. This hasher reduces a `u32` key to one rotate, one XOR
-//! and one multiply.
-//!
-//! # What is given up, and why that is acceptable here
-//!
-//! This is **not** a HashDoS-resistant hash. A crafted replay could in
-//! principle pick GUIDs or paths that collide and drive a map probe quadratic.
-//! That is a real and deliberate trade, made because:
-//!
-//! - the map sizes are bounded by the same replay's own declared counts, which
-//!   are already range-checked (`MAX_GUID_ENTRIES`, `MAX_GROUPS`), so the worst
-//!   case is bounded work on one local file rather than an unbounded stall in a
-//!   shared service; and
-//! - this crate parses local files the operator chose to open, not requests
-//!   from an untrusted peer.
+//! The hasher the cache's internal maps use. Not HashDoS-resistant by design; rationale and figures in docs/PERFORMANCE_NOTES.md#fxhash-over-siphash.
 //!
 //! If this ever moves behind a network boundary, revert these maps to
-//! `std::collections::HashMap`'s default hasher. The map types inside `cache.rs`
-//! are private, so that change stays confined there; the hasher itself is
-//! published (`pub mod hash`) because `vrfkit`'s sink makes the same trade for
-//! its own locally-sourced, bounded-key maps.
-//!
-//! # Provenance
-//!
-//! The mix is rustc's own `FxHasher` (`rustc_hash`), which rustc uses for the
-//! same reason: bounded, locally-sourced keys where the cryptographic strength
-//! is not buying anything. It is reproduced here rather than taken as a
-//! dependency to keep the crate's dependency set at `vrf-bitio` + `thiserror`.
+//! `std::collections::HashMap`'s default hasher.
 
 use std::hash::{BuildHasherDefault, Hasher};
 
@@ -136,15 +98,6 @@ mod tests {
         let mut h = FxHasher::default();
         value.hash(&mut h);
         h.finish()
-    }
-
-    #[test]
-    fn equal_keys_hash_equal() {
-        assert_eq!(hash_of(&17u32), hash_of(&17u32));
-        assert_eq!(
-            hash_of(&"/Script/ShooterGame.AresAttributeSet"),
-            hash_of(&"/Script/ShooterGame.AresAttributeSet")
-        );
     }
 
     #[test]

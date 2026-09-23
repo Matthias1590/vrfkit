@@ -7,20 +7,14 @@
 //!   lifecycle, etc.)
 //! - A replay branch string for payload transform selection
 //!
-//! # Layout
+//! Layout: channel (open/close, GUID preambles), spawn (dynamic-actor spawn block), framing (content blocks, fields, RPCs) -- measured rates in docs/PERFORMANCE_NOTES.md#measured-rates-reference-replay-02d4d478.
 //!
 //! The public surface (this file) is deliberately thin: the sink trait, the
 //! types it exchanges, and the packet-level driver. The three stages below it
 //! live in their own modules so each can be read against the wire format it
-//! implements:
+//! implements.
 //!
-//! | module | scope | rate on the reference replay |
-//! |---|---|---|
-//! | `channel` | open/close, GUID preambles | ~2 000 opens, ~1 800 closes |
-//! | `spawn` | dynamic-actor spawn block | ~2 000 |
-//! | `framing` | content blocks, fields, RPCs | 608 020 blocks |
-//!
-//! # Allocation strategy
+//! Channel-table growth rate on the reference replay: docs/PERFORMANCE_NOTES.md#allocation-strategy.
 //!
 //! The steady state of this reader allocates nothing per packet, per bunch or
 //! per content block. Three buffers are owned by the reader and reused for the
@@ -28,8 +22,8 @@
 //!
 //! - `scratch` holds one decoded content-block payload;
 //! - `fragment_stage` holds one partial-bunch fragment, byte-aligned;
-//! - the channel table grows once per distinct channel index (232 on the
-//!   reference replay) and never per bunch.
+//! - the channel table grows once per distinct channel index and never per
+//!   bunch.
 //!
 //! Bunch payloads are *views* into the caller's packet bytes:
 //! `RawPacketReader` hands the framing loop a sub-reader, and content blocks
@@ -66,6 +60,12 @@ pub struct ActorChannelState {
     /// Whether the channel is currently open.
     pub is_open: bool,
     /// Whether the channel is dormant (closed but actor alive).
+    /// Set on open and on close, and deliberately part of the public snapshot
+    /// even though this crate's own sink reads `header.b_dormant` directly at
+    /// the close callback instead. Dormancy is not destruction -- only a
+    /// non-dormant close is a despawn -- so a consumer reconstructing actor
+    /// lifetimes from `ActorChannelState` needs it without re-deriving it from
+    /// the bunch header.
     pub is_dormant: bool,
     /// Actor's network GUID.
     pub actor_net_guid: NetworkGuid,
@@ -444,6 +444,8 @@ impl ReplicationReader {
             return;
         }
 
+        // Why inline beat two phases, and what the old copies cost on the reference replay: docs/PERFORMANCE_NOTES.md#packet-processing-is-interleaved.
+        //
         // Bunches are processed inline, inside the packet reader's callback.
         //
         // This used to be two phases: parse every bunch header, copying each
@@ -453,12 +455,6 @@ impl ReplicationReader {
         // the fields it needs while `packet_reader` stays borrowed by
         // `read_packet`, which the borrow checker accepts because the fields
         // are disjoint.
-        //
-        // What the copies cost: 530 401 bunches on the reference replay, one
-        // `vec![0u8; n]` each (zero-fill, then `copy_bits_to` overwrote the
-        // same bytes), plus one `Vec` per packet for the staging list. About
-        // 1.06 million allocate/free pairs and two passes over ~108 MB of
-        // payload, to hand the framing loop bits it could already see.
         //
         // Interleaving is safe because the two phases touch disjoint state:
         // header parsing mutates only `packet_reader` (partial tracking and the
@@ -515,8 +511,7 @@ impl ReplicationReader {
                 }
                 Self::abandon_bunch(&mut payload.clone(), &mut stage);
                 if header.b_close {
-                    channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-                    Self::retire_destroyed_channel(header, &mut stage, accumulator, sink);
+                    Self::close_channel(header, &mut stage, accumulator, sink);
                 }
                 bunch_index_in_packet += 1;
                 return;
@@ -594,60 +589,16 @@ impl ReplicationReader {
 
             let reason = result
                 .error_kind
-                .map(|kind| match kind {
-                    crate::error::PartialSequenceKind::MissingInitial => {
-                        PartialPayloadReason::MissingInitial
-                    }
-                    crate::error::PartialSequenceKind::OverlappingInitial => {
-                        PartialPayloadReason::OverlappingInitial
-                    }
-                    crate::error::PartialSequenceKind::MismatchedContinuation => {
-                        PartialPayloadReason::MismatchedContinuation
-                    }
-                    crate::error::PartialSequenceKind::NonByteAlignedFragment => {
-                        PartialPayloadReason::NonByteAlignedFragment
-                    }
-                })
-                .or_else(|| {
-                    result.resource_limit.map(|limit| match limit {
-                        crate::bunch::PartialResourceLimit::ActiveStates => {
-                            PartialPayloadReason::ActiveStateLimit
-                        }
-                        crate::bunch::PartialResourceLimit::BufferedBits => {
-                            PartialPayloadReason::BufferedBitsLimit
-                        }
-                        crate::bunch::PartialResourceLimit::Allocation => {
-                            PartialPayloadReason::AllocationFailure
-                        }
-                    })
-                });
+                .map(reason_for_sequence_kind)
+                .or_else(|| result.resource_limit.map(reason_for_resource_limit));
             for (displaced, discard_cause) in &result.displaced {
                 let displaced_reason = match discard_cause {
-                    crate::bunch::PartialDiscardCause::Sequence(kind) => match kind {
-                        crate::error::PartialSequenceKind::MissingInitial => {
-                            PartialPayloadReason::MissingInitial
-                        }
-                        crate::error::PartialSequenceKind::OverlappingInitial => {
-                            PartialPayloadReason::OverlappingInitial
-                        }
-                        crate::error::PartialSequenceKind::MismatchedContinuation => {
-                            PartialPayloadReason::MismatchedContinuation
-                        }
-                        crate::error::PartialSequenceKind::NonByteAlignedFragment => {
-                            PartialPayloadReason::NonByteAlignedFragment
-                        }
-                    },
-                    crate::bunch::PartialDiscardCause::Resource(limit) => match limit {
-                        crate::bunch::PartialResourceLimit::ActiveStates => {
-                            PartialPayloadReason::ActiveStateLimit
-                        }
-                        crate::bunch::PartialResourceLimit::BufferedBits => {
-                            PartialPayloadReason::BufferedBitsLimit
-                        }
-                        crate::bunch::PartialResourceLimit::Allocation => {
-                            PartialPayloadReason::AllocationFailure
-                        }
-                    },
+                    crate::bunch::PartialDiscardCause::Sequence(kind) => {
+                        reason_for_sequence_kind(*kind)
+                    }
+                    crate::bunch::PartialDiscardCause::Resource(limit) => {
+                        reason_for_resource_limit(*limit)
+                    }
                 };
                 sink.on_rejected_partial(RejectedPartialFragment {
                     header: &displaced.header,
@@ -709,8 +660,7 @@ impl ReplicationReader {
 
             if !result.should_process {
                 if header.b_close {
-                    channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-                    Self::retire_destroyed_channel(header, stage, accumulator, sink);
+                    Self::close_channel(header, stage, accumulator, sink);
                 }
                 return;
             }
@@ -740,8 +690,7 @@ impl ReplicationReader {
             // channel at all: the actor stayed open for the rest of the replay,
             // its close row was never emitted, and `actor_closes` never moved.
             if header.b_close {
-                channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-                Self::retire_destroyed_channel(header, stage, accumulator, sink);
+                Self::close_channel(header, stage, accumulator, sink);
             }
             return;
         }
@@ -750,8 +699,7 @@ impl ReplicationReader {
         if bit_count == 0 {
             // Handle close
             if header.b_close {
-                channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-                Self::retire_destroyed_channel(header, stage, accumulator, sink);
+                Self::close_channel(header, stage, accumulator, sink);
             }
             return;
         }
@@ -760,9 +708,25 @@ impl ReplicationReader {
         Self::process_complete_payload(header, &mut payload, stage, sink, ids);
 
         if header.b_close {
-            channel::handle_channel_close(header, stage.channels, stage.stats, sink);
-            Self::retire_destroyed_channel(header, stage, accumulator, sink);
+            Self::close_channel(header, stage, accumulator, sink);
         }
+    }
+
+    /// Close a channel and retire any reassembly state it was holding.
+    ///
+    /// `bClose` always names both steps together: closing the channel without
+    /// also retiring its accumulator entry leaves a partial assembly that can
+    /// never complete (when the channel is destroyed rather than dormant) but
+    /// is never counted as lost either. Every `if header.b_close` site in this
+    /// module calls both, in this order, so they are given one name.
+    fn close_channel(
+        header: &RawBunchHeader,
+        stage: &mut Stage<'_>,
+        accumulator: &mut PartialBunchAccumulator,
+        sink: &mut dyn ReplicationSink,
+    ) {
+        channel::handle_channel_close(header, stage.channels, stage.stats, sink);
+        Self::retire_destroyed_channel(header, stage, accumulator, sink);
     }
 
     fn retire_destroyed_channel(
@@ -798,9 +762,18 @@ impl ReplicationReader {
     /// `bunch_header_failures` used to move: the abandoned bits appeared in no
     /// tally at all, which is what let an out-of-range GUID count drop a whole
     /// run of path declarations while every bit counter read zero.
+    ///
+    /// The whole window, not `bits_remaining()`, for the reason
+    /// [`super::framing::abandoned_on_error`] already spells out: a failing
+    /// `read_int_packed` consumes its chunks *before* discovering the value runs
+    /// off the end, so a header stage that expires exactly at the payload end
+    /// leaves `bits_remaining() == 0` and charged nothing for a bunch that lost
+    /// every bit it had. That is the same undercount, at a different depth, and
+    /// it read as a clean zero. `payload` is a sub-reader whose window IS this
+    /// bunch's payload, so `len_bits()` is the loss.
     fn abandon_bunch(payload: &mut BitReader<'_>, stage: &mut Stage<'_>) {
         stage.stats.bunch_header_failures += 1;
-        stage.stats.skipped_bits += payload.bits_remaining();
+        stage.stats.skipped_bits += payload.len_bits();
         payload.skip_remaining();
     }
 
@@ -898,6 +871,36 @@ fn stage_fragment(payload: BitReader<'_>, buffer: &mut Vec<u8>) -> usize {
         let _ = src.copy_bits_to(buffer, bit_count);
     }
     byte_count
+}
+
+/// Map a partial-sequence error to the reason reported to the sink.
+///
+/// Shared by the current fragment's own rejection and by every earlier
+/// assembly the same fragment displaced, so both name a discard with the
+/// same [`PartialPayloadReason`] rather than drifting out of step.
+fn reason_for_sequence_kind(kind: crate::error::PartialSequenceKind) -> PartialPayloadReason {
+    match kind {
+        crate::error::PartialSequenceKind::MissingInitial => PartialPayloadReason::MissingInitial,
+        crate::error::PartialSequenceKind::OverlappingInitial => {
+            PartialPayloadReason::OverlappingInitial
+        }
+        crate::error::PartialSequenceKind::MismatchedContinuation => {
+            PartialPayloadReason::MismatchedContinuation
+        }
+        crate::error::PartialSequenceKind::NonByteAlignedFragment => {
+            PartialPayloadReason::NonByteAlignedFragment
+        }
+    }
+}
+
+/// Map a partial-reassembly resource refusal to the reason reported to the
+/// sink. See [`reason_for_sequence_kind`]: same sharing, same reason why.
+fn reason_for_resource_limit(limit: crate::bunch::PartialResourceLimit) -> PartialPayloadReason {
+    match limit {
+        crate::bunch::PartialResourceLimit::ActiveStates => PartialPayloadReason::ActiveStateLimit,
+        crate::bunch::PartialResourceLimit::BufferedBits => PartialPayloadReason::BufferedBitsLimit,
+        crate::bunch::PartialResourceLimit::Allocation => PartialPayloadReason::AllocationFailure,
+    }
 }
 
 #[cfg(test)]
@@ -1384,8 +1387,8 @@ mod tests {
         assert_eq!(stats.bunch_header_failures, 1);
         assert_eq!(stats.exported_guids, 0);
         assert_eq!(
-            stats.skipped_bits, 24,
-            "the abandoned declaration bits must be tallied"
+            stats.skipped_bits, 57,
+            "the whole abandoned payload is tallied, not just the unread tail:              the bits the failing stage had already consumed declared exports              that were dropped (package_map_exports and exported_guids are both              0 above), so they are lost too"
         );
     }
 
@@ -1414,7 +1417,7 @@ mod tests {
 
         assert_eq!(reader.stats().bunch_header_failures, 1);
         assert_eq!(reader.stats().package_map_exports, 0);
-        assert_eq!(reader.stats().skipped_bits, 16);
+        assert_eq!(reader.stats().skipped_bits, 49);
     }
 
     /// A RepLayout-export bunch is skipped whole -- that is a deliberate

@@ -83,6 +83,11 @@ fn read_fname(reader: &mut BitReader<'_>) -> Result<String> {
 /// to existing ones. The cache accumulates state across frames.
 ///
 /// Returns the number of layout-command exports processed.
+///
+/// `#[must_use]` because the only production caller took the count with a bare
+/// `?` and dropped it, so a documented tally reached no counter anywhere. If a
+/// caller genuinely does not want it, `let _ =` says so out loud.
+#[must_use = "the export count is a tally; bind it or discard it explicitly"]
 pub fn read_net_field_exports(reader: &mut BitReader<'_>, cache: &mut NetGuidCache) -> Result<u32> {
     let num_exports = reader.read_int_packed()?;
 
@@ -143,6 +148,9 @@ pub fn read_net_field_exports(reader: &mut BitReader<'_>, cache: &mut NetGuidCac
 /// they can be individually validated for complete consumption.
 ///
 /// Returns the number of GUID payloads processed.
+///
+/// `#[must_use]` for the same reason as [`read_net_field_exports`].
+#[must_use = "the GUID payload count is a tally; bind it or discard it explicitly"]
 pub fn read_export_guids(reader: &mut BitReader<'_>, cache: &mut NetGuidCache) -> Result<u32> {
     let num_guids = reader.read_int_packed()?;
 
@@ -213,12 +221,11 @@ fn internal_load_object(
         let _checksum = reader.read_u32()?;
     }
 
-    let outer = if outer_guid.is_valid() {
-        Some(outer_guid)
-    } else {
-        None
-    };
-    cache.set_net_guid_path(net_guid.0, path_name, outer);
+    cache.set_net_guid_path(
+        net_guid.0,
+        path_name,
+        outer_guid.is_valid().then_some(outer_guid),
+    );
 
     Ok(net_guid)
 }
@@ -444,10 +451,8 @@ mod tests {
         data.extend(encode_int_packed(1)); // 1 export
         data.extend(encode_int_packed(42)); // pathNameIndex
         data.extend(encode_int_packed(0)); // isExported = false (reference)
-        // Still need the field-exported flag for the iteration to be well-formed,
-        // but the error should fire before reading it. However looking at the C#
-        // code, it throws immediately. Let's just provide the minimal bytes.
-        // Actually the error is thrown before reading isFieldExported.
+        // The error fires before isFieldExported is read (the C# reference also
+        // throws immediately here), so these minimal bytes are enough.
 
         let mut reader = BitReader::new(&data);
         let mut cache = NetGuidCache::new();

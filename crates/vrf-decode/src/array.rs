@@ -119,21 +119,8 @@ pub struct ArrayDecodeStats {
     /// surfaced, never silently dropped.
     pub errors: u64,
     /// Bits left inside a nested array's window after that array stopped
-    /// decoding.
-    ///
-    /// The parent carves a sub-reader of the declared `payloadBits` and
-    /// advances past the whole window, so the parent stays aligned whatever the
-    /// child did with it -- and the leftover used to be dropped on exactly that
-    /// reasoning. But parent ALIGNMENT and child COMPLETENESS are two claims,
-    /// and the sub-reader establishes only the first. A nested array that
-    /// stopped early still hands its parent a correctly positioned reader, so
-    /// the walk continues, no counter moves, and the leaves inside those bits
-    /// are gone with nothing saying so.
-    ///
-    /// A tally rather than an error, deliberately: this is the call
-    /// [`Self::truncations`] already makes, and the bits themselves survive in
-    /// the parent row's `raw_bits`. Zero on a corpus that decodes cleanly,
-    /// which is what makes a non-zero value worth looking at.
+    /// decoding, without moving any other counter. See the increment site in
+    /// `decode_array_level` for why this is a tally, not an error.
     pub unconsumed_nested_bits: u64,
     /// Bits left after the root array's explicit terminator or an early stop.
     ///
@@ -551,6 +538,12 @@ fn decode_struct_fields(
                 // not the same claim as the child having CONSUMED them, and
                 // only the first was ever established here. Leaves inside an
                 // abandoned tail are lost silently otherwise.
+                //
+                // A tally rather than an error, deliberately: this is the same
+                // call `truncations` already makes, and the bits themselves
+                // survive in the parent row's `raw_bits`. Zero on a corpus that
+                // decodes cleanly, which is what makes a non-zero value worth
+                // looking at.
                 stats.unconsumed_nested_bits += sub_reader.bits_remaining();
                 walk.path.truncate(prefix_len);
             }

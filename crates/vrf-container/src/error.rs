@@ -11,6 +11,10 @@ use crate::chunk::ChunkType;
 
 /// All errors the container parser can produce.
 ///
+/// Keep the existing exhaustive shape and variants for downstream callers,
+/// including variants the current parser does not construct. Adding
+/// `#[non_exhaustive]` would itself break their existing exhaustive matches.
+///
 /// Designed for match-based handling: callers can distinguish "wrong magic" from
 /// "truncated" from "Oodle failure" without string inspection.
 #[derive(Debug, Error)]

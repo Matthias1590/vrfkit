@@ -35,12 +35,8 @@
 //! path, because `resolve_function_count` can *replace* the resolved path (the
 //! bare-instance-name branch) and the two must not be memoised apart.
 //!
-//! Measured on 02d4d478 with a throwaway instrumented build:
-//!
-//! ```text
-//! probes 608,011   hits 489,996 (80.6%)   misses 118,015
-//! generation changes 1,823      entries held at the end 64
-//! ```
+//! Measured probe/hit/miss counts on 02d4d478:
+//! docs/PERFORMANCE_NOTES.md#group-path-resolution-memo.
 //!
 //! The entry count is the answer to the obvious objection. `actor_net_guid` is
 //! part of the key and grows monotonically over a replay, so an unbounded memo

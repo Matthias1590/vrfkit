@@ -150,16 +150,10 @@ actor별 TypedArray 위치 저장과 이진 탐색·보간, 작은 위치/이벤
 본문·diff·커밋·토론·review를 대조했으며 Rust 문법이나 replay 문법을 수정하는 변경은 없었다.
 13.05 transform, 등록, 11개 golden vector와 생성기 분기는 현재 main에 기능상 반영돼 있다.
 
-다만 현재 코드 주석에 다음 두 가지 표현 수정이 남아 있다.
+PR #7이 남긴 두 건의 주석 표현 수정(`helpers.rs:6` -> through release-13.05,
+`golden.rs:1` -> all seven)은 이후 main에 반영되었고, 2026-09-21 기준 두 파일
+모두 정확한 표현을 담고 있다. 더 남은 항목은 없다.
 
-| 위치 | 현재 표현 | #7의 정확한 표현 |
-| --- | --- | --- |
-| `crates/vrf-transform/src/helpers.rs:6` | release-12.10 through release-13.04 | through release-13.05 |
-| `crates/vrf-transform/tests/golden.rs:1` | all six | all seven |
-
-근거: PR commit의 [helpers.rs](https://github.com/yakisoba0728/vrfkit/blob/436c1a02c13d60972d116cbd60f14a480d1ac768/crates/vrf-transform/src/helpers.rs#L6),
-[golden.rs](https://github.com/yakisoba0728/vrfkit/blob/436c1a02c13d60972d116cbd60f14a480d1ac768/crates/vrf-transform/tests/golden.rs#L1).
-두 항목은 주석 정확성에만 영향을 준다. 이 조사에서는 수정하지 않았다.
 상세 대조는 외부 조사 폴더의 `closed-pr7.md`에 남겼다.
 
 ## 다음 구현 묶음 제안

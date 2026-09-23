@@ -84,20 +84,6 @@ fn read_double_vector(r: &mut BitReader<'_>) -> Result<FVector, vrf_bitio::BitEr
 ///   if extraInfo == 0: 3 x f32 (float vector)
 ///   else:              3 x f64 (double vector)
 /// ```
-/// # Why the fallback checks finiteness and the packed path does not
-///
-/// The packed path is an integer sign-extended from `componentBitCount` bits
-/// and divided by a non-zero integer scale (validated by the public dispatch),
-/// so every component it can produce is finite. The fallback reads raw
-/// IEEE-754 words and can produce anything the 32 or 64 bits spell -- including
-/// `NaN` from `0x7fc00000`.
-///
-/// That mattered because [`FRepMovement`] renders as a JSON object, and `NaN`
-/// is not a JSON literal: such a payload emitted `"x":NaN` into `value_str`
-/// while `decoded_ok` counted it a success, so the export carried
-/// syntactically invalid JSON that no counter reported. `types.rs` asserted
-/// "every component is finite by construction" and reasoned only about the
-/// packed path, which is why this went unseen.
 fn read_quantized_vector(r: &mut BitReader<'_>, scale_factor: u32) -> Result<FVector, DecodeError> {
     let header = r.read_serialized_int(1 << 7)?;
     let component_bit_count = header & 63;
@@ -116,6 +102,11 @@ fn read_quantized_vector(r: &mut BitReader<'_>, scale_factor: u32) -> Result<FVe
     } else {
         read_double_vector(r)?
     };
+    // Only this fallback branch needs finite_vector: the packed path above is
+    // an integer quotient of a non-zero scale and finite by construction,
+    // but this one reads raw IEEE-754 words that can be NaN or infinity. See
+    // FRepMovement's Display impl in types.rs for why that distinction
+    // matters.
     finite_vector(v, "quantized vector")
 }
 
@@ -171,32 +162,31 @@ fn read_fixed_vector_normal(r: &mut BitReader<'_>) -> Result<FVector, vrf_bitio:
 }
 
 fn read_rotation_short(r: &mut BitReader<'_>) -> Result<FRotator, vrf_bitio::BitError> {
-    let pitch = read_compressed_short_component(r)?;
-    let yaw = read_compressed_short_component(r)?;
-    let roll = read_compressed_short_component(r)?;
+    let pitch = read_compressed_rotation_component(r, 16, 360.0 / 65536.0)?;
+    let yaw = read_compressed_rotation_component(r, 16, 360.0 / 65536.0)?;
+    let roll = read_compressed_rotation_component(r, 16, 360.0 / 65536.0)?;
     Ok(FRotator { pitch, yaw, roll })
 }
 
 fn read_rotation_byte(r: &mut BitReader<'_>) -> Result<FRotator, vrf_bitio::BitError> {
-    let pitch = read_compressed_byte_component(r)?;
-    let yaw = read_compressed_byte_component(r)?;
-    let roll = read_compressed_byte_component(r)?;
+    let pitch = read_compressed_rotation_component(r, 8, 360.0 / 256.0)?;
+    let yaw = read_compressed_rotation_component(r, 8, 360.0 / 256.0)?;
+    let roll = read_compressed_rotation_component(r, 8, 360.0 / 256.0)?;
     Ok(FRotator { pitch, yaw, roll })
 }
 
-fn read_compressed_short_component(r: &mut BitReader<'_>) -> Result<f32, vrf_bitio::BitError> {
+/// A presence bit followed by an unsigned component of `width` bits (16 for
+/// the short form, 8 for the byte form), scaled to degrees. Shared by
+/// [`read_rotation_short`] and [`read_rotation_byte`], which differ only in
+/// that width and scale.
+fn read_compressed_rotation_component(
+    r: &mut BitReader<'_>,
+    width: u32,
+    scale: f32,
+) -> Result<f32, vrf_bitio::BitError> {
     if r.read_bit()? {
-        let v = r.read_u16()?;
-        Ok(f32::from(v) * (360.0 / 65536.0))
-    } else {
-        Ok(0.0)
-    }
-}
-
-fn read_compressed_byte_component(r: &mut BitReader<'_>) -> Result<f32, vrf_bitio::BitError> {
-    if r.read_bit()? {
-        let v = r.read_u8()?;
-        Ok(f32::from(v) * (360.0 / 256.0))
+        let v = r.read_bits(width)?;
+        Ok(v as f32 * scale)
     } else {
         Ok(0.0)
     }

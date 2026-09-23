@@ -416,8 +416,7 @@ impl PartialBunchAccumulator {
         None
     }
 
-    /// Drop every partial bunch still awaiting fragments and report
-    /// `(count, buffered_bits)`.
+    /// Drop every partial bunch still awaiting fragments and return them.
     ///
     /// Called once at the end of a replay. Until the stream stops there is
     /// nothing to distinguish an abandoned reassembly from one still in
@@ -431,14 +430,10 @@ impl PartialBunchAccumulator {
     /// complete-but-untaken entry is the caller's choice, not a loss here.
     pub fn drain_unfinished(&mut self) -> Vec<PreservedPartial> {
         let mut preserved = Vec::with_capacity(self.fragments.len());
-        let mut count = 0u64;
-        let mut bits = 0u64;
         for (_, state) in self.fragments.drain() {
             if state.is_complete {
                 continue;
             }
-            count += 1;
-            bits += state.bit_count as u64;
             preserved.push(PreservedPartial {
                 header: state.stored_header,
                 buffer: state.buffer,
@@ -446,7 +441,6 @@ impl PartialBunchAccumulator {
             });
         }
         self.total_buffered_bits = 0;
-        let _ = (count, bits);
         preserved
     }
 

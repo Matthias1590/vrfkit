@@ -10,7 +10,7 @@
 //! It was long assumed these chunks duplicate what the ReplayData stream
 //! already carries, and the assumption was measured and found false: 6-11% of a
 //! checkpoint's RepLayout field values disagree with what ReplayData carried at
-//! the same timestamp, and 0.5-2% are keys ReplayData never sent at all. See
+//! the same timestamp, and 1.0-2.2% are keys ReplayData never sent at all. See
 //! docs/archive/PROJECT_STATUS.md 22-I for the measurement and
 //! docs/archive/CHECKPOINT_SPEC.md for the byte-level derivation.
 //!
@@ -46,6 +46,7 @@
 use vrf_bitio::BitReader;
 
 use crate::error::ContainerError;
+use crate::io::{read_fstring, read_i32, read_u32};
 use crate::limits::MAX_FSTRING_BYTES;
 
 /// A parsed Checkpoint chunk header plus its still-compressed archive.
@@ -89,9 +90,9 @@ pub struct CheckpointChunk<'a> {
 pub fn parse_checkpoint_chunk(payload: &[u8]) -> Result<CheckpointChunk<'_>, ContainerError> {
     let mut reader = BitReader::new(payload);
 
-    let id = read_fstring(&mut reader, "checkpoint id")?;
-    let group = read_fstring(&mut reader, "checkpoint group")?;
-    let metadata = read_fstring(&mut reader, "checkpoint metadata")?;
+    let id = read_fstring(&mut reader, "checkpoint id", MAX_FSTRING_BYTES)?;
+    let group = read_fstring(&mut reader, "checkpoint group", MAX_FSTRING_BYTES)?;
+    let metadata = read_fstring(&mut reader, "checkpoint metadata", MAX_FSTRING_BYTES)?;
     let time1 = read_u32(&mut reader, "checkpoint time1")?;
     let time2 = read_u32(&mut reader, "checkpoint time2")?;
     let size_in_bytes = read_i32(&mut reader, "checkpoint archive size")?;
@@ -105,7 +106,12 @@ pub fn parse_checkpoint_chunk(payload: &[u8]) -> Result<CheckpointChunk<'_>, Con
 
     // Every read above is byte-granular, so the reader sits on a byte boundary.
     let header_end = (reader.position() / 8) as usize;
-    if header_end > payload.len() || payload.len() - header_end < size {
+    // Only the shortfall test: `header_end > payload.len()` cannot be true.
+    // Every read above returned Ok, and BitReader::need refuses to advance
+    // past the buffer before any successful read, so position()/8 is always
+    // within payload. The disjunct that used to be here read as a second
+    // guard and could not fire.
+    if payload.len() - header_end < size {
         return Err(ContainerError::Truncated {
             context: "checkpoint archive",
             needed: size,
@@ -166,32 +172,6 @@ pub fn decompress_checkpoint(
 }
 
 // --- Helpers ------------------------------------------------------------------
-
-fn read_u32(reader: &mut BitReader<'_>, context: &'static str) -> Result<u32, ContainerError> {
-    reader.read_u32().map_err(|_| ContainerError::Truncated {
-        context,
-        needed: 4,
-        available: (reader.bits_remaining() / 8) as usize,
-    })
-}
-
-fn read_i32(reader: &mut BitReader<'_>, context: &'static str) -> Result<i32, ContainerError> {
-    reader.read_i32().map_err(|_| ContainerError::Truncated {
-        context,
-        needed: 4,
-        available: (reader.bits_remaining() / 8) as usize,
-    })
-}
-
-fn read_fstring(
-    reader: &mut BitReader<'_>,
-    context: &'static str,
-) -> Result<String, ContainerError> {
-    reader
-        .read_fstring(MAX_FSTRING_BYTES)
-        .map_err(|source| ContainerError::FString { context, source })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

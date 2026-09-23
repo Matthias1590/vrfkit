@@ -15,6 +15,43 @@
 use arrow_schema::{DataType, Field, Schema};
 use std::sync::Arc;
 
+/// Declare the `Arc`-wrapping companion of each table schema.
+///
+/// `ArrowWriter` takes a `SchemaRef`, so every schema below needs an
+/// `Arc::new` twin. Thirteen hand-written twins is thirteen chances to wrap
+/// the wrong schema, and the type system cannot catch that one -- all of them
+/// return `Arc<Schema>`, so a mismatched pair compiles and writes a file with
+/// the wrong column types. Pairing them here makes that a one-line diff to
+/// read rather than a body to compare.
+///
+/// The names are spelled out rather than derived, so grepping for
+/// `fields_schema_ref` still lands on its definition.
+macro_rules! schema_refs {
+    ($($ref_fn:ident => $schema_fn:ident),+ $(,)?) => {
+        $(
+            pub fn $ref_fn() -> Arc<Schema> {
+                Arc::new($schema_fn())
+            }
+        )+
+    };
+}
+
+schema_refs! {
+    checkpoint_fields_schema_ref => checkpoint_fields_schema,
+    checkpoint_actors_schema_ref => checkpoint_actors_schema,
+    checkpoint_net_guids_schema_ref => checkpoint_net_guids_schema,
+    checkpoint_blocks_schema_ref => checkpoint_blocks_schema,
+    checkpoint_guid_entries_schema_ref => checkpoint_guid_entries_schema,
+    checkpoint_export_groups_schema_ref => checkpoint_export_groups_schema,
+    checkpoint_export_fields_schema_ref => checkpoint_export_fields_schema,
+    fields_schema_ref => fields_schema,
+    movement_schema_ref => movement_schema,
+    actors_schema_ref => actors_schema,
+    net_guids_schema_ref => net_guids_schema,
+    events_schema_ref => events_schema,
+    partials_schema_ref => partials_schema,
+}
+
 fn checkpoint_schema(base: Schema) -> Schema {
     let mut fields = Vec::with_capacity(base.fields().len() + 2);
     fields.push(Field::new("checkpoint_index", DataType::UInt32, false));
@@ -27,24 +64,12 @@ pub fn checkpoint_fields_schema() -> Schema {
     checkpoint_schema(fields_schema())
 }
 
-pub fn checkpoint_fields_schema_ref() -> Arc<Schema> {
-    Arc::new(checkpoint_fields_schema())
-}
-
 pub fn checkpoint_actors_schema() -> Schema {
     checkpoint_schema(actors_schema())
 }
 
-pub fn checkpoint_actors_schema_ref() -> Arc<Schema> {
-    Arc::new(checkpoint_actors_schema())
-}
-
 pub fn checkpoint_net_guids_schema() -> Schema {
     checkpoint_schema(net_guids_schema())
-}
-
-pub fn checkpoint_net_guids_schema_ref() -> Arc<Schema> {
-    Arc::new(checkpoint_net_guids_schema())
 }
 
 pub fn checkpoint_blocks_schema() -> Schema {
@@ -81,10 +106,6 @@ pub fn checkpoint_blocks_schema() -> Schema {
     ])
 }
 
-pub fn checkpoint_blocks_schema_ref() -> Arc<Schema> {
-    Arc::new(checkpoint_blocks_schema())
-}
-
 pub fn checkpoint_guid_entries_schema() -> Schema {
     Schema::new(vec![
         Field::new("checkpoint_index", DataType::UInt32, false),
@@ -98,10 +119,6 @@ pub fn checkpoint_guid_entries_schema() -> Schema {
         Field::new("flags", DataType::UInt8, false),
     ])
 }
-pub fn checkpoint_guid_entries_schema_ref() -> Arc<Schema> {
-    Arc::new(checkpoint_guid_entries_schema())
-}
-
 pub fn checkpoint_export_groups_schema() -> Schema {
     Schema::new(vec![
         Field::new("checkpoint_index", DataType::UInt32, false),
@@ -112,10 +129,6 @@ pub fn checkpoint_export_groups_schema() -> Schema {
         Field::new("declared_slots", DataType::UInt32, false),
     ])
 }
-pub fn checkpoint_export_groups_schema_ref() -> Arc<Schema> {
-    Arc::new(checkpoint_export_groups_schema())
-}
-
 pub fn checkpoint_export_fields_schema() -> Schema {
     Schema::new(vec![
         Field::new("checkpoint_index", DataType::UInt32, false),
@@ -133,10 +146,6 @@ pub fn checkpoint_export_fields_schema() -> Schema {
         Field::new("fname_number", DataType::Int32, true),
     ])
 }
-pub fn checkpoint_export_fields_schema_ref() -> Arc<Schema> {
-    Arc::new(checkpoint_export_fields_schema())
-}
-
 /// Schema for the `fields` table (long format).
 ///
 /// Most rows represent one decoded field. A whole ClassNetCache block whose
@@ -229,28 +238,17 @@ pub fn movement_schema() -> Schema {
         // Server-assigned tick from the move header. Distinct from `time_ms`,
         // which is the replay-relative packet time this crate stamps on.
         Field::new("timestamp", DataType::UInt32, false),
-        // Move-header byte at bits [9..17]. Named for a posture it has never
-        // been observed to carry: constant 0 on all 1,034,035,170 exported
-        // movement rows across 527 corpus replays -- see
-        // `MovementRecord::movement_state`. Do not read posture out of
-        // it. One wire byte, so UInt8 -- widening would cost 3 bytes per row
-        // before compression for no added range.
+        // One wire byte, so UInt8 -- widening would cost 3 bytes per row
+        // before compression for no added range. See docs/USAGE.md
+        // "movement.parquet" for why it reads 0 on every corpus row and why
+        // posture must come from `bCrouchHeld` instead.
         Field::new("movement_state", DataType::UInt8, false),
-        // 0 = variant0 (no velocity on the wire), 1 = variant1 (velocity
-        // present). Effectively a bool, but kept as the decoder's u8 so the
-        // column stays a faithful copy of the wire value.
+        // Effectively a bool, but kept as the decoder's u8 so the column
+        // stays a faithful copy of the wire value. See docs/USAGE.md
+        // "movement.parquet" for the variant-0/variant-1 meaning and the
+        // corpus measurement backing it.
         Field::new("move_type", DataType::UInt8, false),
     ])
-}
-
-/// Convenience: wrap a schema in an Arc (ArrowWriter expects `SchemaRef`).
-pub fn fields_schema_ref() -> Arc<Schema> {
-    Arc::new(fields_schema())
-}
-
-/// Convenience: wrap a schema in an Arc.
-pub fn movement_schema_ref() -> Arc<Schema> {
-    Arc::new(movement_schema())
 }
 
 /// Schema for the `actors` table (one row per channel open or close).
@@ -293,11 +291,6 @@ pub fn actors_schema() -> Schema {
     ])
 }
 
-/// Convenience: wrap actors schema in an Arc.
-pub fn actors_schema_ref() -> Arc<Schema> {
-    Arc::new(actors_schema())
-}
-
 /// Schema for the `net_guids` table (one row per registered NetGUID).
 ///
 /// This is the replay's own object registry: which GUID maps to which object
@@ -320,11 +313,6 @@ pub fn net_guids_schema() -> Schema {
         ),
         Field::new("outer_net_guid", DataType::UInt32, true),
     ])
-}
-
-/// Convenience: wrap net_guids schema in an Arc.
-pub fn net_guids_schema_ref() -> Arc<Schema> {
-    Arc::new(net_guids_schema())
 }
 
 /// Schema for the `events` table (one row per Event chunk).
@@ -372,11 +360,6 @@ pub fn events_schema() -> Schema {
     ])
 }
 
-/// Convenience: wrap events schema in an Arc.
-pub fn events_schema_ref() -> Arc<Schema> {
-    Arc::new(events_schema())
-}
-
 pub fn partials_schema() -> Schema {
     Schema::new(vec![
         Field::new("source", DataType::Utf8, false),
@@ -403,7 +386,4 @@ pub fn partials_schema() -> Schema {
         Field::new("bit_count", DataType::UInt64, false),
         Field::new("raw_bits", DataType::Binary, false),
     ])
-}
-pub fn partials_schema_ref() -> Arc<Schema> {
-    Arc::new(partials_schema())
 }

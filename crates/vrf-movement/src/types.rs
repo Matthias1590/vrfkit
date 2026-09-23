@@ -33,6 +33,9 @@ pub struct MovementMove {
 }
 
 /// A single character update descriptor (carries moves).
+///
+/// Retained for callers that construct this public descriptor, even though
+/// the decoder currently emits moves directly through its callback.
 #[derive(Debug, Clone)]
 pub struct MovementUpdate {
     /// Index within the batch.

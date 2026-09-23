@@ -1,10 +1,12 @@
 //! Dynamic-actor spawn data: archetype, level, transform and velocity.
 //!
+//! Open-count on the reference replay: docs/PERFORMANCE_NOTES.md#measured-rates-reference-replay-02d4d478.
+//!
 //! This is the block Unreal writes immediately after the actor GUID when a
 //! channel opens for a *dynamic* (even, non-zero GUID) actor. It is small and
-//! rare -- 2 028 opens on the reference replay against 530 401 bunches -- but
-//! its bit width is load-bearing for everything after it in the same bunch, so
-//! the reasoning below is kept next to the reads rather than in a design doc.
+//! rare but its bit width is load-bearing for everything after it in the same
+//! bunch, so the reasoning below is kept next to the reads rather than in a
+//! design doc.
 
 use vrf_bitio::BitReader;
 
@@ -51,18 +53,8 @@ pub(super) fn read_dynamic_spawn_data(
     // Scale -- defaults to unit scale, not to the origin.
     state.spawn_scale = read_optional_quantized_vector(payload, SPAWN_SCALE_FACTOR, UNIT_SCALE)?;
     // Velocity -- unconditional, exactly as NewActorSerializer.cs:69-72 reads
-    // it.
-    //
-    // This used to be gated on the actor being a PlayerController, on the
-    // stated premise that "PlayerController actors set bReplicateMovement ==
-    // false, so their spawn data omits velocity entirely". That premise was
-    // invented; nothing in the reference or the wire supports it. The bit is
-    // present with value 0, which is exactly why the reference reports a zero
-    // velocity rather than none.
-    //
-    // Skipping it cost one bit at the head of the controller's opening bunch.
-    // See docs/archive/PROJECT_STATUS.md 17-A for why one bit was invisible
-    // and why this must be fixed together with the net-player-index byte.
+    // it. This used to be gated on a fabricated PlayerController premise; see
+    // docs/archive/PROJECT_STATUS.md 17-A for why that cost one invisible bit.
     state.spawn_velocity = read_optional_quantized_vector(payload, SPAWN_SCALE_FACTOR, ORIGIN)?;
     Ok(())
 }
@@ -89,12 +81,11 @@ pub(super) fn read_dynamic_spawn_data(
 /// there, and `NewActorSerializer.cs:56-72` passes (0,0,0) for location and
 /// velocity and (1,1,1) for scale.
 ///
-/// Returning `None` instead collapsed that case into the genuinely-absent one:
-/// a static actor never enters the spawn block at all, so its location is
-/// unknown, while a dynamic actor with the bit clear has a known location of
-/// exactly (0,0,0). On 02d4d478 that is 66 actors -- game state, player state,
-/// vote and mission actors, which really do sit at the origin -- reported as
-/// having no location alongside the 27 that truly have none.
+/// Returning `None` instead used to collapse that case into the
+/// genuinely-absent one: a static actor never enters the spawn block at all,
+/// so its location is unknown, while a dynamic actor with the bit clear has a
+/// known location of exactly (0,0,0). See docs/archive/PROJECT_STATUS.md 13-A
+/// for the corpus counts.
 fn read_optional_quantized_vector(
     reader: &mut BitReader<'_>,
     scale_factor: i32,

@@ -1,9 +1,9 @@
 //! Content-block framing: the per-block hot loop.
 //!
-//! This is where the replay's bulk goes -- 608 020 content blocks on the
-//! reference replay against 530 401 bunches and 2 028 actor opens. Everything
-//! in this module runs per block, so anything that can be hoisted out of it or
-//! made conditional on a failure path belongs somewhere else.
+//! Measured block/bunch/actor-open rates on the reference replay: docs/PERFORMANCE_NOTES.md#measured-rates-reference-replay-02d4d478.
+//!
+//! Everything in this module runs per block, so anything that can be hoisted
+//! out of it or made conditional on a failure path belongs somewhere else.
 //!
 //! The loop is: read a block header, read its declared payload bit count,
 //! hand the header to the sink (which answers with a function count for

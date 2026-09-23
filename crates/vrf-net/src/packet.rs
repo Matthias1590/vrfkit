@@ -4,14 +4,9 @@
 //!
 //! Unreal pads packets to byte boundaries but marks the true end with a
 //! sentinel: one `1` bit followed by zero-padding to the byte boundary. The
-//! reader finds this sentinel by scanning the last byte from MSB downward:
-//!
-//! ```text
-//! bitSize = len*8 - 1
-//! while (lastByte & 0x80) == 0:
-//!     lastByte <<= 1
-//!     bitSize -= 1
-//! ```
+//! reader finds this sentinel by scanning the last byte from MSB downward.
+//! See `compute_bit_size` below for the walk and the proof that it cannot
+//! underflow.
 //!
 //! If the last byte is zero the packet is malformed (no sentinel exists).
 
@@ -86,33 +81,27 @@ impl RawPacketReader {
     where
         F: FnMut(&mut RawBunchHeader, BitReader<'_>),
     {
+        // These three early-outs share the same all-zero counters and differ
+        // only in `is_malformed`: nothing has been parsed yet in any of them.
+        let empty_result = |is_malformed: bool| PacketReadResult {
+            bunch_count: 0,
+            is_malformed,
+            partial_error_count: 0,
+            channel_limit_count: 0,
+        };
+
         if packet_data.is_empty() {
-            return PacketReadResult {
-                bunch_count: 0,
-                is_malformed: false,
-                partial_error_count: 0,
-                channel_limit_count: 0,
-            };
+            return empty_result(false);
         }
 
         let last_byte = packet_data[packet_data.len() - 1];
         if last_byte == 0 {
-            return PacketReadResult {
-                bunch_count: 0,
-                is_malformed: true,
-                partial_error_count: 0,
-                channel_limit_count: 0,
-            };
+            return empty_result(true);
         }
 
         let bit_size = compute_bit_size(packet_data, last_byte);
         let Ok(mut reader) = BitReader::with_bit_len(packet_data, bit_size as u64) else {
-            return PacketReadResult {
-                bunch_count: 0,
-                is_malformed: true,
-                partial_error_count: 0,
-                channel_limit_count: 0,
-            };
+            return empty_result(true);
         };
 
         let mut bunch_count = 0u32;

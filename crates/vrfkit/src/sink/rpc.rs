@@ -3,7 +3,10 @@
 //! A ClassNetCache block carries function calls, not properties. Each call's
 //! payload is a sub-archive following the RepLayout `FunctionParameters`
 //! grammar, and walking it turns one opaque blob into one row per named
-//! parameter -- 559,346 of the reference replay's 1,246,812 field rows.
+//! parameter.
+//!
+//! Row share of ClassNetCache RPC parameters vs all field rows, reference
+//! replay: docs/PERFORMANCE_NOTES.md#rpc-parameter-walking.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -621,6 +624,9 @@ pub(super) fn copy_raw_bits(reader: BitReader<'_>, bit_count: u32) -> Option<Sma
     }
     let mut buf = smallvec![0u8; (bit_count as usize).div_ceil(8)];
     let mut reader = reader;
+    // Discarded, not ignored blind: every call site hands in a reader whose
+    // bits_remaining() is exactly bit_count, and buf is sized to match, so
+    // neither of copy_bits_to's error paths (EOF, undersized dst) can fire.
     let _ = reader.copy_bits_to(&mut buf, u64::from(bit_count));
     Some(buf)
 }

@@ -100,12 +100,6 @@ PATH_RE = re.compile(
     r'override\s+string\s+Path\s*=>\s*"(?P<path>[^"]+)"'
 )
 
-# Regex for class declaration with base class
-CLASS_RE = re.compile(
-    rf'(?:public|internal)\s+(?:sealed\s+)?class\s+@?({CSHARP_IDENTIFIER})\s*'
-    rf'(?::\s*({CSHARP_IDENTIFIER_TOKEN}(?:<[^>]+>)?))?'
-)
-
 # Find every public/internal descriptor class in a file. The optional ``@``
 # sits outside the name capture so all dictionaries use the semantic C# name.
 MULTI_CLASS_RE = re.compile(
@@ -221,20 +215,6 @@ KIND_OVERRIDE_RE = re.compile(
     rf'{EXPORT_GROUP_KIND_TYPE}\s*\.\s*(?P<kind>\w+)\s*;'
 )
 
-# Regex for AddProperty with explicit export name
-ADD_PROP_NAMED_RE = re.compile(
-    r'AddProperty\(\s*"(?P<name>[^"]+)"'
-    r'[^)]*\)'
-    r'\.(?P<type>\w+)\('
-)
-
-# Regex for AddProperty with inferred name (from lambda)
-ADD_PROP_LAMBDA_RE = re.compile(
-    r'AddProperty\(\s*\w+\s*=>\s*(?:\w+\.)?(?P<name>\w+)'
-    r'[^)]*\)'
-    r'\.(?P<type>\w+)\('
-)
-
 # The handle argument of AddPropertyHandle.
 #
 # Usually a literal, but a descriptor may factor a run of handles into a helper
@@ -337,25 +317,6 @@ RAW_WRAPPER_DEF_RE = re.compile(
 )
 
 
-def extract_path(source: str) -> str | None:
-    """Extract the Path property from a descriptor class."""
-    m = PATH_RE.search(source)
-    return m.group("path") if m else None
-
-
-def extract_class_info(source: str) -> tuple[str | None, str | None]:
-    """Extract (class_name, base_class_name) from the source."""
-    m = CLASS_RE.search(source)
-    if not m:
-        return (None, None)
-    class_name = normalize_csharp_identifier(m.group(1))
-    base = m.group(2)
-    # Strip generic parameter
-    if base and "<" in base:
-        base = base.split("<")[0]
-    if base:
-        base = normalize_csharp_identifier(base)
-    return (class_name, base)
 
 
 def _mask_raw_wrapper_definitions(code_view: str) -> str:

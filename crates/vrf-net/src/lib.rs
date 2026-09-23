@@ -5,8 +5,8 @@
 //! This crate intentionally does **not** skip any field payload. Every property
 //! and every RPC is emitted as `(handle, bit_count, raw_bits)` to the caller's
 //! sink. This is the reason this project exists as a new implementation rather
-//! than wrapping an existing one: a replay contains 780 000+ content blocks and
-//! 2 400 000+ movement samples, and the upstream parser's "skip if no
+//! than wrapping an existing one: the reference replay 02d4d478 carries 608,080
+//! content blocks and 1,844,147 movement samples, and the upstream parser's "skip if no
 //! descriptor" path means most of that data is silently discarded.
 //!
 //! Descriptor-free traversal is possible because the field stream is

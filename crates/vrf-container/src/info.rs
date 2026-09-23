@@ -9,7 +9,7 @@
 //! | 8 | i32 | CustomVersionCount |
 //! | 12 | [20 x N] | CustomVersionEntries (GUID 16B + i32 version) |
 //! | ... | i32 | LengthInMs |
-//! | ... | u32 | NetworkVersion (must be 19) |
+//! | ... | u32 | NetworkVersion (NOT 19 here; unvalidated -- see the field doc) |
 //! | ... | u32 | Changelist |
 //! | ... | FString | FriendlyName |
 //! | ... | u32 | IsLive (bool as u32) |
@@ -21,6 +21,7 @@
 use vrf_bitio::BitReader;
 
 use crate::error::ContainerError;
+use crate::io::{read_fstring, read_i32, read_u32};
 use crate::limits::{
     EXPECTED_FILE_VERSION, FILE_MAGIC, LOCAL_REPLAY_GUID, LOCAL_REPLAY_VERSION,
     MAX_CUSTOM_VERSION_COUNT, MAX_ENCRYPTION_KEY_BYTES, MAX_FRIENDLY_NAME_BYTES,
@@ -190,27 +191,14 @@ pub(crate) fn parse_replay_info(data: &[u8]) -> Result<(ReplayInfo, usize), Cont
 }
 
 // --- Helpers ------------------------------------------------------------------
-
-fn read_u32(reader: &mut BitReader<'_>, context: &'static str) -> Result<u32, ContainerError> {
-    reader.read_u32().map_err(|_| ContainerError::Truncated {
-        context,
-        needed: 4,
-        available: (reader.bits_remaining() / 8) as usize,
-    })
-}
-
-fn read_i32(reader: &mut BitReader<'_>, context: &'static str) -> Result<i32, ContainerError> {
-    reader.read_i32().map_err(|_| ContainerError::Truncated {
-        context,
-        needed: 4,
-        available: (reader.bits_remaining() / 8) as usize,
-    })
-}
-
 fn read_i64(reader: &mut BitReader<'_>, context: &'static str) -> Result<i64, ContainerError> {
+    // 4, not 8: this arm fires when the LOW word alone could not be read, and
+    // every other Truncated in this crate reports the width of the read that
+    // actually failed. Reporting the whole i64 here made a 4-byte shortfall
+    // look like an 8-byte one in the error text.
     let lo = reader.read_u32().map_err(|_| ContainerError::Truncated {
         context,
-        needed: 8,
+        needed: 4,
         available: (reader.bits_remaining() / 8) as usize,
     })?;
     let hi = reader.read_u32().map_err(|_| ContainerError::Truncated {
@@ -220,17 +208,6 @@ fn read_i64(reader: &mut BitReader<'_>, context: &'static str) -> Result<i64, Co
     })?;
     Ok(i64::from(lo) | (i64::from(hi) << 32))
 }
-
-fn read_fstring(
-    reader: &mut BitReader<'_>,
-    context: &'static str,
-    max_bytes: i64,
-) -> Result<String, ContainerError> {
-    reader
-        .read_fstring(max_bytes)
-        .map_err(|source| ContainerError::FString { context, source })
-}
-
 /// Read an Unreal GUID: four u32 values stored as 16 little-endian bytes.
 fn read_guid(reader: &mut BitReader<'_>) -> Result<[u32; 4], ContainerError> {
     let a = read_u32(reader, "guid")?;

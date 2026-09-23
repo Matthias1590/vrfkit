@@ -118,8 +118,8 @@ pub struct RoundResult {
 /// # Wire layout
 ///
 /// Standard UE RepLayout dynamic-array framing (see module docs). Members are
-/// selected by the name the replay declares for each handle, because the
-/// numbers move between builds -- 93..=96 on 13.01, 81..=84 on 13.02.
+/// selected by declared name, not handle number; see
+/// docs/archive/PROJECT_STATUS.md 26-B/26-D for why.
 ///
 /// # Arguments
 ///

@@ -7,13 +7,11 @@
 //!
 //! # Why the string columns are `Arc<str>`
 //!
-//! `FieldRecord` is produced 1,246,812 times on the reference replay, and the
-//! writer buffers 131,072 of them before flushing a row group. With `String`
-//! that was up to three heap allocations per row and ~393,000 live allocations
-//! at the peak. There are only 475 distinct `group_path` values in the whole
-//! replay and a few thousand distinct field names, so an `Arc<str>` the
-//! producer interns once and clones per row replaces the allocation with a
-//! refcount increment.
+//! Row/allocation counts behind `Arc<str>` (shared with vrfkit::sink::intern): docs/PERFORMANCE_NOTES.md#name-interning.
+//!
+//! There are only 475 distinct `group_path` values in the whole replay and a
+//! few thousand distinct field names, so an `Arc<str>` the producer interns
+//! once and clones per row replaces the allocation with a refcount increment.
 //!
 //! Arrow is unaffected: the dictionary builders are fed `&str` either way (see
 //! `tables::fields`), so the value sequence handed to the encoder -- and
@@ -69,12 +67,8 @@ pub struct FieldRecord {
     /// last-resort type lookup; exporting it lets a reader do the same
     /// reasoning offline.
     ///
-    /// That matters because "no type" has two causes an export otherwise
-    /// cannot separate: a field nothing has ever described, and a field with a
-    /// checksum the overlay never learned. The second is a real gap -- it is
-    /// what Phoenix's smoke wall was, 2,791 rows of null with decode errors at
-    /// 0 -- and it was found only because a sibling class happened to share the
-    /// RPC's name. With this column the two are one query apart.
+    /// See docs/USAGE.md "fields.parquet" for the three-bucket breakdown this
+    /// column enables and the Phoenix smoke-wall example that motivated it.
     ///
     /// **`None` means the replay declares no checksum for this handle**, not
     /// that the value was unavailable here. Rows reach this table by several
@@ -85,23 +79,18 @@ pub struct FieldRecord {
     pub bit_count: u32,
     /// Raw bit payload; `None` for zero-bit fields.
     ///
-    /// Inlined as `SmallVec<[u8; 16]>`: most field payloads are <=16 bytes
-    /// (u32/u64/FVector/FString-prefix), so the inline array eliminates the
-    /// heap allocation on the ~1.25 M-row reference export. Larger payloads
-    /// spill to the heap transparently -- SmallVec derefs to `&[u8]`, so the
-    /// Arrow `BinaryArray` sees an identical byte sequence either way and the
-    /// Parquet output is byte-for-byte unchanged.
+    /// Allocation counts behind the SmallVec<16> choice and validate's writer-path memory bound: docs/PERFORMANCE_NOTES.md#raw_bits-smallvec-and-the-rejected-arena.
+    ///
+    /// Larger payloads spill to the heap transparently -- SmallVec derefs to
+    /// `&[u8]`, so the Arrow `BinaryArray` sees an identical byte sequence
+    /// either way and the Parquet output is byte-for-byte unchanged.
     ///
     /// Not interned, and not an arena. Interning is the wrong shape: these are
     /// payload bytes rather than names, so the pool would approach one entry
     /// per row and buy nothing. An arena -- one shared buffer with per-row
     /// offsets -- would be sound, but it has to travel with the rows across the
     /// channel to the writer thread, which turns the batch type from
-    /// `Vec<FieldRecord>` into a struct carrying a blob. The reason it was not
-    /// taken is that the case for it shrank first: bounding the writer's buffer
-    /// (see `writer::MAX_BUFFERED_ROWS`) cut the live payload vectors from
-    /// ~390,000 to ~90,000, and `validate` -- which builds every record and
-    /// writes no file -- brackets the whole remaining writer path at ~41 MB.
+    /// `Vec<FieldRecord>` into a struct carrying a blob.
     pub raw_bits: Option<SmallVec<[u8; 16]>>,
     pub value_i64: Option<i64>,
     pub value_f64: Option<f64>,
@@ -136,17 +125,13 @@ pub struct MovementRecord {
     pub vel_z: f32,
     /// Server-assigned tick decoded from the move header.
     pub timestamp: u32,
-    /// Move-header byte at bits [9..17]. Named for a posture it has never been
-    /// observed to carry: it is 0 on all 1,034,035,170 exported movement rows
-    /// across 527 corpus replays (builds 13.01, 13.02 and 13.04). Exported anyway,
-    /// because it is a byte the wire spends and
-    /// a later build may start using it -- but do not read posture out of it.
-    /// Crouch is `bCrouchHeld` on the character actor, or the ~19 cm step in
+    /// Move-header byte at bits [9..17]. See docs/USAGE.md "movement.parquet"
+    /// for why it is exported despite reading 0 on every corpus row. Posture
+    /// is `bCrouchHeld` on the character actor, or the ~19 cm step in
     /// `pos_z`.
     pub movement_state: u8,
-    /// 0 = variant0 (velocity absent on the wire), 1 = variant1. The same
-    /// 527-replay sweep observed variant1 on every exported row; retain the
-    /// discriminator so a future build cannot silently change that invariant.
+    /// See docs/USAGE.md "movement.parquet" for the variant-0/variant-1
+    /// meaning and the corpus measurement backing it.
     pub move_type: u8,
 }
 

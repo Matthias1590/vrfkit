@@ -258,8 +258,14 @@ impl NetGuidCache {
         None
     }
 
-    /// Look up a CNC leaf in `by_leaf`, accepting only unambiguous matches whose
-    /// group path actually ends with `_ClassNetCache`.
+    /// Look up a CNC leaf in `by_leaf`, accepting only unambiguous matches.
+    ///
+    /// The `_ClassNetCache` suffix test below is a belt-and-braces assertion,
+    /// not an active filter: every caller reaches this with a leaf that was
+    /// itself derived from a `_ClassNetCache` path, so the else arm does not
+    /// fire on any input the callers can produce. It is kept because the
+    /// invariant is a property of the CALLERS, and a future caller that does
+    /// not hold it should get `None` rather than a wrongly-typed group.
     fn lookup_cnc_leaf(&self, leaf: &str) -> Option<&NetFieldExportGroup> {
         let group = self.leaf_group(leaf)?;
         if group.path.ends_with(crate::path::CLASS_NET_CACHE_SUFFIX) {

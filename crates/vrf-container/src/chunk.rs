@@ -96,6 +96,10 @@ impl<'a> ChunkIterator<'a> {
     }
 
     /// Whether the iterator has reached the end of the buffer.
+    ///
+    /// No in-tree caller: `ChunkIterator` is driven by its `Iterator` impl,
+    /// which returns `None` at the same point. Published for a consumer that
+    /// wants the test without advancing.
     #[must_use]
     pub const fn at_end(&self) -> bool {
         self.pos >= self.data.len()

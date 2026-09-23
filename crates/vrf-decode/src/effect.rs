@@ -196,19 +196,9 @@ pub enum EffectBlobError {
     #[error("field declared {declared} bits but its type read {consumed}")]
     PayloadOverread { declared: u32, consumed: u64 },
 
-    /// A field's type consumed FEWER bits than the field declared.
-    ///
-    /// The mirror of [`Self::PayloadOverread`], and it used to be silent: the
-    /// leftover was skipped so the next field still started in the right place,
-    /// and nothing recorded that part of a field had gone uninterpreted. The
-    /// fixed-width members already refused this shape via
-    /// [`Self::UnexpectedPayloadWidth`]; the `IntPacked` ones (the gameplay tag
-    /// and the object GUID) did not, which made the accounting depend on which
-    /// member happened to be reading.
-    ///
-    /// An `IntPacked` is self-delimiting -- it spends `ceil(bits/7)` whole
-    /// bytes and a writer-measured `payload_bits` matches it exactly -- so a
-    /// short read means the window was not what this decoder thinks it was.
+    /// A field's type consumed FEWER bits than the field declared. See
+    /// `settle_field` in `effect/framing.rs` for why this is rejected rather
+    /// than absorbed by a skip.
     #[error("field declared {declared} bits but its type read only {consumed}")]
     PayloadUnderread { declared: u32, consumed: u64 },
 
@@ -221,13 +211,9 @@ pub enum EffectBlobError {
     #[error("{context} ended without its terminator")]
     MissingTerminator { context: &'static str },
 
-    /// The trailing byte after the array terminator was not zero.
-    ///
-    /// The C# parser reads that byte and discards both its value and any error.
-    /// Copying that made any appended byte a valid "terminator", so a payload
-    /// with one spare byte of anything passed as well-formed. This crate
-    /// already declines to mirror a reference that is silently permissive; see
-    /// the note on `decode_field` in `decode.rs`.
+    /// The trailing byte after the array terminator was not zero. See
+    /// `consume_trailing_terminator` in `effect/framing.rs` for why the C#
+    /// reference's silent handling of this byte is not replicated.
     #[error("trailing terminator byte is {value}, expected 0")]
     NonZeroTerminator { value: u32 },
 }
@@ -326,7 +312,7 @@ impl EffectArrayKind {
     /// Map an RPC parameter's declared name to its element type.
     ///
     /// Name-driven rather than handle-driven: the handle is the parameter's
-    /// index within its own function, so it differs between the eleven
+    /// index within its own function, so it differs between the ten
     /// functions that carry these arrays, while the name is stable across all
     /// of them. Returns `None` for every other parameter name.
     #[must_use]

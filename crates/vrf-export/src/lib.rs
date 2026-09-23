@@ -21,6 +21,8 @@
 //!
 //! ## `fields` table -- sparse value columns vs. Union
 //!
+//! Sparse-column vs Union tradeoff detail and dictionary-encoding figures: docs/PERFORMANCE_NOTES.md#sparse-nullable-columns-vs-arrow-union.
+//!
 //! Every ordinary decoded-field record carries at most one typed value (i64,
 //! f64, bool, or str); whole-block preservation records carry none. We
 //! represent this as **four nullable columns** rather than an Arrow
@@ -35,15 +37,6 @@
 //!    can disable predicate pushdown.
 //! 3. **Simplicity**: four extra columns with known types are trivial to filter
 //!    (`WHERE value_i64 IS NOT NULL`); Union requires type-aware dispatch.
-//!
-//! ## Dictionary encoding
-//!
-//! `group_path` and `field_name` are dominated by a tiny set of repeated
-//! strings (475 distinct group paths over 1.25 M rows on the reference replay).
-//! Dictionary encoding stores the distinct values once and references them by
-//! index, shrinking data pages by 50-200x. The producer interns the same two
-//! columns as `Arc<str>`; see [`record`] for why, and note that the interning
-//! is invisible to Arrow -- the builders are fed `&str` either way.
 //!
 //! ## Streaming
 //!

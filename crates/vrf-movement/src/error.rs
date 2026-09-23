@@ -3,6 +3,10 @@
 use vrf_bitio::BitError;
 
 /// Errors that can occur during movement RPC payload decoding.
+///
+/// Keep the existing variants and exhaustive shape for downstream callers.
+/// Adding `#[non_exhaustive]` now would also break their exhaustive matches;
+/// it cannot make removal of an existing public variant compatible.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum MovementError {
     /// The underlying bit reader ran out of data or was malformed.
@@ -38,6 +42,7 @@ pub enum MovementError {
     },
 
     /// A character update index exceeded the declared update count.
+    /// Retained for API compatibility even though the decoder does not emit it.
     #[error("update index {index} out of range (count={count})")]
     UpdateIndexOutOfRange { index: u32, count: u32 },
 }

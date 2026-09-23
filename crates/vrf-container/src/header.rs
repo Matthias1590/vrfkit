@@ -36,6 +36,7 @@
 use vrf_bitio::BitReader;
 
 use crate::error::ContainerError;
+use crate::io::{read_fstring, read_i32, read_u32};
 use crate::limits::{
     CUSTOM_VERSION_ENTRY_BYTES, EXPECTED_ENGINE_NET_PROTO_VERSION, EXPECTED_NETWORK_VERSION,
     MAX_CUSTOM_VERSION_COUNT, MAX_FSTRING_BYTES, MAX_GAME_SPECIFIC_DATA, MAX_LEVEL_NAMES_AND_TIMES,
@@ -171,7 +172,7 @@ pub(crate) fn parse_replay_header(payload: &[u8]) -> Result<ReplayHeader, Contai
     let minor = read_u16(&mut reader, "replay version minor")?;
     let patch = read_u16(&mut reader, "replay version patch")?;
     let changelist = read_u32(&mut reader, "replay version changelist")?;
-    let branch = read_fstring(&mut reader, "replay version branch")?;
+    let branch = read_fstring(&mut reader, "replay version branch", MAX_FSTRING_BYTES)?;
 
     let replay_version = ReplayVersion {
         major,
@@ -204,7 +205,7 @@ pub(crate) fn parse_replay_header(payload: &[u8]) -> Result<ReplayHeader, Contai
     }
     let mut level_names_and_times = Vec::with_capacity(level_count as usize);
     for _ in 0..level_count {
-        let name = read_fstring(&mut reader, "level name")?;
+        let name = read_fstring(&mut reader, "level name", MAX_FSTRING_BYTES)?;
         let time = read_u32(&mut reader, "level time")?;
         level_names_and_times.push((name, time));
     }
@@ -223,7 +224,11 @@ pub(crate) fn parse_replay_header(payload: &[u8]) -> Result<ReplayHeader, Contai
     }
     let mut game_specific_data = Vec::with_capacity(gsd_count as usize);
     for _ in 0..gsd_count {
-        game_specific_data.push(read_fstring(&mut reader, "game specific data entry")?);
+        game_specific_data.push(read_fstring(
+            &mut reader,
+            "game specific data entry",
+            MAX_FSTRING_BYTES,
+        )?);
     }
 
     // --- Recording parameters ---------------------------------------------
@@ -233,7 +238,7 @@ pub(crate) fn parse_replay_header(payload: &[u8]) -> Result<ReplayHeader, Contai
     let checkpoint_limit_in_ms = read_f32(&mut reader, "checkpoint limit")?;
 
     // --- Platform and build info ------------------------------------------
-    let platform = read_fstring(&mut reader, "platform")?;
+    let platform = read_fstring(&mut reader, "platform", MAX_FSTRING_BYTES)?;
     let build_config = reader
         .read_u8()
         .map_err(|e| ContainerError::BitIo(e.to_string()))?;
@@ -270,23 +275,6 @@ pub(crate) fn parse_replay_header(payload: &[u8]) -> Result<ReplayHeader, Contai
 }
 
 // --- Helpers ------------------------------------------------------------------
-
-fn read_u32(reader: &mut BitReader<'_>, context: &'static str) -> Result<u32, ContainerError> {
-    reader.read_u32().map_err(|_| ContainerError::Truncated {
-        context,
-        needed: 4,
-        available: (reader.bits_remaining() / 8) as usize,
-    })
-}
-
-fn read_i32(reader: &mut BitReader<'_>, context: &'static str) -> Result<i32, ContainerError> {
-    reader.read_i32().map_err(|_| ContainerError::Truncated {
-        context,
-        needed: 4,
-        available: (reader.bits_remaining() / 8) as usize,
-    })
-}
-
 fn read_u16(reader: &mut BitReader<'_>, context: &'static str) -> Result<u16, ContainerError> {
     reader.read_u16().map_err(|_| ContainerError::Truncated {
         context,
@@ -301,13 +289,4 @@ fn read_f32(reader: &mut BitReader<'_>, context: &'static str) -> Result<f32, Co
         needed: 4,
         available: (reader.bits_remaining() / 8) as usize,
     })
-}
-
-fn read_fstring(
-    reader: &mut BitReader<'_>,
-    context: &'static str,
-) -> Result<String, ContainerError> {
-    reader
-        .read_fstring(MAX_FSTRING_BYTES)
-        .map_err(|source| ContainerError::FString { context, source })
 }

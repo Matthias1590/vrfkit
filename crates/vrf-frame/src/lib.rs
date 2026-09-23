@@ -116,12 +116,10 @@ const MAX_PACKET_SIZE_BYTES: i32 = 16384 / 8; // 2048
 ///
 /// `time_ms` is derived from the frame's `timeSeconds` field: scaled by 1000
 /// in f64, rounded half away from zero, and 0 when `timeSeconds` is not
-/// finite. All three match the C# reference; see the conversion site.
-///
-/// Parity stops at the type. The reference holds the result in a signed
-/// `long`, so it can carry a negative or very large frame time; this is a
-/// `u32` and cannot, and a value that does not fit is reported as
-/// [`FrameError::TimeOutOfRange`] rather than saturated onto 0 or `u32::MAX`.
+/// finite. All three match the C# reference; see the conversion comment in
+/// `iter_demo_frames` below for the full derivation, including why a value
+/// that does not fit becomes [`FrameError::TimeOutOfRange`] instead of a
+/// saturated 0 or `u32::MAX`.
 #[derive(Debug, Clone)]
 pub struct DemoPacket<'a> {
     /// Time of the enclosing DemoFrame, in milliseconds.
@@ -165,8 +163,8 @@ pub fn iter_demo_frames(
     while !reader.at_end() {
         frame_count += 1;
         // -- Frame header --------------------------------------------------
-        let _current_level_index = reader.read_i32().map_err(FrameError::bit)?;
-        let time_seconds = reader.read_f32().map_err(FrameError::bit)?;
+        let _current_level_index = reader.read_i32()?;
+        let time_seconds = reader.read_f32()?;
         // Mirror the reference exactly (ReplayEventJsonWriter.cs:194):
         //   float.IsFinite(seconds)
         //     ? (long)Math.Round(seconds * 1000d, MidpointRounding.AwayFromZero)
@@ -224,10 +222,10 @@ pub fn iter_demo_frames(
         // -- Packet loop ---------------------------------------------------
         loop {
             if has_streaming_fixes {
-                let _seen_level_index = reader.read_int_packed().map_err(FrameError::bit)?;
+                let _seen_level_index = reader.read_int_packed()?;
             }
 
-            let packet_size = reader.read_i32().map_err(FrameError::bit)?;
+            let packet_size = reader.read_i32()?;
             if packet_size == 0 {
                 break;
             }
@@ -256,7 +254,7 @@ pub fn iter_demo_frames(
             // so absolute bit position = reader.position().
             let byte_offset = (reader.position() / 8) as usize;
             let packet_data = &data[byte_offset..byte_offset + packet_size_usize];
-            reader.skip_bits(bit_count).map_err(FrameError::bit)?;
+            reader.skip_bits(bit_count)?;
 
             on_packet(
                 DemoPacket {
@@ -439,14 +437,14 @@ mod tests {
         // double precision exactly as ReplayEventJsonWriter.cs does. This
         // catches both the rounding rule and any f32-vs-f64 drift in the
         // multiply, which a handful of named cases would not.
-        let mut checked = 0;
+        // No `checked` counter: it was incremented unconditionally inside a
+        // `0..2000` loop and then asserted to equal 2000, which no input could
+        // make false. The loop bound already states the sample count.
         for step in 0..2000 {
             let secs = (step as f32) * 1.1597; // ~0 to ~2319 s, uneven fractions
             let expected = (f64::from(secs) * 1000.0).round() as u32;
             assert_eq!(time_ms_of(secs), expected, "at {secs} s");
-            checked += 1;
         }
-        assert_eq!(checked, 2000);
     }
 
     #[test]

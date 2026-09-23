@@ -213,7 +213,7 @@ These corrupt downstream consumers silently — no test fails when they break.
   unknown or decoding fails. Typed `value_*` columns are an *additive* overlay;
   a decode failure leaves them null with the raw bits intact.
 - **No silent success.** A block whose group cannot be resolved fails loudly
-  (counted in `RPC stream failed`), never guessed.
+  (counted in `validate`'s `RPC payload lost` line), never guessed.
 - **Byte-identical output.** Exported Parquet is reproducible run to run. If you
   change row buffering, batch sizes, or iteration order, verify the output is
   byte-identical (the baselines pin this).

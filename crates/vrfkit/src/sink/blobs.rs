@@ -759,9 +759,14 @@ impl ExportSink<'_> {
                 );
                 let resolved =
                     declared_resolved.filter(|ft| !matches!(ft, FieldType::Raw | FieldType::Skip));
+                // Same lookup regardless of which branch below fires, so it is
+                // done once here instead of once per branch. Pure and cheap --
+                // an `Option` read off a slice -- so evaluating it on the
+                // branches that never use it (the `verified_array_leaf_type`
+                // and plain-`resolved` fallbacks) costs nothing observable.
+                let declared_checksum =
+                    declared_checksums.get(f.handle as usize).copied().flatten();
                 if measured && parent_name == "TrackedRewards" {
-                    let declared_checksum =
-                        declared_checksums.get(f.handle as usize).copied().flatten();
                     if verified_reward_localized_text(
                         f.handle,
                         name,
@@ -774,8 +779,6 @@ impl ExportSink<'_> {
                             .map(VerifiedArrayLeaf::Field)
                     }
                 } else if measured && parent_name == "RequestedIgnoreActors" {
-                    let declared_checksum =
-                        declared_checksums.get(f.handle as usize).copied().flatten();
                     verified_requested_ignore_actor_leaf(
                         f.handle,
                         name,
@@ -784,8 +787,6 @@ impl ExportSink<'_> {
                     )
                     .map(VerifiedArrayLeaf::Field)
                 } else if measured && parent_name == "SelectedV2" {
-                    let declared_checksum =
-                        declared_checksums.get(f.handle as usize).copied().flatten();
                     verified_selected_v2_leaf_type(
                         f.handle,
                         name,
@@ -794,8 +795,6 @@ impl ExportSink<'_> {
                     )
                     .map(VerifiedArrayLeaf::Field)
                 } else if measured && parent_name == "KillData" {
-                    let declared_checksum =
-                        declared_checksums.get(f.handle as usize).copied().flatten();
                     verified_kill_data_leaf(f.handle, name, declared_checksum, declared_resolved)
                 } else if measured {
                     verified_array_leaf_type(parent_name, checksum, f.handle, resolved, name)
@@ -1027,12 +1026,26 @@ impl ExportSink<'_> {
         false
     }
 
+    /// Open a bit reader over a struct blob's declared bit length, or record
+    /// the failure and hand back `None`. All three struct-blob decoders start
+    /// this way; one guard here keeps the "declared bit length exceeds
+    /// buffer" wording from drifting between copies.
+    fn blob_bit_reader<'a>(&mut self, raw: &'a [u8], bit_count: u32) -> Option<BitReader<'a>> {
+        match BitReader::with_bit_len(raw, u64::from(bit_count)) {
+            Ok(reader) => Some(reader),
+            Err(_) => {
+                self.record_blob_failure(&"declared bit length exceeds buffer");
+                None
+            }
+        }
+    }
+
     /// Decode RoundResults blob and emit sub-field rows.
     fn decode_round_results_blob(&mut self, raw: &[u8], bit_count: u32) -> bool {
         use vrf_decode::structs::decode_round_results;
 
-        let Ok(mut reader) = BitReader::with_bit_len(raw, u64::from(bit_count)) else {
-            return self.record_blob_failure(&"declared bit length exceeds buffer");
+        let Some(mut reader) = self.blob_bit_reader(raw, bit_count) else {
+            return false;
         };
         // Scoped so the borrow of `self.cache` ends before the emit loop needs
         // `&mut self`. The decoded elements own their strings, so nothing
@@ -1084,8 +1097,8 @@ impl ExportSink<'_> {
     fn decode_team_economy_blob(&mut self, raw: &[u8], bit_count: u32) -> bool {
         use vrf_decode::structs::decode_team_economy;
 
-        let Ok(mut reader) = BitReader::with_bit_len(raw, u64::from(bit_count)) else {
-            return self.record_blob_failure(&"declared bit length exceeds buffer");
+        let Some(mut reader) = self.blob_bit_reader(raw, bit_count) else {
+            return false;
         };
         let results = match decode_team_economy(&mut reader) {
             Ok(results) => results,
@@ -1126,8 +1139,8 @@ impl ExportSink<'_> {
     fn decode_round_infos_blob(&mut self, raw: &[u8], bit_count: u32) -> bool {
         use vrf_decode::structs::decode_round_infos;
 
-        let Ok(mut reader) = BitReader::with_bit_len(raw, u64::from(bit_count)) else {
-            return self.record_blob_failure(&"declared bit length exceeds buffer");
+        let Some(mut reader) = self.blob_bit_reader(raw, bit_count) else {
+            return false;
         };
         let decoded = {
             let declared = Self::declared_handle_names(self.cache, &self.current_group_path);

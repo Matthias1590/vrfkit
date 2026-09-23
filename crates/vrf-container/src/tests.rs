@@ -461,11 +461,8 @@ fn header_valid_parses_all_fields() {
     assert_eq!(header.build_target_type, 3);
 }
 
-/// The header parser stops at `BuildTargetType` and returned success without
-/// ever asking whether the chunk had more to give. A header extension -- the
-/// exact thing a new engine build appends -- was therefore skipped permanently,
-/// with no error and no residual to notice it by. The bytes are not parsed
-/// (nothing knows their layout), but the fact that they exist is reported.
+/// See `ReplayHeader::trailing_bytes`'s own doc for why a header extension is
+/// reported rather than skipped.
 #[test]
 fn header_trailing_bytes_are_reported_not_discarded() {
     let mut payload = helpers::build_header_payload();

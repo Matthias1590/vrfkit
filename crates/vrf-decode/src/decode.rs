@@ -85,15 +85,9 @@ pub enum DecodeError {
     /// (negative) number.
     #[error("unsigned value {value} (0x{value:016X}) exceeds i64::MAX")]
     UnsignedOverflow { value: u64 },
-    /// A geometry component decoded to `NaN` or an infinity.
-    ///
-    /// Only the raw-`f32`/`f64` fallback inside a quantized vector can produce
-    /// one -- the packed path is an integer quotient of an integer scale and is
-    /// finite by construction. [`crate::types::FRepMovement`] renders as a JSON
-    /// object, and neither `NaN` nor `inf` is a JSON literal, so a payload
-    /// carrying one used to emit syntactically invalid JSON into `value_str`
-    /// with every counter reporting success. Rejected rather than coerced, the
-    /// same call `EffectBlobError::NonFiniteFloat` already makes.
+    /// A geometry component decoded to `NaN` or an infinity. See
+    /// [`crate::types::FRepMovement`]'s `Display` impl for why this is
+    /// rejected rather than coerced.
     #[error("{context} component is not finite")]
     NonFiniteComponent { context: &'static str },
 

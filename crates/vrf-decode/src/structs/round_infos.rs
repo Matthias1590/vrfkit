@@ -33,10 +33,8 @@ pub struct PlayerRoundInfo {
 /// # Wire layout
 ///
 /// Standard UE RepLayout dynamic-array framing (see module docs). Members are
-/// selected by declared name. These five sit at 40..=44 in both builds
-/// measured so far, which is luck rather than a guarantee -- 13.02 shifted
-/// `RoundResults` by eight in the group next door, and this group simply had
-/// no property removed above it.
+/// selected by declared name; these five kept their 40..=44 handles through
+/// 13.02 by luck, not guarantee. See docs/archive/PROJECT_STATUS.md 26-G.
 ///
 /// # Arguments
 ///

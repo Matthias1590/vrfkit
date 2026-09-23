@@ -4,17 +4,14 @@ import argparse,hashlib,json,sys
 from pathlib import Path
 import pyarrow as pa
 if __package__:
- from .atomic_io import atomic_write_text
+ from .atomic_io import atomic_write_text, sha256_file
  from . import extract_section_timeline,section_packet_timeline
 else:
- from atomic_io import atomic_write_text
+ from atomic_io import atomic_write_text, sha256_file
  import extract_section_timeline,section_packet_timeline
 
-def sha(path):
- h=hashlib.sha256()
- with path.open("rb") as f:
-  for block in iter(lambda:f.read(1<<20),b""):h.update(block)
- return h.hexdigest()
+sha = sha256_file
+
 def helpers():
  names=[Path(__file__),Path(section_packet_timeline.__file__),Path(extract_section_timeline.__file__),Path(extract_section_timeline.section_timeline.__file__),Path(extract_section_timeline.extract_section_observations.__file__),Path(extract_section_timeline.__file__).with_name("atomic_io.py"),Path(extract_section_timeline.__file__).with_name("extract_kill_observations.py")]
  return [p.resolve() for p in names]

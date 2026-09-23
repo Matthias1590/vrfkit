@@ -38,22 +38,18 @@ pub fn decode_movement_rpc(
 ) -> Result<RpcDecodeResult, MovementError> {
     let end_bit = reader.len_bits();
 
-    // First bit: consumed but value ignored (C# discards via `TryReadBit(out _)`).
-    // If no bits remain, the payload is empty.
-    if reader.bits_remaining() == 0 {
-        return Ok(RpcDecodeResult {
-            total_moves: 0,
-            update_count: 0,
-            error_count: 0,
-        });
-    }
-    let _ = reader.read_bit()?; // consume and discard
-
     let mut result = RpcDecodeResult {
         total_moves: 0,
         update_count: 0,
         error_count: 0,
     };
+
+    // First bit: consumed but value ignored (C# discards via `TryReadBit(out _)`).
+    // If no bits remain, the payload is empty.
+    if reader.bits_remaining() == 0 {
+        return Ok(result);
+    }
+    let _ = reader.read_bit()?; // consume and discard
 
     // Property-style framing: loop over handles.
     while reader.position() < end_bit {
@@ -242,13 +238,7 @@ fn decode_component_data_stream(
     result: &mut RpcDecodeResult,
     emit: &mut impl FnMut(MovementMove),
 ) -> Result<(), MovementError> {
-    if reader.bits_remaining() < 16 {
-        return Err(MovementError::TruncatedComponentHeader {
-            available_bits: reader.bits_remaining(),
-        });
-    }
-
-    let first_u16 = reader.read_u16()?;
+    let first_u16 = read_u16_checked(reader)?;
 
     // Check if this could be a byte-wrapped envelope:
     // The byte count must be > 0 and byte_count * 8 must fit in remaining bits.
@@ -272,14 +262,21 @@ fn parse_component_payload(
     result: &mut RpcDecodeResult,
     emit: &mut impl FnMut(MovementMove),
 ) -> Result<(), MovementError> {
+    let movement_bit_count = read_u16_checked(reader)?;
+    parse_movement_with_bit_count(reader, movement_bit_count, shooter_guid, result, emit)
+}
+
+/// Read a u16, failing with `TruncatedComponentHeader` rather than the
+/// generic bit-reader error when fewer than 16 bits remain. Shared by the
+/// byte-wrapped-envelope check and the inner component-payload header, which
+/// both gate on the same framing invariant before reading the same field.
+fn read_u16_checked(reader: &mut BitReader<'_>) -> Result<u16, MovementError> {
     if reader.bits_remaining() < 16 {
         return Err(MovementError::TruncatedComponentHeader {
             available_bits: reader.bits_remaining(),
         });
     }
-
-    let movement_bit_count = reader.read_u16()?;
-    parse_movement_with_bit_count(reader, movement_bit_count, shooter_guid, result, emit)
+    Ok(reader.read_u16()?)
 }
 
 /// Common logic after reading movementBitCount.
@@ -292,14 +289,20 @@ fn parse_movement_with_bit_count(
 ) -> Result<(), MovementError> {
     let remaining = reader.bits_remaining();
 
-    if movement_bit_count == 0 || u64::from(movement_bit_count) > remaining {
-        // Movement uses all remaining bits.
-        let mut movement_reader = reader.sub_reader(remaining)?;
-        parse_movement_section(&mut movement_reader, shooter_guid, result, emit)?;
+    // movementBitCount == 0, or larger than what remains, means movement uses
+    // all remaining bits; otherwise it uses exactly that many bits, with the
+    // tail after it skipped.
+    let uses_all_remaining = movement_bit_count == 0 || u64::from(movement_bit_count) > remaining;
+    let bits = if uses_all_remaining {
+        remaining
     } else {
-        // Movement uses exactly movementBitCount bits.
-        let mut movement_reader = reader.sub_reader(u64::from(movement_bit_count))?;
-        parse_movement_section(&mut movement_reader, shooter_guid, result, emit)?;
+        u64::from(movement_bit_count)
+    };
+
+    let mut movement_reader = reader.sub_reader(bits)?;
+    parse_movement_section(&mut movement_reader, shooter_guid, result, emit)?;
+
+    if !uses_all_remaining {
         // Skip any remaining bits after movement section.
         reader.skip_remaining();
     }

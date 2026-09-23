@@ -1,14 +1,7 @@
 //! A string pool for the two name columns of `fields.parquet`.
 //!
-//! # Why
-//!
-//! The reference replay emits 1,246,812 field rows and the Parquet writer used
-//! to buffer 131,072 of them before flushing a row group. With `String` columns
-//! that was up to three heap allocations per row and ~393,000 live allocations
-//! at the flush peak -- while the whole replay only ever names **475** distinct
-//! group paths and 4,557 distinct field names between them. Interning replaces
-//! the allocation with a refcount increment and makes the buffered rows share
-//! one copy of each name.
+//! Interning replaces the allocation with a refcount increment and makes the
+//! buffered rows share one copy of each name.
 //!
 //! The pool is not a cache in front of a slow computation: `intern` still hashes
 //! the string it is given. What it buys is the allocation, the memcpy, and the
@@ -17,6 +10,9 @@
 //! Arrow never sees the `Arc`. The dictionary builders are fed `&str` exactly as
 //! before, so the value sequence per row group, the dictionary and the encoded
 //! bytes are unchanged.
+//!
+//! Row/allocation counts behind interning (shared with vrf-export::record's
+//! FieldRecord doc): docs/PERFORMANCE_NOTES.md#name-interning.
 
 use std::fmt::Write as _;
 use std::sync::Arc;

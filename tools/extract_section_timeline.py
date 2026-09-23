@@ -7,17 +7,13 @@ import pyarrow.compute as pc
 import pyarrow.parquet as pq
 
 if __package__:
-    from .atomic_io import atomic_write_text
+    from .atomic_io import atomic_write_text, sha256_file
     from . import extract_section_observations, section_timeline
 else:
-    from atomic_io import atomic_write_text
+    from atomic_io import atomic_write_text, sha256_file
     import extract_section_observations, section_timeline
 
-def sha(path):
-    h=hashlib.sha256()
-    with path.open("rb") as f:
-        for b in iter(lambda:f.read(1<<20),b""): h.update(b)
-    return h.hexdigest()
+sha = sha256_file
 
 def aliases(path, protected):
     for item in protected:

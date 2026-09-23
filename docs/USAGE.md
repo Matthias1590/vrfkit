@@ -327,7 +327,8 @@ row** and cannot be expanded into fields.
 | `handle` | `u32::MAX` |
 | `raw_bits` | Full payload |
 
-These blocks are counted under `validate`'s `RPC stream failed`. Their retained
+These preserved blocks are counted under `validate`'s `RPC unresolved/raw`
+line, and excluded from `RPC payload lost`. Their retained
 raw bytes can be investigated directly; naming their inner fields also needs
 the correct class/function schema and replication context.
 
@@ -663,7 +664,7 @@ first, and read the "Deliberately NOT added" note in the same comment, which
 records the fields that failed the bar and why.
 
 Both counts above are measured, not maintained by hand. `check_docs.py` reads the
-133 against `expectation_count(table.rs)`, so a stale one is caught -- but
+187 against `expectation_count(table.rs)`, so a stale one is caught -- but
 **nothing checks the `ADDITIONS` figure**, which is why it sat at 70 while the
 list held 73. Re-measure it by importing the module rather than counting the
 source by eye (`tools/` has to be on the path; the module imports `atomic_io`
@@ -692,7 +693,7 @@ m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); print(len(m
 | `compare_rpc_params.py` | RPC parameter comparison |
 | `compare_with_csharp.py` | Diff against the C# parser |
 | `check_effect_decoder.py` | Effect decoder (12 cases) |
-| `check_ascii.py` | Rust source ASCII sweep (127 files) |
+| `check_ascii.py` | Rust source ASCII sweep (128 files) |
 | `check_docs.py` | This document itself (below) |
 | `atomic_io.py` | Internal containment, recursive-removal and atomic-replacement helpers shared by mutating tools |
 
@@ -971,10 +972,10 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 709 passing
+cargo +1.86.0 test --workspace --locked                              # 698 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
-python -W error tools/check_ascii.py --check                         # 127 files
+python -W error tools/check_ascii.py --check                         # 128 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
 python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 817 tests
 python -W error tools/check_docs.py --fast

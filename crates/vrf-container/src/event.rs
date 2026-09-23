@@ -17,11 +17,8 @@
 //! | ... | i32 | SizeInBytes |
 //! | ... | [u8; SizeInBytes] | payload |
 //!
-//! Measured over 527 replays from releases 13.01, 13.02 and 13.04 (109,126
-//! Event chunks): every chunk is consumed exactly by this layout with no bytes
-//! left over, and Time1 always equals Time2. Checkpoint chunks open with the
-//! same six fields, so the framing is not Event-specific; this module parses
-//! Event chunks only.
+//! See docs/USAGE.md, the "events.parquet" section, for the corpus sweep that
+//! verified this layout.
 //!
 //! # Structural payload view
 //!
@@ -34,9 +31,9 @@
 //! but it is not self-describing. `N` varies by group (0 for SpikePlanted, 1
 //! for RoundStart, 2 for CharacterDeath) and no count precedes the words, so a
 //! forward read cannot tell where they end. For the seven known groups, a
-//! fixed `N`, tag and public enum-name FString consumed all 109,126 payloads
-//! exactly across the three measured builds. That remains corpus evidence, not
-//! a self-describing format guarantee. [`parse_event_payload`] therefore
+//! fixed `N`, tag and public enum-name FString consumed every payload exactly
+//! in that same corpus sweep. That remains corpus evidence, not a
+//! self-describing format guarantee. [`parse_event_payload`] therefore
 //! requires the caller to supply an already-established `N`; the guarded
 //! [`parse_known_event_payload`] additionally requires the measured tag and
 //! name. The original payload is still handed to the caller byte for byte, and
@@ -46,6 +43,7 @@
 use vrf_bitio::BitReader;
 
 use crate::error::ContainerError;
+use crate::io::{read_fstring, read_i32, read_u32};
 use crate::limits::MAX_FSTRING_BYTES;
 
 /// A parsed Event chunk: the six header fields plus its raw payload.
@@ -131,9 +129,10 @@ pub const fn known_event_payload_name(group: &str) -> Option<&'static str> {
 /// Return the group tag measured across the supported corpus for a known
 /// Event group.
 ///
-/// Each mapping was constant over 109,126 Event payloads spanning releases
-/// 13.01, 13.02 and 13.04. Keeping it beside the arity and enum-name guards
-/// makes a future enum reorder fail closed instead of publishing a stale tag.
+/// Each mapping was constant across the corpus sweep documented in
+/// docs/USAGE.md, the "events.parquet" section. Keeping it beside the arity
+/// and enum-name guards makes a future enum reorder fail closed instead of
+/// publishing a stale tag.
 #[must_use]
 pub const fn known_event_payload_tag(group: &str) -> Option<u32> {
     match group.as_bytes() {
@@ -227,9 +226,9 @@ pub fn parse_known_event_payload(group: &str, payload: &[u8]) -> Option<EventPay
 pub fn parse_event_chunk(payload: &[u8]) -> Result<EventChunk<'_>, ContainerError> {
     let mut reader = BitReader::new(payload);
 
-    let id = read_fstring(&mut reader, "event id")?;
-    let group = read_fstring(&mut reader, "event group")?;
-    let metadata = read_fstring(&mut reader, "event metadata")?;
+    let id = read_fstring(&mut reader, "event id", MAX_FSTRING_BYTES)?;
+    let group = read_fstring(&mut reader, "event group", MAX_FSTRING_BYTES)?;
+    let metadata = read_fstring(&mut reader, "event metadata", MAX_FSTRING_BYTES)?;
     let time1 = read_u32(&mut reader, "event time1")?;
     let time2 = read_u32(&mut reader, "event time2")?;
     let size_in_bytes = read_i32(&mut reader, "event payload size")?;
@@ -243,7 +242,12 @@ pub fn parse_event_chunk(payload: &[u8]) -> Result<EventChunk<'_>, ContainerErro
 
     // Every read above is byte-granular, so the reader sits on a byte boundary.
     let header_end = (reader.position() / 8) as usize;
-    if header_end > payload.len() || payload.len() - header_end < size {
+    // Only the shortfall test: `header_end > payload.len()` cannot be true.
+    // Every read above returned Ok, and BitReader::need refuses to advance
+    // past the buffer before any successful read, so position()/8 is always
+    // within payload. The disjunct that used to be here read as a second
+    // guard and could not fire.
+    if payload.len() - header_end < size {
         return Err(ContainerError::Truncated {
             context: "event payload",
             needed: size,
@@ -264,28 +268,3 @@ pub fn parse_event_chunk(payload: &[u8]) -> Result<EventChunk<'_>, ContainerErro
 }
 
 // --- Helpers ------------------------------------------------------------------
-
-fn read_u32(reader: &mut BitReader<'_>, context: &'static str) -> Result<u32, ContainerError> {
-    reader.read_u32().map_err(|_| ContainerError::Truncated {
-        context,
-        needed: 4,
-        available: (reader.bits_remaining() / 8) as usize,
-    })
-}
-
-fn read_i32(reader: &mut BitReader<'_>, context: &'static str) -> Result<i32, ContainerError> {
-    reader.read_i32().map_err(|_| ContainerError::Truncated {
-        context,
-        needed: 4,
-        available: (reader.bits_remaining() / 8) as usize,
-    })
-}
-
-fn read_fstring(
-    reader: &mut BitReader<'_>,
-    context: &'static str,
-) -> Result<String, ContainerError> {
-    reader
-        .read_fstring(MAX_FSTRING_BYTES)
-        .map_err(|source| ContainerError::FString { context, source })
-}
