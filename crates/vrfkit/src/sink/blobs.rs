@@ -76,7 +76,7 @@ fn verified_nested_member(
         && (resolved.is_none() || resolved == Some(FieldType::ObjectNetGuid))
 }
 
-fn strict_nested_array_preflight(raw: &[u8], bit_count: u32, allowed: &[u32]) -> bool {
+pub(super) fn strict_nested_array_preflight(raw: &[u8], bit_count: u32, allowed: &[u32]) -> bool {
     // The generic walker tolerates EOF terminators and skips zero-width fields
     // for older routes. These new measured routes require explicit terminators
     // and inspect every handle before a zero-width member could disappear.
@@ -270,6 +270,47 @@ fn verified_array_leaf_type(
             (30, Some("Translation")) | (31, Some("Scale3D"))
         );
     (resolved == Some(wanted) || (resolved.is_none() && measured_vector)).then_some(wanted)
+}
+
+/// ActiveBlinds has no top-level overlay for its struct members. Both the
+/// enclosing checksum and each member declaration were observed unchanged in
+/// 13.02 and 13.05. A changed name/checksum or conflicting future overlay
+/// refuses typing, while the parent's raw_bits stay available.
+fn verified_blind_leaf_type(
+    handle: u32,
+    name: Option<&str>,
+    checksum: Option<u32>,
+    resolved: Option<FieldType>,
+) -> Option<FieldType> {
+    let (wanted_name, wanted_checksum, wanted_type) = match handle {
+        3 => ("BlindId", 2_836_858_544, FieldType::UInt32),
+        4 => ("EffectID", 3_321_413_110, FieldType::UInt64),
+        5 => ("SourceID", 4_130_766_059, FieldType::FName),
+        6 => ("bLocalEffect", 2_802_682_995, FieldType::Bool),
+        7 => ("bTransient", 815_378_154, FieldType::Bool),
+        8 => ("InitialDuration", 1_370_668_337, FieldType::Float),
+        9 => ("StartNetMovementTime", 2_358_118_895, FieldType::Float),
+        10 => ("BlindConfig", 4_121_438_116, FieldType::ObjectNetGuid),
+        11 => ("CausingActor", 2_370_661_694, FieldType::ObjectNetGuid),
+        _ => return None,
+    };
+    (name == Some(wanted_name)
+        && checksum == Some(wanted_checksum)
+        && (resolved.is_none() || resolved == Some(wanted_type)))
+    .then_some(wanted_type)
+}
+
+fn blind_member_width_valid(handle: u32, width: u32) -> bool {
+    match handle {
+        3 => width == 32,
+        4 => width == 64,
+        5 => width == 297,
+        6 | 7 => width == 1,
+        8 | 9 => width == 32,
+        10 => width == 16,
+        11 => matches!(width, 16 | 24),
+        _ => false,
+    }
 }
 
 /// `TrackedRewards` leaf types have independent full-corpus evidence. The
@@ -507,6 +548,10 @@ fn measured_array_route(group: &str, parent: &str, checksum: Option<u32>) -> boo
             "/Script/ShooterGame.FiniteSpeedMovementComponent",
             "RequestedIgnoreActors",
             Some(1_063_739_204)
+        ) | (
+            "/Script/ShooterGame.BlindManagerComponent",
+            "ActiveBlinds",
+            Some(3_853_965_310)
         )
     )
 }
@@ -644,6 +689,11 @@ impl ExportSink<'_> {
                     && self.current_group_path.as_ref()
                         == "/Script/ShooterGame.FiniteSpeedMovementComponent"
             }
+            (Some("ActiveBlinds"), Some(3_853_965_310)) => {
+                self.measured_array_routes
+                    && self.current_group_path.as_ref()
+                        == "/Script/ShooterGame.BlindManagerComponent"
+            }
             _ => false,
         }
     }
@@ -689,6 +739,13 @@ impl ExportSink<'_> {
         let measured = self.measured_array_routes
             && measured_array_route(&self.current_group_path, parent_name, checksum);
         if measured
+            && parent_name == "ActiveBlinds"
+            && !strict_nested_array_preflight(raw, bit_count, &[3, 4, 5, 6, 7, 8, 9, 10, 11])
+        {
+            self.stats.array.errors += 1;
+            return;
+        }
+        if measured
             && is_tracked_rewards_opaque_empty_variant(
                 &self.current_group_path,
                 parent_name,
@@ -720,6 +777,33 @@ impl ExportSink<'_> {
                 && isolated.unconsumed_root_bits == 0;
             merge_array_stats(&mut self.stats.array, &isolated);
             if !complete {
+                return;
+            }
+            if parent_name == "ActiveBlinds"
+                && flattened
+                    .iter()
+                    .any(|field| !blind_member_width_valid(field.handle, field.bit_count))
+            {
+                self.stats.array_leaf_decode_errors += 1;
+                return;
+            }
+            if parent_name == "ActiveBlinds"
+                && flattened.iter().any(|field| {
+                    let name = declared.get(field.handle as usize).copied().flatten();
+                    let checksum = declared_checksums
+                        .get(field.handle as usize)
+                        .copied()
+                        .flatten();
+                    let resolved = vrf_decode::resolve_field_type(
+                        &TABLE,
+                        &self.current_group_path,
+                        name,
+                        Some(field.handle),
+                    );
+                    verified_blind_leaf_type(field.handle, name, checksum, resolved).is_none()
+                })
+            {
+                self.stats.array_leaf_decode_errors += 1;
                 return;
             }
         }
@@ -786,6 +870,9 @@ impl ExportSink<'_> {
                         declared_resolved,
                     )
                     .map(VerifiedArrayLeaf::Field)
+                } else if measured && parent_name == "ActiveBlinds" {
+                    verified_blind_leaf_type(f.handle, name, declared_checksum, declared_resolved)
+                        .map(VerifiedArrayLeaf::Field)
                 } else if measured && parent_name == "SelectedV2" {
                     verified_selected_v2_leaf_type(
                         f.handle,
@@ -1447,7 +1534,7 @@ mod tests {
                 OWNER,
                 OWNER_PARENT,
                 OWNER_CHECKSUM,
-                Some("++Ares-Core+release-13.06"),
+                Some("++Ares-Core+release-13.07"),
             ),
             (
                 OWNER,
@@ -2146,6 +2233,19 @@ mod tests {
             unexpected.len() as u32,
             &[7]
         ));
+        // The generic array walker skips zero-width members. The projectile
+        // route must reject one even when all three expected members follow.
+        let path_with_unknown_zero = one_element(&[
+            (4, Vec::new()),
+            (1, bits_from_bytes(&[0; 4])),
+            (2, bits_from_bytes(&[0; 24])),
+            (3, bits_from_bytes(&[0; 24])),
+        ]);
+        assert!(!strict_nested_array_preflight(
+            &bytes(&path_with_unknown_zero),
+            path_with_unknown_zero.len() as u32,
+            &[1, 2, 3]
+        ));
         let mut capacity_limit = Vec::new();
         packed(&mut capacity_limit, vrf_decode::MAX_ELEMENTS + 1);
         packed(&mut capacity_limit, 0);
@@ -2171,6 +2271,62 @@ mod tests {
             field_limit.len() as u32,
             &[7]
         ));
+    }
+
+    #[test]
+    fn active_blinds_changed_member_declaration_retains_only_raw_parent() {
+        const GROUP: &str = "/Script/ShooterGame.BlindManagerComponent";
+        const PARENT: &str = "ActiveBlinds";
+        let declarations = [
+            (3, "BlindId", 2_836_858_544),
+            (4, "EffectID", 3_321_413_110),
+            (5, "SourceID", 4_130_766_059),
+            (6, "bLocalEffect", 2_802_682_995),
+            (7, "bTransient", 815_378_154),
+            (8, "InitialDuration", 1_370_668_337),
+            (9, "StartNetMovementTime", 2_358_118_895),
+            (10, "BlindConfig", 4_121_438_116),
+            (11, "CausingActor", 2_370_661_694),
+        ];
+        let mut source_id = vec![false];
+        source_id.extend(bits_from_bytes(&(29i32).to_le_bytes()));
+        source_id.extend(bits_from_bytes(b"DedicatedServerWorldSourceID\0"));
+        source_id.extend(bits_from_bytes(&0i32.to_le_bytes()));
+        assert_eq!(source_id.len(), 297);
+        let mut blind_config = Vec::new();
+        packed(&mut blind_config, 256);
+        let mut causing_actor = Vec::new();
+        packed(&mut causing_actor, 257);
+        let bits = one_element(&[
+            (3, bits_from_bytes(&7u32.to_le_bytes())),
+            (4, bits_from_bytes(&8u64.to_le_bytes())),
+            (5, source_id),
+            (6, vec![true]),
+            (7, vec![false]),
+            (8, bits_from_bytes(&1.5f32.to_le_bytes())),
+            (9, bits_from_bytes(&10.0f32.to_le_bytes())),
+            (10, blind_config),
+            (11, causing_actor),
+        ]);
+        let identity = (GROUP, PARENT, 3_853_965_310);
+        let (valid, clean) =
+            export_array_with_declarations(identity, &declarations, &bits, Some(MEASURED_BUILD));
+        assert_eq!(valid.fields.len(), 10);
+        assert_eq!(clean.array_leaf_decode_errors, 0);
+        assert_eq!(valid.fields[0].value_i64, Some(7));
+        assert_eq!(valid.fields[8].value_i64, Some(257));
+
+        let mut changed = declarations;
+        changed[0].2 += 1;
+        let (refused, stats) =
+            export_array_with_declarations(identity, &changed, &bits, Some(MEASURED_BUILD));
+        assert_eq!(refused.fields.len(), 1);
+        assert_eq!(refused.fields[0].field_name.as_deref(), Some(PARENT));
+        assert_eq!(
+            refused.fields[0].raw_bits.as_deref(),
+            Some(bytes(&bits).as_slice())
+        );
+        assert_eq!(stats.array_leaf_decode_errors, 1);
     }
 
     #[test]

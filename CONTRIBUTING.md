@@ -183,7 +183,7 @@ the distinction is written here.
 One corpus guard does run in CI: `check_corpus_baseline.py`, on the 12.10,
 12.11 and 13.00 fixtures only. Those three are byte-identical to the upstream
 parser's public test replays, so the Windows job fetches them from a pinned
-commit and checks their SHA-256 first. The 13.02, 13.04 and 13.05 baselines
+commit and checks their SHA-256 first. The 13.02, 13.04, 13.05 and 13.06 baselines
 have no public fixture and are still yours to run.
 
 The same job exports those three fixtures and runs `validate_type_evidence.py

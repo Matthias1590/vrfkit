@@ -593,7 +593,7 @@ Take only the layer you need. Every crate is `#![forbid(unsafe_code)]`, and
 | Layer | Crate | Feature flags |
 |---|---|---|
 | Bit reader / UE wire format | `vrf-bitio` | `alloc` (default; drop it for `no_std`) |
-| Payload transform (7 builds) | `vrf-transform` | none |
+| Payload transform (8 builds) | `vrf-transform` | none |
 | Container (info/header/chunk/event/checkpoint, Oodle) | `vrf-container` | `oodle` `event` `checkpoint` |
 | DemoFrame traversal | `vrf-frame` | none |
 | Dynamic schema + GUID cache + checkpoint tables | `vrf-schema` | `checkpoint` |
@@ -693,7 +693,7 @@ m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); print(len(m
 | `compare_rpc_params.py` | RPC parameter comparison |
 | `compare_with_csharp.py` | Diff against the C# parser |
 | `check_effect_decoder.py` | Effect decoder (12 cases) |
-| `check_ascii.py` | Rust source ASCII sweep (128 files) |
+| `check_ascii.py` | Rust source ASCII sweep (129 files) |
 | `check_docs.py` | This document itself (below) |
 | `atomic_io.py` | Internal containment, recursive-removal and atomic-replacement helpers shared by mutating tools |
 
@@ -838,7 +838,11 @@ It reports source-file, parsed type and handle changes, plus downstream entries
 that wholesale regeneration would remove or overwrite. Git commits, input
 digests and the extractor digest identify the compared sources. Changes are
 review candidates; unsupported C# syntax can appear only in the source-file
-diff, so an empty parsed diff does not prove an unchanged schema.
+diff, so an empty parsed diff does not prove an unchanged schema. The extractor
+understands inherited movement quantization, static constant paths and the
+reviewed ClassNetCache factories. Unsupported forms of these declarations fail
+explicitly. The schema-v3 report lists version-selected custom decoders that
+remain `Raw` separately.
 
 `validate_type_evidence.py <export-or-parent> <specifications.json>` independently
 reads raw payloads against explicit primitive type proposals. Each specification
@@ -850,6 +854,16 @@ covers the 38 additions; `tools/fixtures/type_evidence_aliases.json` separately
 covers their existing Swiftplay class-alias propagation. Both were checked on
 all corresponding observed rows in the 714-replay corpus. A specimen must not
 be promoted to gameplay semantics just because this primitive check passes.
+
+`validate_ability_array_evidence.py <export-directory> [...] --compare-typed
+--require-routes` checks the measured `ActiveBlinds` and
+`MulticastSetPath.NetworkedProjectilePath` routes. It independently reads each
+parent's raw bits, requires explicit terminators and exact consumption, and
+compares child paths, context, raw bits and typed values. `--require-routes`
+rejects an aggregate with no sample of either route; an individual replay may
+legitimately contain neither. The tool reads main `fields.parquet`; checkpoint
+behavior is separately covered by the export comparison and corpus guards.
+See [UPSTREAM_PARITY.md](UPSTREAM_PARITY.md) for the measured sample scope.
 
 `summarize_value_coverage.py <export-or-parent> [--jobs 4]` reads the physical
 `value_i64/f64/bool/str` columns and emits JSON to stdout. It counts each row
@@ -972,12 +986,12 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 698 passing
+cargo +1.86.0 test --workspace --locked                              # 701 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
-python -W error tools/check_ascii.py --check                         # 128 files
+python -W error tools/check_ascii.py --check                         # 129 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 817 tests
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 836 tests
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 187 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
@@ -1106,6 +1120,7 @@ silent change must be impossible.
 | 13.02 | Preserved replay + 204-replay portion of the current sweep |
 | 13.04 | Preserved fixture + upstream golden vectors + 108-replay export/checkpoint sweep |
 | 13.05 | Preserved fixture + golden vectors + 187-file portion of the 714-file sweep |
+| 13.06 | Six preserved fixtures + 11 upstream golden vectors + main/checkpoint exports ([details](UPSTREAM_PARITY.md)) |
 
 The current 714-file sweep passes ReplayData block validation and separately
 reports zero checkpoint block loss. All 961,004 partial fragments now reassemble

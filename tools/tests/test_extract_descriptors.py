@@ -79,6 +79,114 @@ class ExtractDescriptorsTests(unittest.TestCase):
             if group.endswith("_ClassNetCache")
         }
 
+    def test_virtual_movement_uses_concrete_override(self):
+        output = self.run_generator({"Movement.cs": r'''
+public abstract class BaseFlash<T> : ExportGroupDescriptor<T>
+{
+    protected virtual ERotatorQuantization MovementRotationQuantization =>
+        ERotatorQuantization.ShortComponents;
+    protected override void Configure()
+    {
+        AddPropertyHandle(10, x => x.ReplicatedMovement)
+            .ReplicatedMovement(MovementRotationQuantization);
+    }
+}
+public sealed class ShortFlash : BaseFlash<ShortFlash>
+{
+    public override string Path => "/short";
+}
+public sealed class ByteFlash : BaseFlash<ByteFlash>
+{
+    public override string Path => "/byte";
+    protected override ERotatorQuantization MovementRotationQuantization =>
+        ERotatorQuantization.ByteComponents;
+}
+'''})
+        self.assertIn('group_path: "/short", field_name: "ReplicatedMovement", field_type: FieldType::RepMovement { rotation: RotatorQuantization::ShortComponents }', output)
+        self.assertIn('group_path: "/byte", field_name: "ReplicatedMovement", field_type: FieldType::RepMovement { rotation: RotatorQuantization::ByteComponents }', output)
+
+    def test_unresolved_movement_property_fails(self):
+        error = self.run_generator_expecting_failure({"Movement.cs": r'''
+public sealed class Flash : ExportGroupDescriptor<Flash>
+{
+    public override string Path => "/flash";
+    protected override void Configure()
+    {
+        AddProperty(x => x.ReplicatedMovement)
+            .ReplicatedMovement(MovementRotationQuantization);
+    }
+}
+'''})
+        self.assertIn("cannot resolve virtual movement quantization", error)
+
+    def test_static_path_constants_and_cache_factory(self):
+        output = self.run_generator({"Factory.cs": r'''
+internal static class Paths
+{
+    public const string Actor = "/actor";
+    public const string Rpc = Actor + ":Stop";
+}
+public sealed class ActorDescriptor : ExportGroupDescriptor<ActorDescriptor>
+{
+    public override string Path => Paths.Actor;
+    protected override void Configure()
+    {
+        AddProperty(x => x.Value).Float();
+    }
+}
+public sealed class RpcParameters : ExportGroupDescriptor<RpcParameters>
+{
+    public override string Path => Paths.Rpc;
+    protected override void Configure()
+    {
+        AddProperty(x => x.Flag).Bool();
+    }
+}
+internal static class Factories
+{
+    public static ClassNetCacheDescriptor CreateStop(string actorPath, uint handle) =>
+        new(actorPath + "_ClassNetCache", [
+            new RpcDescriptor { Name = "Stop", Handle = handle },
+        ]);
+}
+public static class Catalog
+{
+    public static void Add() => Factories.CreateStop(Paths.Actor, 3);
+}
+'''})
+        self.assertIn('group_path: "/actor", field_name: "Value"', output)
+        self.assertIn('group_path: "/actor:Stop", field_name: "Flag"', output)
+        self.assertIn('group_path: "/actor_ClassNetCache", field_name: "Stop", field_type: FieldType::Skip', output)
+
+    def test_unresolved_path_constant_fails(self):
+        error = self.run_generator_expecting_failure({"Bad.cs": r'''
+public sealed class Bad : ExportGroupDescriptor<Bad>
+{
+    public override string Path => Missing.Actor;
+    protected override void Configure() { AddProperty(x => x.Value).Float(); }
+}
+'''})
+        self.assertIn("unresolved path constant", error)
+
+    def test_unsupported_dynamic_cache_factory_fails(self):
+        error = self.run_generator_expecting_failure({"Factory.cs": r'''
+internal static class Factories
+{
+    public static ClassNetCacheDescriptor Build(string path) =>
+        new(path, [new RpcDescriptor { Name = "Unsupported" }]);
+}
+'''})
+        self.assertIn("unsupported ClassNetCache factory", error)
+
+    def test_unsupported_path_override_shape_fails(self):
+        error = self.run_generator_expecting_failure({"Bad.cs": r'''
+public sealed class Bad : ExportGroupDescriptor<Bad>
+{
+    public override string Path { get => "/bad"; }
+}
+'''})
+        self.assertIn("unsupported override shape", error)
+
     def test_source_tree_with_no_csharp_files_is_rejected(self):
         """A missing checkout must not regenerate the overlay as an empty table."""
         result, output = self.run_generator_process({})

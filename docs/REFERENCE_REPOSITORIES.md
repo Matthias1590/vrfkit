@@ -1,5 +1,16 @@
 # 참조 저장소 및 PR 조사: ValorantReplayParser / ValorantWebReplayer
 
+## 2026-09-23 업데이트
+
+최신 조사는 upstream [`d23c13e`](https://github.com/michel-giehl/ValorantReplayParser/tree/d23c13e12262fb1da9fc005d1cd0ef9f8d0d36fd)를 기준으로 했다.
+아래의 2026-09-08 조사 이후 PR #5와 #7이 병합됐으며, 13.06 transform,
+섬광/연막/벽/근시 이벤트와 descriptor, export-group 충돌 수정이 추가됐다.
+vrfkit에 반영한 변경과 실제 리플레이 검증 범위는
+[UPSTREAM_PARITY.md](UPSTREAM_PARITY.md)에 기록한다. 아래의 PR 상태와
+미구현 목록은 당시 조사 기록으로 보존하며 현재 상태를 뜻하지 않는다.
+
+## 2026-09-08 조사 기록
+
 조사 기준은 vrfkit `4bfbbd8`와 현재 upstream `michel-giehl/ValorantReplayParser`의
 고정 커밋 [`b51d674` (2026-09-02)](https://github.com/michel-giehl/ValorantReplayParser/tree/b51d67423b7b4952d59051cf91e55efa1c42da05)이다.
 조사일은 2026-09-08이다. 질문의 `ValorantReplayParse`는 `ValorantReplayParser`로

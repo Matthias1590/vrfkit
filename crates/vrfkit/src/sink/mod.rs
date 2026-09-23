@@ -496,6 +496,7 @@ impl<'a> ExportSink<'a> {
                 | "++Ares-Core+release-13.02"
                 | "++Ares-Core+release-13.04"
                 | "++Ares-Core+release-13.05"
+                | "++Ares-Core+release-13.06"
         );
     }
 

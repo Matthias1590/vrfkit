@@ -28,11 +28,13 @@ from pathlib import Path
 
 if __package__:
     from .atomic_io import atomic_write_text
+    from .extract_descriptors import csharp_code_view
 else:  # direct script execution; avoid ImportWarning under python -W error.
     from atomic_io import atomic_write_text
+    from extract_descriptors import csharp_code_view
 
 
-TOOL_VERSION = 2
+TOOL_VERSION = 3
 ENTRY_START_RE = re.compile(r"\bOverlayEntry\s*\{")
 HANDLE_START_RE = re.compile(r"\bOverlayHandleEntry\s*\{")
 GROUP_RE = re.compile(r'group_path:\s*"(?P<value>[^"]+)"')
@@ -174,6 +176,22 @@ def record_csharp_source_changes(baseline_dir: Path, candidate_dir: Path) -> lis
     return changes
 
 
+def record_versioned_decoders(source_dir: Path) -> list[dict[str, object]]:
+    """Expose version-selected custom decoders kept opaque by the overlay."""
+    marker = re.compile(r'\bnew\s+VersionedDefinition\s*<\s*IFieldDecoderDescriptor\s*>')
+    records: list[dict[str, object]] = []
+    for path in sorted(source_dir.rglob("*.cs")):
+        view = csharp_code_view(path.read_text(encoding="utf-8-sig"))
+        for match in marker.finditer(view):
+            records.append({
+                "path": path.relative_to(source_dir).as_posix(),
+                "line": view.count("\n", 0, match.start()) + 1,
+                "disposition": "review_candidate",
+                "reason": "version-selected custom decoder remains FieldType::Raw",
+            })
+    return records
+
+
 def source_from_spec(spec: str, workspace: Path) -> tuple[Path, dict[str, object]]:
     if "::" not in spec:
         root = Path(spec).resolve()
@@ -309,11 +327,13 @@ def main(argv: list[str] | None = None) -> int:
                 "field_changes": record_differences(baseline_entries, candidate_entries),
                 "handle_changes": record_handle_differences(baseline_handles, candidate_handles),
                 "csharp_source_changes": record_csharp_source_changes(baseline_dir, candidate_dir),
+                "versioned_custom_decoders": record_versioned_decoders(candidate_dir),
                 "downstream_regeneration_risks": downstream_risks,
-                "note": "All records are review candidates. This audit never approves or regenerates an overlay."}
+                "note": "All records are review candidates. Version-selected custom decoders stay Raw; this audit never approves or regenerates an overlay."}
             atomic_write_text(args.output, json.dumps(report, indent=2, sort_keys=True) + "\n")
             print(f"wrote {args.output}: {len(report['field_changes'])} field changes, "
-                  f"{len(report['handle_changes'])} handle changes, {len(downstream_risks)} downstream risks")
+                  f"{len(report['handle_changes'])} handle changes, {len(downstream_risks)} downstream risks, "
+                  f"{len(report['versioned_custom_decoders'])} versioned custom decoders")
     except ValueError as error:
         parser.error(str(error))
     return 0

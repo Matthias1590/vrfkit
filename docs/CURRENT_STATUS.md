@@ -1,7 +1,10 @@
 # Current status
 
-Validated 2026-09-09. Start with [DATA.md](DATA.md) for the current exported schema and
-[USAGE.md](USAGE.md) for commands and validation procedures.
+The full inventory below was validated on 2026-09-09. The 2026-09-23
+[upstream parity update](UPSTREAM_PARITY.md) adds build 13.06, two ability array
+routes and nine scoped primitive identities. Its smaller replay sample does
+not remeasure the historical 714-replay totals below. Start with
+[DATA.md](DATA.md) for the exported schema and [USAGE.md](USAGE.md) for commands.
 
 ## Current measured field inventory
 

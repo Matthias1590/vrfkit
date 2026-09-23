@@ -31,6 +31,21 @@ public sealed class ThingDescriptor : ExportGroupDescriptor<ThingDescriptor>
 
 
 class CompareDescriptorSourcesTests(unittest.TestCase):
+    def test_versioned_custom_decoder_is_visible_in_audit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            descriptor(root, '''
+        // new VersionedDefinition<IFieldDecoderDescriptor>(ignored)
+        AddProperty(x => x.Results).Decode(
+            new VersionedDefinition<IFieldDecoderDescriptor>(new LegacyDecoder())
+                .From(new ReplayReleaseVersion(13, 5), new CurrentDecoder()));
+''')
+            source_dir = root / "src" / "Replay.Valorant"
+            records = audit.record_versioned_decoders(source_dir)
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["path"], "Thing.cs")
+            self.assertIn("FieldType::Raw", records[0]["reason"])
+
     def test_reports_type_addition_removal_and_downstream_loss(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

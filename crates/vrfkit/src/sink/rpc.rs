@@ -309,6 +309,17 @@ impl ExportSink<'_> {
                     .is_some_and(|field| {
                         field.name == "WorldLocation" && field.compatible_checksum == 3965480401
                     });
+            let projectile_path_array = self.measured_array_routes
+                && self.current_group_path.as_ref()
+                    == "/Script/ShooterGame.PrecalculatedProjectileMovementComponent_ClassNetCache"
+                && param_group_path_ref
+                    == Some(
+                        "/Script/ShooterGame.PrecalculatedProjectileMovementComponent:MulticastSetPath",
+                    )
+                && func_name == "MulticastSetPath"
+                && param_handle == 0
+                && param_name == Some("NetworkedProjectilePath")
+                && param_checksum == Some(2_930_105_559);
 
             // Third, additive pass: the life-change arrays.
             //
@@ -339,6 +350,22 @@ impl ExportSink<'_> {
             if targeting_world_location_array {
                 if let Some(raw) = raw_bits.as_deref() {
                     self.emit_targeting_world_location_array(
+                        &full_field_name,
+                        rpc_handle,
+                        raw,
+                        payload_bits,
+                    );
+                }
+            }
+
+            // The projectile movement component sends a RepLayout struct
+            // array here. The replay's parameter-group declarations for
+            // handles 1-3 are unrelated siblings of the array; its element
+            // handles come from the C# PathPoint descriptor. Scope this route
+            // to the observed parent identity and retain that parent below.
+            if projectile_path_array {
+                if let Some(raw) = raw_bits.as_deref() {
+                    self.emit_projectile_path_array(
                         &full_field_name,
                         rpc_handle,
                         raw,
@@ -430,6 +457,118 @@ impl ExportSink<'_> {
                 field_name: Some(full_name),
                 // A member is addressed inside the array payload, so the
                 // replay declares no checksum for it. See `FieldRecord`.
+                compatible_checksum: None,
+                bit_count: field.bit_count,
+                raw_bits: Some(SmallVec::from_slice(&field.raw_bits)),
+                value_i64,
+                value_f64,
+                value_bool,
+                value_str,
+            });
+            self.stats.fields_emitted += 1;
+        }
+    }
+
+    /// Decode complete path points only. A changed handle, width, non-finite
+    /// number, duplicated point member, or incomplete array leaves every child
+    /// un-emitted and leaves the parent RPC parameter's raw_bits untouched.
+    fn emit_projectile_path_array(
+        &mut self,
+        prefix: &str,
+        rpc_handle: u32,
+        raw: &[u8],
+        bit_count: u32,
+    ) {
+        if !super::blobs::strict_nested_array_preflight(raw, bit_count, &[1, 2, 3]) {
+            self.stats.array.errors += 1;
+            return;
+        }
+        let declared = [
+            None,
+            Some("ElapsedSeconds"),
+            Some("Location"),
+            Some("Velocity"),
+        ];
+        let mut isolated = vrf_decode::ArrayDecodeStats::default();
+        let flattened = decode_struct_array_exact(raw, bit_count, &declared, &mut isolated);
+        let walker_clean = isolated.errors == 0
+            && isolated.truncations == 0
+            && isolated.implicit_terminations == 0
+            && isolated.unconsumed_nested_bits == 0
+            && isolated.unconsumed_root_bits == 0;
+        let complete_points = isolated.fields_emitted == flattened.len() as u64
+            && isolated.elements_decoded.saturating_mul(3) == flattened.len() as u64;
+        self.stats.array.elements_decoded += isolated.elements_decoded;
+        self.stats.array.fields_emitted += isolated.fields_emitted;
+        self.stats.array.truncations += isolated.truncations;
+        self.stats.array.errors += isolated.errors;
+        self.stats.array.unconsumed_nested_bits += isolated.unconsumed_nested_bits;
+        self.stats.array.unconsumed_root_bits += isolated.unconsumed_root_bits;
+        self.stats.array.implicit_terminations += isolated.implicit_terminations;
+        // The generic walker reports a clean frame even when a path point
+        // omits one of its three members. Count that separate shape refusal;
+        // malformed framing already moved a walker diagnostic above.
+        if walker_clean && !complete_points {
+            self.stats.array_leaf_decode_errors += 1;
+        }
+        if !walker_clean || !complete_points {
+            return;
+        }
+
+        let mut paths = HashSet::new();
+        let mut decoded = Vec::with_capacity(flattened.len());
+        for field in flattened {
+            let kind = match field.handle {
+                1 if field.bit_count == 32 && field.path.ends_with(".ElapsedSeconds") => {
+                    FieldType::Float
+                }
+                2 if field.bit_count == 192 && field.path.ends_with(".Location") => {
+                    FieldType::VectorDouble
+                }
+                3 if field.bit_count == 192 && field.path.ends_with(".Velocity") => {
+                    FieldType::VectorDouble
+                }
+                _ => {
+                    self.stats.array_leaf_decode_errors += 1;
+                    return;
+                }
+            };
+            if !paths.insert(field.path.clone())
+                || (kind == FieldType::VectorDouble
+                    && !field.raw_bits.chunks_exact(8).all(|chunk| {
+                        f64::from_le_bytes(chunk.try_into().expect("eight-byte chunk")).is_finite()
+                    }))
+            {
+                self.stats.array_leaf_decode_errors += 1;
+                return;
+            }
+            let prior_leaf_errors = self.stats.array_leaf_decode_errors;
+            let columns = super::blobs::decode_leaf_with_stats(
+                kind,
+                &field.raw_bits,
+                field.bit_count,
+                &mut self.stats.array_leaf_decode_errors,
+            );
+            if !(match kind {
+                FieldType::Float => columns.1.is_some_and(f64::is_finite),
+                FieldType::VectorDouble => columns.3.is_some(),
+                _ => false,
+            }) {
+                if self.stats.array_leaf_decode_errors == prior_leaf_errors {
+                    self.stats.array_leaf_decode_errors += 1;
+                }
+                return;
+            }
+            decoded.push((field, columns));
+        }
+        for (field, (value_i64, value_f64, value_bool, value_str)) in decoded {
+            let full_name = self.channel_state.names.intern_fmt(|out| {
+                out.push_str(prefix);
+                out.push_str(&field.path);
+            });
+            self.push_field(FieldValues {
+                handle: rpc_handle,
+                field_name: Some(full_name),
                 compatible_checksum: None,
                 bit_count: field.bit_count,
                 raw_bits: Some(SmallVec::from_slice(&field.raw_bits)),

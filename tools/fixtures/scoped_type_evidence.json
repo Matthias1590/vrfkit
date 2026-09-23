@@ -236,6 +236,113 @@
         "++Ares-Core+release-13.05"
       ],
       "evidence": "714-export exact-route audit at bb5e155: 1518207 main rows, each fully consumed as low-bit-continuation packed u32 and each resolved to an actor in the same export. No checkpoint value rows; no heal-attribution meaning asserted."
+    },
+    {
+      "group": "/Game/Characters/Iris/S0/Ability_E/Ability_Iris_E_MT_Smoke_Production.Ability_Iris_E_MT_Smoke_Production_C",
+      "field": "CreatedByCharacter",
+      "checksum": 2035145197,
+      "type": "ObjectNetGuid",
+      "observed_builds": [
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.06"
+      ],
+      "evidence": "Upstream d23c13e Smokes/Descriptors/SmokeDescriptors.cs:57 declares ObjectNetGuid; Descriptors/Agents/Iris/IrisSmokeDescriptors.cs:15 binds this exact path. 2026-09-23 baseline main/checkpoint raw audit: 31 rows (16-bit: 31), 0 exported typed non-null, 31 independently decoded exactly, 0 failures. Final candidate re-export of 12 replays (12.10, 12.11, 13.00, 13.02, 13.04, 13.05, six 13.06): 31 matching rows, 31 exported typed non-null and equal to decode_exact, 0 failures/mismatches. The candidate subset excludes standalone 13.01; its raw evidence remains in observed_builds. Only this group/name/checksum identity is accepted. See [tracked parity report](../../docs/UPSTREAM_PARITY.md); out/upstream-review-20260923/scalar_candidate_check.json has per-replay counts."
+    },
+    {
+      "group": "/Game/Characters/Sarge/S0/Ability_MapTargetSmoke/Ability_Sarge_4_MapTargetSmoke_Production.Ability_Sarge_4_MapTargetSmoke_Production_C",
+      "field": "CreatedByCharacter",
+      "checksum": 2035145197,
+      "type": "ObjectNetGuid",
+      "observed_builds": [
+        "++Ares-Core+release-13.06"
+      ],
+      "evidence": "Upstream d23c13e Smokes/Descriptors/SmokeDescriptors.cs:57 declares ObjectNetGuid; Descriptors/Agents/Sarge/SargeSmokeDescriptors.cs:17 binds this exact path. 2026-09-23 baseline main/checkpoint raw audit: 7 rows (16-bit: 7), 0 exported typed non-null, 7 independently decoded exactly, 0 failures. Final candidate re-export of 12 replays (12.10, 12.11, 13.00, 13.02, 13.04, 13.05, six 13.06): 7 matching rows, 7 exported typed non-null and equal to decode_exact, 0 failures/mismatches. The candidate subset excludes standalone 13.01; its raw evidence remains in observed_builds. Only this group/name/checksum identity is accepted. See [tracked parity report](../../docs/UPSTREAM_PARITY.md); out/upstream-review-20260923/scalar_candidate_check.json has per-replay counts."
+    },
+    {
+      "group": "/Game/Characters/Smonk/S0/Ability_E/MapTargetSmoke/Ability_Smonk_E_MapTargetSmokeV2.Ability_Smonk_E_MapTargetSmokeV2_C",
+      "field": "CreatedByCharacter",
+      "checksum": 2035145197,
+      "type": "ObjectNetGuid",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05",
+        "++Ares-Core+release-13.06"
+      ],
+      "evidence": "Upstream d23c13e Smokes/Descriptors/SmokeDescriptors.cs:57 declares ObjectNetGuid; Descriptors/Agents/Smonk/SmonkSmokeDescriptors.cs:21 binds this exact path. 2026-09-23 baseline main/checkpoint raw audit: 221 rows (16-bit: 221), 0 exported typed non-null, 221 independently decoded exactly, 0 failures. Final candidate re-export of 12 replays (12.10, 12.11, 13.00, 13.02, 13.04, 13.05, six 13.06): 203 matching rows, 203 exported typed non-null and equal to decode_exact, 0 failures/mismatches. The candidate subset excludes standalone 13.01; its raw evidence remains in observed_builds. Only this group/name/checksum identity is accepted. See [tracked parity report](../../docs/UPSTREAM_PARITY.md); out/upstream-review-20260923/scalar_candidate_check.json has per-replay counts."
+    },
+    {
+      "group": "/Game/Characters/Smonk/S0/Ability_E/MapTargetSmoke/Ability_Smonk_E_PostDeath.Ability_Smonk_E_PostDeath_C",
+      "field": "CreatedByCharacter",
+      "checksum": 2035145197,
+      "type": "ObjectNetGuid",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05",
+        "++Ares-Core+release-13.06"
+      ],
+      "evidence": "Upstream d23c13e Smokes/Descriptors/SmokeDescriptors.cs:57 declares ObjectNetGuid; Descriptors/Agents/Smonk/SmonkSmokeDescriptors.cs:27 binds this exact path. 2026-09-23 baseline main/checkpoint raw audit: 187 rows (16-bit: 53, 24-bit: 134), 0 exported typed non-null, 187 independently decoded exactly, 0 failures. Final candidate re-export of 12 replays (12.10, 12.11, 13.00, 13.02, 13.04, 13.05, six 13.06): 173 matching rows, 173 exported typed non-null and equal to decode_exact, 0 failures/mismatches. The candidate subset excludes standalone 13.01; its raw evidence remains in observed_builds. Only this group/name/checksum identity is accepted. See [tracked parity report](../../docs/UPSTREAM_PARITY.md); out/upstream-review-20260923/scalar_candidate_check.json has per-replay counts."
+    },
+    {
+      "group": "/Game/Characters/Wushu/S0/Ability_4/Ability_Wushu_4_Smoke.Ability_Wushu_4_Smoke_C",
+      "field": "CreatedByCharacter",
+      "checksum": 2035145197,
+      "type": "ObjectNetGuid",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05",
+        "++Ares-Core+release-13.06"
+      ],
+      "evidence": "Upstream d23c13e Smokes/Descriptors/SmokeDescriptors.cs:57 declares ObjectNetGuid; Descriptors/Agents/Wushu/WushuSmokeDescriptors.cs:17 binds this exact path. 2026-09-23 baseline main/checkpoint raw audit: 261 rows (16-bit: 261), 0 exported typed non-null, 261 independently decoded exactly, 0 failures. Final candidate re-export of 12 replays (12.10, 12.11, 13.00, 13.02, 13.04, 13.05, six 13.06): 225 matching rows, 225 exported typed non-null and equal to decode_exact, 0 failures/mismatches. The candidate subset excludes standalone 13.01; its raw evidence remains in observed_builds. Only this group/name/checksum identity is accepted. See [tracked parity report](../../docs/UPSTREAM_PARITY.md); out/upstream-review-20260923/scalar_candidate_check.json has per-replay counts."
+    },
+    {
+      "group": "/Game/Characters/Iris/S0/Ability_E/Ability_Iris_E_MT_Smoke_Production.Ability_Iris_E_MT_Smoke_Production_C",
+      "field": "bInPersistentData",
+      "checksum": 4104327948,
+      "type": "Bool",
+      "observed_builds": [
+        "++Ares-Core+release-13.02",
+        "++Ares-Core+release-13.06"
+      ],
+      "evidence": "Upstream d23c13e Smokes/Descriptors/SmokeDescriptors.cs:56 declares Bool; Descriptors/Agents/Iris/IrisSmokeDescriptors.cs:15 binds this exact path. 2026-09-23 baseline main/checkpoint raw audit: 84 rows (1-bit: 84), 0 exported typed non-null, 84 independently decoded exactly, 0 failures. Final candidate re-export of 12 replays (12.10, 12.11, 13.00, 13.02, 13.04, 13.05, six 13.06): 84 matching rows, 84 exported typed non-null and equal to decode_exact, 0 failures/mismatches. The candidate subset excludes standalone 13.01; its raw evidence remains in observed_builds. Only this group/name/checksum identity is accepted. See [tracked parity report](../../docs/UPSTREAM_PARITY.md); out/upstream-review-20260923/scalar_candidate_check.json has per-replay counts."
+    },
+    {
+      "group": "/Game/Characters/Sarge/S0/Ability_MapTargetSmoke/Ability_Sarge_4_MapTargetSmoke_Production.Ability_Sarge_4_MapTargetSmoke_Production_C",
+      "field": "bInPersistentData",
+      "checksum": 4104327948,
+      "type": "Bool",
+      "observed_builds": [
+        "++Ares-Core+release-13.06"
+      ],
+      "evidence": "Upstream d23c13e Smokes/Descriptors/SmokeDescriptors.cs:56 declares Bool; Descriptors/Agents/Sarge/SargeSmokeDescriptors.cs:17 binds this exact path. 2026-09-23 baseline main/checkpoint raw audit: 18 rows (1-bit: 18), 0 exported typed non-null, 18 independently decoded exactly, 0 failures. Final candidate re-export of 12 replays (12.10, 12.11, 13.00, 13.02, 13.04, 13.05, six 13.06): 18 matching rows, 18 exported typed non-null and equal to decode_exact, 0 failures/mismatches. The candidate subset excludes standalone 13.01; its raw evidence remains in observed_builds. Only this group/name/checksum identity is accepted. See [tracked parity report](../../docs/UPSTREAM_PARITY.md); out/upstream-review-20260923/scalar_candidate_check.json has per-replay counts."
+    },
+    {
+      "group": "/Game/Characters/Smonk/S0/Ability_E/MapTargetSmoke/Ability_Smonk_E_MapTargetSmokeV2.Ability_Smonk_E_MapTargetSmokeV2_C",
+      "field": "bInPersistentData",
+      "checksum": 4104327948,
+      "type": "Bool",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05",
+        "++Ares-Core+release-13.06"
+      ],
+      "evidence": "Upstream d23c13e Smokes/Descriptors/SmokeDescriptors.cs:56 declares Bool; Descriptors/Agents/Smonk/SmonkSmokeDescriptors.cs:21 binds this exact path. 2026-09-23 baseline main/checkpoint raw audit: 594 rows (1-bit: 594), 0 exported typed non-null, 594 independently decoded exactly, 0 failures. Final candidate re-export of 12 replays (12.10, 12.11, 13.00, 13.02, 13.04, 13.05, six 13.06): 546 matching rows, 546 exported typed non-null and equal to decode_exact, 0 failures/mismatches. The candidate subset excludes standalone 13.01; its raw evidence remains in observed_builds. Only this group/name/checksum identity is accepted. See [tracked parity report](../../docs/UPSTREAM_PARITY.md); out/upstream-review-20260923/scalar_candidate_check.json has per-replay counts."
+    },
+    {
+      "group": "/Game/Characters/Wushu/S0/Ability_4/Ability_Wushu_4_Smoke.Ability_Wushu_4_Smoke_C",
+      "field": "bInPersistentData",
+      "checksum": 4104327948,
+      "type": "Bool",
+      "observed_builds": [
+        "++Ares-Core+release-13.01",
+        "++Ares-Core+release-13.04",
+        "++Ares-Core+release-13.05",
+        "++Ares-Core+release-13.06"
+      ],
+      "evidence": "Upstream d23c13e Smokes/Descriptors/SmokeDescriptors.cs:56 declares Bool; Descriptors/Agents/Wushu/WushuSmokeDescriptors.cs:17 binds this exact path. 2026-09-23 baseline main/checkpoint raw audit: 702 rows (1-bit: 702), 0 exported typed non-null, 702 independently decoded exactly, 0 failures. Final candidate re-export of 12 replays (12.10, 12.11, 13.00, 13.02, 13.04, 13.05, six 13.06): 606 matching rows, 606 exported typed non-null and equal to decode_exact, 0 failures/mismatches. The candidate subset excludes standalone 13.01; its raw evidence remains in observed_builds. Only this group/name/checksum identity is accepted. See [tracked parity report](../../docs/UPSTREAM_PARITY.md); out/upstream-review-20260923/scalar_candidate_check.json has per-replay counts."
     }
   ]
 }

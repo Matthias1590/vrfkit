@@ -11,21 +11,23 @@ external `oozextract` crate. Edition 2024, MSRV 1.86, MIT.
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)
 ![rust](https://img.shields.io/badge/rust-1.86%2B-orange.svg)
 ![edition](https://img.shields.io/badge/edition-2024-orange.svg)
-![builds](https://img.shields.io/badge/builds-12.10--13.05-green.svg)
+![builds](https://img.shields.io/badge/builds-12.10--13.06-green.svg)
 ![unsafe](https://img.shields.io/badge/unsafe-none-success.svg)
 
 Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantReplayParser)
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Verified state:** Rust has **698 passing** tests; Python has **817 passing**
-tests. The full 714-file comparison and corpus guards passed; see
-[current status](docs/CURRENT_STATUS.md) for the current evidence boundary.
+**Verified state:** Rust has **701 passing** tests; Python has **836 passing**
+tests. The historical 714-file comparison and corpus guards passed. The latest
+upstream changes were checked on a smaller preserved sample; see
+[current status](docs/CURRENT_STATUS.md) for the evidence boundary.
 
 - Run it: [`docs/USAGE.md`](docs/USAGE.md)
 - What's extractable: [`docs/DATA.md`](docs/DATA.md)
 - Current corpus status and remaining work: [`docs/CURRENT_STATUS.md`](docs/CURRENT_STATUS.md)
 - Latest parser corpus results: [`docs/TARGETING_AND_HEAL_VALUES.md`](docs/TARGETING_AND_HEAL_VALUES.md)
+- Upstream parity and 13.06 validation: [`docs/UPSTREAM_PARITY.md`](docs/UPSTREAM_PARITY.md)
 - Character-death and KillData state: [`docs/KILL_LEDGER.md`](docs/KILL_LEDGER.md)
 - Damage, healing, decay and reset observations: [`docs/SECTION_OBSERVATIONS.md`](docs/SECTION_OBSERVATIONS.md)
 - Observed section timelines and explicit continuity gaps: [`docs/SECTION_TIMELINE.md`](docs/SECTION_TIMELINE.md)
@@ -52,6 +54,7 @@ can be represented by their rows instead of a duplicate raw RPC.
 
 | Build | Branch | Status | Verified by |
 |---|---|---|---|
+| **13.06** | `release-13.06` | ✅ Supported | 11 upstream golden vectors + six real replays with checkpoint export; see [scope](docs/UPSTREAM_PARITY.md) |
 | **13.05** | `release-13.05` | ✅ Supported | Preserved fixture + golden vectors + 187-file portion of the 714-file main/checkpoint audit |
 | **13.04** | `release-13.04` | ✅ Supported | Preserved fixture + upstream golden vectors + 108-replay full export/checkpoint sweep |
 | **13.02** | `release-13.02` | ✅ Supported | Preserved replay + 204-replay oracle sweep |
@@ -106,7 +109,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **698 Rust tests** plus a layered validation suite (framing / bytes / decode
+- **701 Rust tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -351,7 +354,7 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**698 passing**; the full Python suite also has **817 passing** tests. The
+**701 passing**; the full Python suite also has **836 passing** tests. The
 all-corpus guards, all-file comparison, and full documentation check pass.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
@@ -360,7 +363,7 @@ from the table below on purpose -- they go stale, and re-measuring is one line.
 | Layer | Crate | Feature flags |
 |---|---|---|
 | Bit reader / UE wire format | `vrf-bitio` | `alloc` (default; drop it for `no_std`) |
-| Payload transform (7 builds) | `vrf-transform` | none (`ALL_VERSIONS` is a length-independent slice) |
+| Payload transform (8 builds) | `vrf-transform` | none (`ALL_VERSIONS` is a length-independent slice) |
 | Container (info/header/chunk/event/checkpoint, Oodle) | `vrf-container` | `oodle` `event` `checkpoint` |
 | DemoFrame traversal | `vrf-frame` | none (sections are byte ranges for cursor alignment) |
 | Replay dynamic schema + GUID cache + checkpoint tables | `vrf-schema` | `checkpoint` |
@@ -796,7 +799,7 @@ reads only `archive.BitsRemaining`. Before this fix, all 364 rows of
 ## Supported builds and the cost of a new build
 
 The payload transform changes per game build, but far more is **constant**
-across releases 12.10 through 13.05: the PRNG and its multipliers, the seed-mix
+across releases 12.10 through 13.06: the PRNG and its multipliers, the seed-mix
 skeleton, the 64 -> 32 -> 8 -> tail staging, the tail-XOR handling, and even
 the S-box table itself. What actually changes per build:
 
@@ -809,8 +812,9 @@ the S-box table itself. What actually changes per build:
 | release-13.02 | `0x9e81a37c` | `0x04` | - | used |
 | release-13.04 | `0x076dc658` | `0x28` | - | unused |
 | release-13.05 | `0x48c26613` | `0x13` | **+** | unused |
+| release-13.06 | `0xe974593c` | `0x3c` | **+** | used |
 
-In all seven builds the **tail-XOR byte equals the low byte of the seed
+In all eight builds the **tail-XOR byte equals the low byte of the seed
 addend.** It is a derived value, not an independent constant, and the
 relationship is pinned by a test in `versions/mod.rs` -- if a future build breaks
 the pattern, the test fails instead of the final byte silently corrupting.
@@ -837,8 +841,10 @@ struct-blob failures and zero checkpoint failures over 110,152,399 offered
 rows, 20,756 decoded struct blobs, 3,129,483 decoded checkpoint fields and
 1,872 decoded checkpoint blobs. The
 machine-local corpus can rotate; the reproducible transform oracle remains the
-77 mechanically extracted upstream golden vectors (11 staging boundaries per
-build, seven builds).
+88 mechanically extracted upstream golden vectors (11 staging boundaries per
+build, eight builds). The 13.06 implementation was also validated on six real
+replays; [the upstream parity report](docs/UPSTREAM_PARITY.md) records the
+before/after comparisons and the limits of that sample.
 
 The 768-byte S-box is shared across builds, which makes it usable as a
 **signature for locating the transform function in a binary.**
@@ -879,7 +885,7 @@ and framing. Payloads lost before export require parsing the original replay.
 ### 2. Minimal cost per build update
 
 See [Supported builds](#supported-builds-and-the-cost-of-a-new-build). Across
-seven builds the only per-build variables are two constants (seed addend,
+eight builds the only per-build variables are two constants (seed addend,
 offset) and a sign, plus whether the S-box stage is enabled; the PRNG,
 staging, tail-XOR, and S-box table are shared. A new build is one
 `SeededTransform` impl.
