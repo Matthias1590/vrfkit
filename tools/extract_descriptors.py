@@ -95,10 +95,63 @@ PRIMITIVE_TYPES = {
     "Ignore": "FieldType::Skip",
 }
 
-# Regex for path declaration
-PATH_RE = re.compile(
-    r'override\s+string\s+Path\s*=>\s*"(?P<path>[^"]+)"'
+# Every explicit Path override must be parsed. Otherwise a new expression
+# shape would quietly remove an entire group from the generated table.
+PATH_OVERRIDE_MARKER_RE = re.compile(r'\boverride\s+string\s+Path\b')
+PATH_EXPRESSION_RE = re.compile(
+    r'override\s+string\s+Path\s*=>(?P<expression>[^;]+);', re.DOTALL
 )
+STATIC_CLASS_RE = re.compile(
+    rf'\b(?:public|internal)\s+static\s+class\s+@?(?P<name>{CSHARP_IDENTIFIER})\s*\{{'
+)
+STRING_CONSTANT_RE = re.compile(
+    rf'\b(?:public|internal|private)\s+const\s+string\s+'
+    rf'@?(?P<name>{CSHARP_IDENTIFIER})\s*=(?P<expression>[^;]+);',
+    re.DOTALL,
+)
+
+
+def resolve_path_expression(
+    expression: str, constants: dict[str, str], owner: str | None = None,
+    resolving: frozenset[str] = frozenset(),
+) -> str:
+    """Evaluate only literal and static const string concatenation."""
+    position = 0
+    parts: list[str] = []
+    need_term = True
+    while True:
+        position = _skip_csharp_trivia(expression, position)
+        if position == len(expression):
+            if need_term:
+                raise ValueError(f"unsupported path expression {expression.strip()!r}")
+            return "".join(parts)
+        if not need_term:
+            if expression[position] != "+":
+                raise ValueError(f"unsupported path expression {expression.strip()!r}")
+            position += 1
+            need_term = True
+            continue
+        literal = _parse_csharp_string_literal(expression, position)
+        if literal is not None:
+            value, position = literal
+            parts.append(value)
+        else:
+            identifier = re.match(
+                rf'@?{CSHARP_IDENTIFIER}(?:\s*\.\s*@?{CSHARP_IDENTIFIER})?',
+                expression[position:],
+            )
+            if identifier is None:
+                raise ValueError(f"unsupported path expression {expression.strip()!r}")
+            token = re.sub(r'\s+', '', identifier.group()).replace('@', '')
+            key = token if "." in token else f"{owner}.{token}"
+            if key not in constants or key in resolving:
+                raise ValueError(f"unresolved path constant {key!r}")
+            constant_owner = key.split(".", 1)[0]
+            parts.append(resolve_path_expression(
+                constants[key], constants, constant_owner, resolving | {key}
+            ))
+            position += identifier.end()
+        need_term = False
 
 # Find every public/internal descriptor class in a file. The optional ``@``
 # sits outside the name capture so all dictionaries use the semantic C# name.
@@ -253,6 +306,15 @@ REP_MOVEMENT_RE = re.compile(
 # Simple .ReplicatedMovement() (defaults to ShortComponents)
 REP_MOVEMENT_DEFAULT_RE = re.compile(
     r'\.ReplicatedMovement\(\s*\)'
+)
+REP_MOVEMENT_PROPERTY_RE = re.compile(
+    rf'\.ReplicatedMovement\(\s*(?P<property>{CSHARP_IDENTIFIER_TOKEN})\s*\)'
+)
+MOVEMENT_TYPE_PREFIX = "<virtual movement rotation:"
+MOVEMENT_OVERRIDE_RE = re.compile(
+    rf'\b(?:virtual|override)\s+ERotatorQuantization\s+'
+    rf'@?(?P<property>{CSHARP_IDENTIFIER})\s*=>\s*'
+    r'ERotatorQuantization\.(?P<value>\w+)\s*;'
 )
 
 # RepLayoutDynamicArray<T>() — captures the inner type for documentation;
@@ -469,6 +531,10 @@ def extract_fields_from_block(
         rm = REP_MOVEMENT_RE.search(code_line)
         if rm:
             quant = rm.group("quant")
+            if quant not in {"ByteComponents", "ShortComponents"}:
+                if rejected is not None:
+                    rejected.add(("ReplicatedMovement", " ".join(code_line.split())))
+                continue
             rust_quant = ("RotatorQuantization::ByteComponents"
                           if quant == "ByteComponents"
                           else "RotatorQuantization::ShortComponents")
@@ -490,6 +556,19 @@ def extract_fields_from_block(
                 fields.append((
                     name,
                     "FieldType::RepMovement { rotation: RotatorQuantization::ShortComponents }",
+                    _extract_literal_handle(code_line),
+                ))
+            elif rejected is not None:
+                rejected.add((_UNNAMED_FIELD, " ".join(code_line.split())))
+            continue
+
+        movement_property = REP_MOVEMENT_PROPERTY_RE.search(code_line)
+        if movement_property:
+            name = _extract_field_name(raw_line, code_line)
+            if name:
+                fields.append((
+                    name,
+                    MOVEMENT_TYPE_PREFIX + movement_property.group("property") + ">",
                     _extract_literal_handle(code_line),
                 ))
             elif rejected is not None:
@@ -1263,6 +1342,7 @@ def main(argv: list[str]) -> int:
     class_bases: dict[str, str] = {}        # class_name -> base_class_name
     class_category_overrides: dict[str, frozenset[str]] = {}
     class_kind_overrides: dict[str, str] = {}  # class_name -> ExportGroupKind
+    movement_overrides: dict[str, dict[str, str]] = {}
     # ClassNetCache function names -> Skip entries
     cnc_functions: dict[str, list[str]] = {}  # class_name -> function names
     runtime_cnc_specs: list[tuple[str, str]] = []  # (path suffix, function name)
@@ -1276,6 +1356,92 @@ def main(argv: list[str]) -> int:
     for cs_file in cs_files:
         source = cs_file.read_text(encoding="utf-8-sig")
         sources.append((cs_file, source, csharp_code_view(source)))
+
+    path_constants: dict[str, str] = {}
+    cache_factories: dict[tuple[str, str], tuple[str, str]] = {}
+    supported_cache_factory_starts: set[tuple[Path, int]] = set()
+    for cs_file, source, code_view in sources:
+        for class_match in STATIC_CLASS_RE.finditer(code_view):
+            body_start, body_end = find_class_body_range(
+                code_view, class_match.start()
+            )
+            member_view = direct_member_code_view(source[body_start:body_end])
+            for constant in STRING_CONSTANT_RE.finditer(member_view):
+                key = f"{class_match.group('name')}.{constant.group('name')}"
+                if key in path_constants:
+                    raise SystemExit(f"duplicate path constant {key} at {cs_file}")
+                path_constants[key] = source[
+                    body_start + constant.start("expression"):
+                    body_start + constant.end("expression")
+                ]
+            factory_re = re.compile(
+                rf'\bpublic\s+static\s+ClassNetCacheDescriptor\s+'
+                rf'@?(?P<name>{CSHARP_IDENTIFIER})\s*\('
+                rf'\s*string\s+(?P<parameter>{CSHARP_IDENTIFIER})'
+                r'(?:\s*,\s*uint\s+\w+)?\s*\)\s*=>\s*new\s*\('
+            )
+            for factory in factory_re.finditer(member_view):
+                supported_cache_factory_starts.add(
+                    (cs_file, body_start + factory.start())
+                )
+                end = member_view.find(";", factory.end())
+                if end == -1:
+                    raise SystemExit(f"{cs_file}: unterminated cache factory")
+                body = source[body_start + factory.start():body_start + end]
+                parameter = factory.group("parameter")
+                path = re.search(
+                    rf'\b{re.escape(parameter)}\s*\+\s*"(?P<suffix>[^"]+)"',
+                    body,
+                )
+                names = re.findall(r'\bName\s*=\s*"([^"]+)"', body)
+                if (path is None or len(names) != 1 or
+                        len(re.findall(r'\bnew\s+RpcDescriptor\b', body)) != 1):
+                    raise SystemExit(
+                        f"{cs_file}: unsupported ClassNetCache factory "
+                        f"{class_match.group('name')}.{factory.group('name')}"
+                    )
+                cache_factories[(class_match.group("name"), factory.group("name"))] = (
+                    path.group("suffix"), names[0]
+                )
+
+    cache_factory_marker = re.compile(
+        rf'\b(?:public|internal)\s+static\s+ClassNetCacheDescriptor\s+'
+        rf'@?(?P<name>{CSHARP_IDENTIFIER})\s*\('
+    )
+    for cs_file, _, code_view in sources:
+        for marker in cache_factory_marker.finditer(code_view):
+            if (cs_file, marker.start()) not in supported_cache_factory_starts:
+                raise SystemExit(
+                    f"{cs_file}: unsupported ClassNetCache factory "
+                    f"{marker.group('name')}"
+                )
+
+    static_cache_specs: list[tuple[str, str]] = []
+    for cs_file, _, code_view in sources:
+        for (factory_class, factory_name), (suffix, function_name) in cache_factories.items():
+            calls = re.finditer(
+                rf'\b{re.escape(factory_class)}\s*\.\s*'
+                rf'{re.escape(factory_name)}\s*\((?P<arguments>[^)]*)\)',
+                code_view,
+            )
+            for call in calls:
+                arguments = re.fullmatch(
+                    rf'\s*(?P<path>{CSHARP_IDENTIFIER}\s*\.\s*{CSHARP_IDENTIFIER})'
+                    r'\s*(?:,\s*\d+\s*)?',
+                    call.group("arguments"),
+                )
+                if arguments is None:
+                    raise SystemExit(
+                        f"{cs_file}: unsupported ClassNetCache factory call "
+                        f"{factory_class}.{factory_name}"
+                    )
+                try:
+                    path = resolve_path_expression(
+                        arguments.group("path"), path_constants
+                    )
+                except ValueError as error:
+                    raise SystemExit(f"{cs_file}: {error}") from error
+                static_cache_specs.append((path + suffix, function_name))
 
     # Build inheritance and live raw-wrapper ownership before parsing fields so
     # a derived descriptor can use wrappers declared in any source file while
@@ -1484,17 +1650,39 @@ def main(argv: list[str]) -> int:
             if kind_override is not None:
                 class_kind_overrides[class_name] = kind_override
 
+            for movement_match in MOVEMENT_OVERRIDE_RE.finditer(member_view):
+                property_name = movement_match.group("property")
+                quantization = movement_match.group("value")
+                if quantization not in {"ByteComponents", "ShortComponents"}:
+                    raise SystemExit(
+                        f"{class_name}.{property_name}: unsupported movement "
+                        f"quantization {quantization}"
+                    )
+                movement_overrides.setdefault(class_name, {})[
+                    property_name
+                ] = quantization
+
             # Extract Path declarations within this class body
             path_match = next(
                 (
                     match
-                    for match in PATH_RE.finditer(class_body)
+                    for match in PATH_EXPRESSION_RE.finditer(class_body_code_view)
                     if member_view.startswith("override", match.start())
                 ),
                 None,
             )
+            if PATH_OVERRIDE_MARKER_RE.search(member_view) and path_match is None:
+                raise SystemExit(f"{class_name}.Path: unsupported override shape")
             if path_match:
-                class_paths[class_name] = path_match.group("path")
+                expression = class_body[
+                    path_match.start("expression"):path_match.end("expression")
+                ]
+                try:
+                    class_paths[class_name] = resolve_path_expression(
+                        expression, path_constants
+                    )
+                except ValueError as error:
+                    raise SystemExit(f"{class_name}.Path: {error}") from error
 
             # Check if this is a ClassNetCache descriptor
             raw_base = cm.group(2)
@@ -1645,6 +1833,29 @@ def main(argv: list[str]) -> int:
                 return parent_fields
         return own_fields
 
+    def resolve_virtual_movement(cls: str, field_type: str) -> str:
+        if not field_type.startswith(MOVEMENT_TYPE_PREFIX):
+            return field_type
+        property_name = field_type[len(MOVEMENT_TYPE_PREFIX):-1]
+        visited: set[str] = set()
+        current = cls
+        while current not in visited:
+            visited.add(current)
+            value = movement_overrides.get(current, {}).get(property_name)
+            if value is not None:
+                return (
+                    "FieldType::RepMovement { rotation: "
+                    f"RotatorQuantization::{value} }}"
+                )
+            base = class_bases.get(current)
+            if base is None:
+                break
+            current = base
+        raise SystemExit(
+            f"{cls}: cannot resolve virtual movement quantization "
+            f"{property_name}"
+        )
+
     # Phase 3: build final entries
     entries: list[tuple[str, str, str]] = []  # (group_path, field_name, rust_type)
     handle_entries: list[tuple[str, int, str]] = []
@@ -1689,6 +1900,7 @@ def main(argv: list[str]) -> int:
             continue
         groups_seen.add(path)
         for field_name, rust_type, literal_handle in fields:
+            rust_type = resolve_virtual_movement(class_name, rust_type)
             previous = declared_type.get((path, field_name))
             if previous is not None and previous[0] != rust_type:
                 raise SystemExit(
@@ -1749,6 +1961,13 @@ def main(argv: list[str]) -> int:
             groups_seen.add(cache_path)
             entries.append((cache_path, function_name, "FieldType::Skip"))
             skip_count += 1
+
+    # Concrete calls to simple static cache factories carry a path constant
+    # and one RPC name. They have no descriptor subclass for phase 3b to see.
+    for cache_path, function_name in sorted(set(static_cache_specs)):
+        groups_seen.add(cache_path)
+        entries.append((cache_path, function_name, "FieldType::Skip"))
+        skip_count += 1
 
     # Deduplicate entries (same path + field_name can appear if parent+child both declare)
     seen_keys: set[tuple[str, str]] = set()

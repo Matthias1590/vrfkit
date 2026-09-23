@@ -379,7 +379,7 @@ class MeasuredCountTests(unittest.TestCase):
 
     def test_the_live_golden_and_matrix_counts_are_measured(self):
         live = guard.measured_counts()
-        self.assertEqual(live["golden"], 77)
+        self.assertEqual(live["golden"], 88)
         self.assertEqual(live["matrix"], live["matrix_cases"])
         self.assertGreater(live["matrix"], 0)
         self.assertGreater(live["metrics_builds"], 0)

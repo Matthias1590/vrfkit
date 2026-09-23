@@ -243,6 +243,7 @@ def compare_group_field_coverage(cs_events_path: Path, vk_parquet_path: Path):
     cs_pairs: set[tuple[str, str]] = set()
     lines.append("Scanning C# events.ndjson for export_group_received...")
     count = 0
+    cs_unnamed = 0
     for obj in iter_ndjson(cs_events_path):
         if obj.get("type") != "export_group_received":
             continue
@@ -251,10 +252,14 @@ def compare_group_field_coverage(cs_events_path: Path, vk_parquet_path: Path):
         payload = obj.get("payload", {})
         if isinstance(payload, dict):
             for key in payload.keys():
+                if not group_path or not key:
+                    cs_unnamed += 1
+                    continue
                 cs_pairs.add((group_path, key))
 
     lines.append(f"  Scanned {count:,} export_group_received records")
     lines.append(f"  Distinct (group, field) pairs from C#: {len(cs_pairs):,}")
+    lines.append(f"  C# payload fields without a group/name: {cs_unnamed:,} (excluded)")
 
     # Collect vrfkit (group, field) pairs from fields.parquet
     if not vk_parquet_path.exists():
@@ -263,6 +268,7 @@ def compare_group_field_coverage(cs_events_path: Path, vk_parquet_path: Path):
 
     tbl = pq.read_table(vk_parquet_path, columns=["group_path", "field_name"])
     vk_pairs: set[tuple[str, str]] = set()
+    vk_unnamed = 0
     for gp, fn in zip(tbl.column("group_path").to_pylist(),
                        tbl.column("field_name").to_pylist()):
         # A preserved whole-block payload is not a field, so it is not a pair
@@ -270,9 +276,16 @@ def compare_group_field_coverage(cs_events_path: Path, vk_parquet_path: Path):
         # every unresolved group and reads as coverage we do not have.
         if fn == UNRESOLVED_CLASS_NET_CACHE_PAYLOAD_FIELD_NAME:
             continue
+        # Unknown identities are preserved rows, not named field coverage.
+        # Besides overstating coverage, sorting (path, None) beside a named
+        # field raises TypeError on actual 13.06 exports.
+        if not gp or not fn:
+            vk_unnamed += 1
+            continue
         vk_pairs.add((gp, fn))
 
     lines.append(f"  Distinct (group, field) pairs from vrfkit: {len(vk_pairs):,}")
+    lines.append(f"  vrfkit rows without a group/name: {vk_unnamed:,} (excluded)")
 
     lines += coverage_lines(cs_pairs, vk_pairs)
     lines.append("")

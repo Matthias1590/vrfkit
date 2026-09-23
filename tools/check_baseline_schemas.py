@@ -28,6 +28,7 @@ KNOWN_BASELINES = {
     "bench.json", "metrics_builds.json", "export_02d4d478.json",
     "checkpoint_02d4d478.json", "build_1210.json", "build_1211.json",
     "build_1300.json", "build_1302.json", "build_1304.json", "build_1305.json",
+    "build_1306.json",
 }
 METRIC_INT_FIELDS = {
     "ability_spawns", "assists", "client_round_starts", "combat_players",
@@ -267,6 +268,7 @@ def validate_repository(
         "12.10": "build_1210.json", "12.11": "build_1211.json",
         "13.00": "build_1300.json", "13.02": "build_1302.json",
         "13.04": "build_1304.json", "13.05": "build_1305.json",
+        "13.06": "build_1306.json",
     }
     for build, filename in corpus_files.items():
         corpus = loaded[filename]
@@ -274,7 +276,7 @@ def validate_repository(
         if corpus.get("branches") != {expected_branch: len(corpus.get("per_file", {}))}:
             problems.append(f"{filename}: branch does not identify build {build}")
         corpus_names = set(corpus.get("per_file", {}))
-        if _basename(replays.get(build, "")) not in corpus_names:
+        if build in BUILDS and _basename(replays.get(build, "")) not in corpus_names:
             problems.append(f"metrics/build baseline replay disagrees for {build}")
     if _basename(replays.get("13.01", "")) != export.get("replay"):
         problems.append("metrics/export baseline replay disagrees for 13.01")

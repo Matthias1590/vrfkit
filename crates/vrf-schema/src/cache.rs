@@ -389,6 +389,55 @@ mod tests {
     }
 
     #[test]
+    fn property_exports_never_shadow_the_class_net_cache_group() {
+        const CLASS: &str = "/Script/ShooterGame.DamageableComponent";
+        const RPC: &str = "/Script/ShooterGame.DamageableComponent_ClassNetCache";
+
+        for properties_first in [false, true] {
+            let mut cache = NetGuidCache::new();
+            let mut properties = NetFieldExportGroup::new(CLASS.into(), 1, 4);
+            properties.set_field(NetFieldExport {
+                handle: 0,
+                compatible_checksum: 11,
+                name: "Property".into(),
+            });
+            let mut functions = NetFieldExportGroup::new(RPC.into(), 2, 9);
+            functions.set_field(NetFieldExport {
+                handle: 0,
+                compatible_checksum: 22,
+                name: "MulticastNotifyDamage_Base".into(),
+            });
+
+            if properties_first {
+                cache.add_export_group(properties).unwrap();
+                cache.add_export_group(functions).unwrap();
+            } else {
+                cache.add_export_group(functions).unwrap();
+                cache.add_export_group(properties).unwrap();
+            }
+
+            // A late property re-declaration must not replace the function
+            // handle capacity or field names, regardless of insertion order.
+            cache
+                .add_export_group(NetFieldExportGroup::new(CLASS.into(), 1, 4))
+                .unwrap();
+            let property_group = cache.get_group_by_path(CLASS).unwrap();
+            let rpc_group = cache.get_group_by_path(RPC).unwrap();
+            assert_eq!(property_group.path_name_index, 1);
+            assert_eq!(property_group.len(), 4);
+            assert_eq!(property_group.get_field(0).unwrap().name, "Property");
+            assert_eq!(rpc_group.path_name_index, 2);
+            assert_eq!(rpc_group.len(), 9);
+            assert_eq!(
+                rpc_group.get_field(0).unwrap().name,
+                "MulticastNotifyDamage_Base"
+            );
+            assert_eq!(cache.get_group_by_index(2).unwrap().path, RPC);
+            assert_eq!(cache.group_count(), 2);
+        }
+    }
+
+    #[test]
     fn cache_merge_expands_and_preserves() {
         let mut cache = NetGuidCache::new();
         let mut group = NetFieldExportGroup::new("/Game/Test.Test_C".into(), 7, 2);

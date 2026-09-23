@@ -62,6 +62,28 @@ class CoverageProblemTests(unittest.TestCase):
 
 
 class CoverageTextTests(unittest.TestCase):
+    def test_unattributed_rows_are_counted_without_becoming_named_coverage(self):
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            events = root / "events.ndjson"
+            events.write_text("\n".join(json.dumps(row) for row in [
+                {"type": "export_group_received", "export_group_path": PAIR_A[0],
+                 "payload": {"Health": 100}},
+                {"type": "export_group_received", "export_group_path": None,
+                 "payload": {"Health": 100}},
+            ]), encoding="utf-8")
+            parquet = root / "fields.parquet"
+            pq.write_table(pa.table({
+                "group_path": [PAIR_A[0], PAIR_A[0], None, PAIR_A[0]],
+                "field_name": ["Health", None, "Health",
+                               guard.UNRESOLVED_CLASS_NET_CACHE_PAYLOAD_FIELD_NAME],
+            }), parquet)
+            report, problems = guard.compare_group_field_coverage(events, parquet)
+        self.assertEqual(problems, [])
+        self.assertIn("Distinct (group, field) pairs from vrfkit: 1", report)
+        self.assertIn("vrfkit rows without a group/name: 2 (excluded)", report)
+        self.assertIn("C# payload fields without a group/name: 1 (excluded)", report)
+
     def test_full_coverage_is_only_claimed_when_something_was_compared(self):
         lines = guard.coverage_lines({PAIR_A}, {PAIR_A, PAIR_B})
         self.assertIn("covers everything", " ".join(lines))

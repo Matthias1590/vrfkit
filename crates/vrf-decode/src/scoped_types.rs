@@ -5,7 +5,7 @@
 use crate::decode::FieldType;
 
 /// Sorted by (field name, group path, compatible checksum).
-pub(crate) static SCOPED_TYPES: [(&str, &str, u32, FieldType); 19] = [
+pub(crate) static SCOPED_TYPES: [(&str, &str, u32, FieldType); 28] = [
     (
         "B",
         "/Game/GameModes/Bomb/BombPlayerState.BombPlayerState_C",
@@ -109,6 +109,36 @@ pub(crate) static SCOPED_TYPES: [(&str, &str, u32, FieldType); 19] = [
         FieldType::VectorDouble,
     ),
     (
+        "CreatedByCharacter",
+        "/Game/Characters/Iris/S0/Ability_E/Ability_Iris_E_MT_Smoke_Production.Ability_Iris_E_MT_Smoke_Production_C",
+        2035145197,
+        FieldType::ObjectNetGuid,
+    ),
+    (
+        "CreatedByCharacter",
+        "/Game/Characters/Sarge/S0/Ability_MapTargetSmoke/Ability_Sarge_4_MapTargetSmoke_Production.Ability_Sarge_4_MapTargetSmoke_Production_C",
+        2035145197,
+        FieldType::ObjectNetGuid,
+    ),
+    (
+        "CreatedByCharacter",
+        "/Game/Characters/Smonk/S0/Ability_E/MapTargetSmoke/Ability_Smonk_E_MapTargetSmokeV2.Ability_Smonk_E_MapTargetSmokeV2_C",
+        2035145197,
+        FieldType::ObjectNetGuid,
+    ),
+    (
+        "CreatedByCharacter",
+        "/Game/Characters/Smonk/S0/Ability_E/MapTargetSmoke/Ability_Smonk_E_PostDeath.Ability_Smonk_E_PostDeath_C",
+        2035145197,
+        FieldType::ObjectNetGuid,
+    ),
+    (
+        "CreatedByCharacter",
+        "/Game/Characters/Wushu/S0/Ability_4/Ability_Wushu_4_Smoke.Ability_Wushu_4_Smoke_C",
+        2035145197,
+        FieldType::ObjectNetGuid,
+    ),
+    (
         "CursorWorldLocation",
         "/Script/ShooterGame.MapTargetingStateComponent",
         3280594315,
@@ -119,5 +149,29 @@ pub(crate) static SCOPED_TYPES: [(&str, &str, u32, FieldType); 19] = [
         "/Script/ShooterGame.DamageableComponent:MulticastNotifyHeal",
         546618027,
         FieldType::ObjectNetGuid,
+    ),
+    (
+        "bInPersistentData",
+        "/Game/Characters/Iris/S0/Ability_E/Ability_Iris_E_MT_Smoke_Production.Ability_Iris_E_MT_Smoke_Production_C",
+        4104327948,
+        FieldType::Bool,
+    ),
+    (
+        "bInPersistentData",
+        "/Game/Characters/Sarge/S0/Ability_MapTargetSmoke/Ability_Sarge_4_MapTargetSmoke_Production.Ability_Sarge_4_MapTargetSmoke_Production_C",
+        4104327948,
+        FieldType::Bool,
+    ),
+    (
+        "bInPersistentData",
+        "/Game/Characters/Smonk/S0/Ability_E/MapTargetSmoke/Ability_Smonk_E_MapTargetSmokeV2.Ability_Smonk_E_MapTargetSmokeV2_C",
+        4104327948,
+        FieldType::Bool,
+    ),
+    (
+        "bInPersistentData",
+        "/Game/Characters/Wushu/S0/Ability_4/Ability_Wushu_4_Smoke.Ability_Wushu_4_Smoke_C",
+        4104327948,
+        FieldType::Bool,
     ),
 ];
