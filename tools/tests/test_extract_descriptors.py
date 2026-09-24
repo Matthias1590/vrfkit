@@ -168,6 +168,45 @@ public sealed class Bad : ExportGroupDescriptor<Bad>
 '''})
         self.assertIn("unresolved path constant", error)
 
+    def test_descriptor_path_constants_keep_their_class_scope(self):
+        output = self.run_generator({"Reveal.cs": r'''
+public abstract class Device<T> : ExportGroupDescriptor<T>
+{
+    protected override void Configure()
+    {
+        AddPropertyHandle(11, x => x.Owner).ObjectNetGuid();
+    }
+}
+public sealed class Sova : Device<Sova>
+{
+    public const string DescriptorPath = "/sova";
+    public override string Path => DescriptorPath;
+}
+public sealed class Fade : Device<Fade>
+{
+    private const string Prefix = "/fade";
+    public const string DescriptorPath = Prefix + "/device";
+    public override string Path => DescriptorPath;
+}
+'''})
+        for path in ("/sova", "/fade/device"):
+            self.assertIn(f'group_path: "{path}", field_name: "Owner", field_type: FieldType::ObjectNetGuid', output)
+            self.assertIn(f'group_path: "{path}", handle: 11, field_name: "Owner"', output)
+
+    def test_descriptor_path_cannot_borrow_another_class_constant(self):
+        error = self.run_generator_expecting_failure({"Reveal.cs": r'''
+public sealed class Sova : ExportGroupDescriptor<Sova>
+{
+    public const string DescriptorPath = "/sova";
+    public override string Path => DescriptorPath;
+}
+public sealed class Fade : ExportGroupDescriptor<Fade>
+{
+    public override string Path => DescriptorPath;
+}
+'''})
+        self.assertIn("Fade.DescriptorPath", error)
+
     def test_unsupported_dynamic_cache_factory_fails(self):
         error = self.run_generator_expecting_failure({"Factory.cs": r'''
 internal static class Factories

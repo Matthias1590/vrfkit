@@ -624,7 +624,7 @@ needs it.
 
 | Script | Produces |
 |---|---|
-| `extract_descriptors.py` | `crates/vrf-decode/src/table.rs` (overlay table 1,310 + 84 handles) from the vendored C# descriptors in `third_party/vrp/Replay.Valorant` |
+| `extract_descriptors.py` | `crates/vrf-decode/src/table.rs` (overlay table 1,319 + 96 handles) from the vendored C# descriptors in `third_party/vrp/Replay.Valorant` |
 | `apply_type_corrections.py` | Applies verified corrections/additions to that file and recomputes the two-line generation header |
 | `extract_checksum_types.py` | `crates/vrf-decode/src/checksum_table.rs` -- `compatible_checksum` -> `FieldType`, learned from the fields the overlay table already declares. Needs an export directory rather than the C# tree, since checksums come from the replay. Checksums whose donors disagree are dropped, which is the safety property. Repeat `--export` to widen the basis; the run **merges** into the committed table rather than replacing it, because a checksum this basis did not happen to see is still correct. `--check` asks whether the two agree *where they overlap* -- not whether they are byte-identical, which a content-addressed table cannot be across different sets of replays. |
 | `extract_sboxes.py` | `crates/vrf-transform/src/sbox.rs` |
@@ -831,6 +831,23 @@ deliberately sequential for accuracy.
 
 ### Analysis helpers
 
+`extract_player_effects.py --export <export-directory> --out player-effects.json`
+extracts `BlindManagerComponent.ActiveBlinds` updates and
+`EffectManagerComponent` continuous-effect start/stop observations, including
+the nearsight effect containers. Each record carries `target_identity` and
+the original typed members. Only manifest `character_net_guid`, populated from
+`SpawnedCharacter`, admits `player_body`; a controlled camera or drone does not
+become a player through possession or ownership. Missing/conflicting identities
+remain explicit. Non-player observations stay in the output, preserving flash
+source evidence even when no player was affected.
+
+Totals count observations, not unique hits. Array re-replication is retained;
+there is no inferred cast attribution, explosion timing or start/stop interval
+join. Only the main stream is read. Repeated RPC parameter names split adjacent
+same-packet invocations; the export has no explicit invocation ID, so these
+groups are not proof of unique effects. Untyped members and ambiguous identity
+counts are printed even when zero. See [UPSTREAM_REVEALS.md](UPSTREAM_REVEALS.md).
+
 `compare_descriptor_sources.py --baseline <checkout-or-repo::ref>
 --candidate <checkout-or-repo::ref> --downstream-table <table.rs> --output audit.json`
 compares C# descriptor inputs without fetching or changing their checkouts.
@@ -839,7 +856,7 @@ that wholesale regeneration would remove or overwrite. Git commits, input
 digests and the extractor digest identify the compared sources. Changes are
 review candidates; unsupported C# syntax can appear only in the source-file
 diff, so an empty parsed diff does not prove an unchanged schema. The extractor
-understands inherited movement quantization, static constant paths and the
+understands inherited movement quantization, class-scoped constant paths and the
 reviewed ClassNetCache factories. Unsupported forms of these declarations fail
 explicitly. The schema-v3 report lists version-selected custom decoders that
 remain `Raw` separately.
@@ -986,12 +1003,12 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 701 passing
+cargo +1.86.0 test --workspace --locked                              # 702 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 129 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 836 tests
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 846 tests
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 187 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check

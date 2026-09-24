@@ -1,9 +1,10 @@
 # Vendored descriptor sources (ValorantReplayParser)
 
-`Replay.Valorant/` holds the 162 C# descriptor files that
+`Replay.Valorant/` holds the 163 C# descriptor files that
 `tools/extract_descriptors.py` reads to generate
 `crates/vrf-decode/src/table.rs`. They are copied verbatim from the commit
-below. Nothing here is compiled; it is generator input. Two other tools read it
+below, with the selective update recorded below. Nothing here is compiled;
+it is generator input. Two other tools read it
 by default: `tools/extract_equippables.py` generates `tools/equippable_table.py`
 from `Replay.Valorant/Combat/ValorantEquippableResolver.cs`, and
 `tools/analyze_coverage.py` lists the descriptor paths.
@@ -58,6 +59,20 @@ against it.
   bytes but not the generated table.
 
 ## Changing a descriptor
+
+### Selective update, 2026-09-24
+
+`Reveals/Descriptors/RevealDescriptors.cs` is copied verbatim from upstream
+[`2b66c65a7b116154e18ebb84d9f6795f2b080233`](https://github.com/michel-giehl/ValorantReplayParser/commit/2b66c65a7b116154e18ebb84d9f6795f2b080233).
+The Hunter and BountyHunter catalogs register its five descriptors. The old
+local `HunterRevealBoltDescriptor` is replaced by the equivalent upstream
+`SovaRevealProjectileDescriptor`, retaining byte-component rotation and adding
+explicit handles. Its previous 13.01 measurement was 486 exact byte-rotation
+payloads; short rotation failed on 225 (222 EOF, three residual).
+The other local ability descriptors remain registered. See
+[`UPSTREAM_REVEALS.md`](../../docs/UPSTREAM_REVEALS.md) for replay verification.
+
+### Regeneration
 
 Edit the file here, regenerate, and commit the descriptor change together with
 the regenerated table:

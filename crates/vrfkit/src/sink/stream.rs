@@ -375,6 +375,8 @@ impl ExportSink<'_> {
                     entry.character_net_guid = Some(c as u32);
                 }
             }
+            // PossessedCharacter can be a camera, drone or other ability pawn.
+            // It must never replace the body used to identify effect targets.
             _ => {}
         }
     }
@@ -2254,6 +2256,27 @@ mod tests {
 
         let players = sink.channel_state.players.clone();
         assert_eq!(players.get(&42).unwrap().character_net_guid, Some(1368));
+    }
+
+    #[test]
+    fn possession_never_makes_an_ability_pawn_a_player_body() {
+        // Upstream 2b66c65 regression: body hits still count during possession,
+        // and releasing a device must not leave it registered as a player.
+        for device in [412, 798, 1170, 1534, 1884] {
+            let mut cache = NetGuidCache::new();
+            let mut state = ChannelState::new();
+            let mut records = RecordBuffers::default();
+            let mut sink = ExportSink::new(&mut cache, &mut state, &mut records);
+            sink.current_group_path = Arc::from(BOMB_PLAYER_STATE);
+            sink.current_actor_guid = 42;
+            sink.record_player_identity(Some("PossessedCharacter"), None, Some(device));
+            assert_eq!(sink.channel_state.players[&42].character_net_guid, None);
+            sink.record_player_identity(Some("SpawnedCharacter"), None, Some(20));
+            sink.record_player_identity(Some("PossessedCharacter"), None, Some(device));
+            assert_eq!(sink.channel_state.players[&42].character_net_guid, Some(20));
+            sink.record_player_identity(Some("PossessedCharacter"), None, Some(20));
+            assert_eq!(sink.channel_state.players[&42].character_net_guid, Some(20));
+        }
     }
 
     /// The 32-line failure window is a display buffer, and the aggregate must

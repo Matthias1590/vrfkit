@@ -115,7 +115,7 @@ def resolve_path_expression(
     expression: str, constants: dict[str, str], owner: str | None = None,
     resolving: frozenset[str] = frozenset(),
 ) -> str:
-    """Evaluate only literal and static const string concatenation."""
+    """Evaluate only literal and class-scoped const string concatenation."""
     position = 0
     parts: list[str] = []
     need_term = True
@@ -1361,19 +1361,33 @@ def main(argv: list[str]) -> int:
     cache_factories: dict[tuple[str, str], tuple[str, str]] = {}
     supported_cache_factory_starts: set[tuple[Path, int]] = set()
     for cs_file, source, code_view in sources:
-        for class_match in STATIC_CLASS_RE.finditer(code_view):
+        # Constants in concrete descriptors are scoped to that class too.
+        # Reveal descriptors all call their own constant DescriptorPath.
+        constant_owners = [
+            (match.group("name"), match.start())
+            for match in STATIC_CLASS_RE.finditer(code_view)
+        ] + [
+            (match.group(1), match.start())
+            for match in MULTI_CLASS_RE.finditer(code_view)
+        ]
+        for owner, start in constant_owners:
             body_start, body_end = find_class_body_range(
-                code_view, class_match.start()
+                code_view, start
             )
             member_view = direct_member_code_view(source[body_start:body_end])
             for constant in STRING_CONSTANT_RE.finditer(member_view):
-                key = f"{class_match.group('name')}.{constant.group('name')}"
+                key = f"{owner}.{constant.group('name')}"
                 if key in path_constants:
                     raise SystemExit(f"duplicate path constant {key} at {cs_file}")
                 path_constants[key] = source[
                     body_start + constant.start("expression"):
                     body_start + constant.end("expression")
                 ]
+        for class_match in STATIC_CLASS_RE.finditer(code_view):
+            body_start, body_end = find_class_body_range(
+                code_view, class_match.start()
+            )
+            member_view = direct_member_code_view(source[body_start:body_end])
             factory_re = re.compile(
                 rf'\bpublic\s+static\s+ClassNetCacheDescriptor\s+'
                 rf'@?(?P<name>{CSHARP_IDENTIFIER})\s*\('
@@ -1679,7 +1693,7 @@ def main(argv: list[str]) -> int:
                 ]
                 try:
                     class_paths[class_name] = resolve_path_expression(
-                        expression, path_constants
+                        expression, path_constants, class_name
                     )
                 except ValueError as error:
                     raise SystemExit(f"{class_name}.Path: {error}") from error

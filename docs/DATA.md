@@ -252,6 +252,12 @@ about the epoch.
 
 ### Status effects, and where they actually live
 
+For an executable view of these observations, use
+`tools/extract_player_effects.py` (see [USAGE.md](USAGE.md#analysis-helpers)).
+Effect replication can also target cameras, drones and decoys. The tool keeps
+those observations but admits a player target only through the manifest's
+`SpawnedCharacter` identity; possession alone is not a player body.
+
 A debuff shows up as a continuous effect played **on the affected player's own
 actor**, not on the caster's. `EffectManagerComponent`'s
 `MulticastPlayContinuousEffect` carries an `EffectContainer` NetGUID that

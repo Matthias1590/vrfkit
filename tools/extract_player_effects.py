@@ -1,0 +1,157 @@
+#!/usr/bin/env python3
+"""Extract blind updates and continuous-effect observations by target identity.
+
+Port of ValorantReplayParser 2b66c65's player-body distinction. Only manifest
+character_net_guid (SpawnedCharacter) proves a player target. PossessedCharacter,
+Owner and Instigator can identify a controlled device, not an affected body.
+All observations remain in the output, including blinds on non-player actors.
+These are replicated updates / RPC observations, not deduplicated hit counts,
+cast attribution or inferred effect intervals. Checkpoint snapshots are excluded.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from collections import Counter, defaultdict
+from pathlib import Path
+
+import pyarrow.parquet as pq
+
+if __package__:
+    from .atomic_io import atomic_write_text
+else:
+    from atomic_io import atomic_write_text
+
+
+BLIND_GROUP = "/Script/ShooterGame.BlindManagerComponent"
+EFFECT_GROUP = "/Script/ShooterGame.EffectManagerComponent_ClassNetCache"
+RPC_KINDS = {
+    "MulticastPlayContinuousEffect": "continuous_start",
+    "MulticastStopContinuousEffect": "continuous_stop",
+}
+COLUMNS = ["time_ms", "packet_id", "channel_index", "actor_net_guid",
+           "object_net_guid", "group_path", "field_name", "value_i64",
+           "value_f64", "value_bool", "value_str"]
+
+
+def build(export_dir: Path) -> dict:
+    manifest = json.loads((export_dir / "manifest.json").read_text(encoding="utf-8"))
+    subjects = defaultdict(set)
+    for player in manifest.get("players", []):
+        guid = player.get("character_net_guid")
+        if guid:
+            subjects[int(guid)].add(player.get("subject"))
+    players = {guid: next(iter(values)) for guid, values in subjects.items()
+               if len(values) == 1}
+    conflicts = set(subjects) - players.keys()
+    guid_paths = defaultdict(set)
+    for row in pq.read_table(export_dir / "net_guids.parquet",
+                             columns=["net_guid", "path"]).to_pylist():
+        guid_paths[row["net_guid"]].add(row["path"])
+    paths = {guid: next(iter(values)) for guid, values in guid_paths.items()
+             if len(values) == 1}
+    fields = pq.read_table(export_dir / "fields.parquet", columns=COLUMNS,
+                           filters=[("group_path", "in", [BLIND_GROUP, EFFECT_GROUP])])
+    records = []
+    pending = None
+    tally = Counter()
+
+    def finish() -> None:
+        nonlocal pending
+        if pending is None:
+            return
+        record = pending
+        pending = None
+        actor = record["actor_net_guid"]
+        record["target_identity"] = ("player_body" if actor in players else
+                                     "conflicting_manifest_identity" if actor in conflicts
+                                     else "unconfirmed_actor")
+        record["target_subject"] = players.get(actor)
+        record["identity_provenance"] = (
+            "manifest.players.character_net_guid (SpawnedCharacter)"
+            if actor in players else None)
+        container = record["values"].get("EffectContainer")
+        record["effect_container_path"] = paths.get(container)
+        record["observation_index"] = len(records)
+        records.append(record)
+        tally[record["kind"]] += 1
+        if actor in players:
+            tally["player_" + record["kind"]] += 1
+        else:
+            tally["unconfirmed_target_observations"] += 1
+
+    # Keep wire order. Repeated parameter names delimit consecutive invocations
+    # in one packet; a parent ActiveBlinds row ends its already-emitted leaves.
+    for batch in fields.to_batches(max_chunksize=65536):
+        for row in batch.to_pylist():
+            name = row["field_name"] or ""
+            context = {key: row[key] for key in COLUMNS[:6]}
+            if row["group_path"] == BLIND_GROUP:
+                if not name.startswith("ActiveBlinds[") or "]." not in name:
+                    finish()
+                    if name == "ActiveBlinds":
+                        tally["blind_parent_rows"] += 1
+                    continue
+                prefix, member = name.split("].", 1)
+                kind, source = "blind_update", prefix + "]"
+            else:
+                source, separator, member = name.partition(".")
+                kind = RPC_KINDS.get(source)
+                if kind is None or not separator:
+                    finish()
+                    tally["other_effect_rows"] += 1
+                    continue
+            key = (context, kind, source)
+            if pending is not None:
+                old_key = ({k: pending[k] for k in context}, pending["kind"], pending["source"])
+                if old_key != key or member in pending["values"]:
+                    if old_key == key:
+                        tally["same_packet_parameter_restarts"] += 1
+                    finish()
+            if pending is None:
+                pending = {**context, "kind": kind, "source": source,
+                           "values": {}, "untyped_members": []}
+            typed = [row[k] for k in COLUMNS[7:] if row[k] is not None]
+            if len(typed) > 1:
+                raise ValueError(f"multiple typed values for {name}")
+            pending["values"][member] = typed[0] if typed else None
+            if not typed:
+                pending["untyped_members"].append(member)
+                tally["untyped_members"] += 1
+    finish()
+    counters = ["blind_update", "continuous_start", "continuous_stop",
+                "player_blind_update", "player_continuous_start", "player_continuous_stop",
+                "unconfirmed_target_observations", "blind_parent_rows", "other_effect_rows",
+                "same_packet_parameter_restarts", "untyped_members"]
+    return {
+        "schema_version": 1,
+        "source": str(export_dir.resolve()),
+        "semantics": "main-stream observations, not unique hits or inferred intervals",
+        "records": records,
+        "totals": {**{key: tally[key] for key in counters},
+                   "conflicting_manifest_character_guids": len(conflicts),
+                   "conflicting_effect_paths": sum(len(v) > 1 for v in guid_paths.values())},
+    }
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--export", required=True, type=Path)
+    parser.add_argument("--out", required=True, type=Path)
+    args = parser.parse_args(argv)
+    try:
+        document = build(args.export)
+        args.out.parent.mkdir(parents=True, exist_ok=True)
+        atomic_write_text(args.out, json.dumps(document, indent=2, ensure_ascii=True,
+                                               allow_nan=False) + "\n")
+    except (OSError, ValueError) as exc:
+        print(f"FAILED: {exc}", file=sys.stderr)
+        return 1
+    print(json.dumps(document["totals"], sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

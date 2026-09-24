@@ -1,5 +1,11 @@
 # 참조 저장소 및 PR 조사: ValorantReplayParser / ValorantWebReplayer
 
+## 2026-09-24 업데이트
+
+upstream `2b66c65`의 소바·페이드 정찰 descriptor와 섬광/근시의 플레이어 본체 구분
+규칙을 선택적으로 반영했다. 구현 범위와 실제 리플레이 검증은
+[UPSTREAM_REVEALS.md](UPSTREAM_REVEALS.md)에 기록한다.
+
 ## 2026-09-23 업데이트
 
 최신 조사는 upstream [`d23c13e`](https://github.com/michel-giehl/ValorantReplayParser/tree/d23c13e12262fb1da9fc005d1cd0ef9f8d0d36fd)를 기준으로 했다.
