@@ -1,9 +1,119 @@
 # Legacy replay support investigation, 2026-09-24
 
-**Status: container inspection is implemented; payload decoding is not.**
-Builds 11.06 through 12.09 still fail closed in `validate`, `diag` and `export`.
-Do not count them as supported decoding builds or close issue #14 on the
-strength of the header change.
+**Status: 12.01--12.09 now have verified payload transforms.** All 27 available
+replays pass ReplayData validation and checkpoint-enabled export. Builds
+11.06--11.11 and 12.00 remain container-only: their acquired executables have
+encrypted code sections, and their payload transforms are not recovered.
+The original request to support all sixteen builds, and issue #14, are not
+fully resolved.
+
+## Native transform recovery and replay results
+
+The implementation following base commit `0d7a798` adds nine transforms and
+two compatibility fixes. The containing implementation commit can be resolved
+with `git log -1 --format=%H -- crates/vrf-transform/src/versions/v12_01.rs`.
+
+Each executable was imported with Ghidra 12.1.2, using PE runtime-function
+records and chained unwind entries to identify complete function boundaries.
+The PRNG multiplier, reader object layout and caller argument shape located
+the candidate readers. The replay reader was checked independently by
+emulating its original x86-64 instructions with Unicorn, including its native
+bit-copy helper. No game process was launched. The catalog records the exact
+[executable SHA-256 and reader RVA](../tools/fixtures/native_transform_readers.json).
+All three 256-byte S-box tables referenced by the applicable readers match
+the existing tables byte for byte.
+
+There are 79 native cases per build: the eleven upstream staging boundaries,
+36 cases covering six edge seeds at six lengths, and 32 deterministic random
+cases up to 512 bits. All **711 expected-byte cases** match Rust, in addition
+to the unchanged 88 upstream golden vectors. Reversing one 12.09 rotation's
+count makes the native test fail; restoring it passes. The capture tool
+verifies executable hashes before emulation and rejects failure to return,
+instruction/time exhaustion, or an incorrect reader position.
+
+Two real-corpus failures required fixes beyond the arithmetic:
+
+- 12.01--12.06 call the replay controller `BaseJanusController`. Recognizing
+  that exact class consumes its net-player-index byte before framing. Without
+  this, the first bunch and checkpoint controller bunches lose data. The new
+  pipeline regression fails before the name fix and passes afterward.
+- 12.01--12.05 declare `TeamEconomy` members at handles 53--55, rather than
+  56--58. Their names and checksums match the later members. The exporter now
+  selects by the replay's declaration, including hardcoded FName `241` for
+  the IntPacked replication ID. Unknown declarations still fail. The original
+  fixed-handle API remains available for compatibility.
+
+| Build | Replays | ReplayData scored blocks | Checkpoint blocks | Main typed overlay |
+|---|---:|---:|---:|---:|
+| 12.01 | 3 | 1,905,287 | 72,795 | 84.6% |
+| 12.02 | 3 | 2,027,973 | 77,588 | 84.2% |
+| 12.03 | 3 | 1,944,438 | 74,386 | 84.2% |
+| 12.04 | 3 | 2,425,410 | 86,588 | 84.7% |
+| 12.05 | 3 | 1,886,622 | 69,916 | 85.0% |
+| 12.06 | 3 | 1,642,411 | 58,280 | 84.9% |
+| 12.07 | 3 | 1,934,113 | 77,802 | 84.8% |
+| 12.08 | 3 | 1,977,496 | 69,130 | 81.2% |
+| 12.09 | 3 | 2,170,389 | 74,575 | 81.4% |
+
+Every replay reports **100%** ReplayData oracle success: 17,914,139 scored
+blocks in total. All 661,060 checkpoint blocks were walked. Main and checkpoint
+passes report zero malformed/framing, transform, field-stream, lost-RPC,
+partial-reassembly, typed-overlay and struct-blob failures. Checkpoint
+`skipped_bits` is 906 in 12.05 sample-2: six unresolved RPC blocks are retained
+whole as raw payloads, rather than lost. All other checkpoint skipped-bit
+counters are zero.
+
+The main overlay decoded 23,902,871 offered rows, and the checkpoint overlay
+decoded 1,919,133. The percentages above are the main overlay's decoded/offered
+ratio, not semantic completeness. Unknown properties, unresolved RPC schema,
+and unnamed fields remain explicitly raw, as on previously supported builds.
+Independent Python decoding of the existing public-fixture evidence types
+matches **410,350 values**, with no missing specification, width failure or
+typed mismatch, across all 54 main/checkpoint field tables. A separate direct
+bit walk of TeamEconomy matches **7,797 child values from 1,110 parent rows**,
+including the legacy nonzero loadout values. Captured regression fixtures pin
+the first two 12.01 updates and reject unknown/missing declarations.
+
+Eight previously supported builds were revalidated and re-exported, one replay
+each with checkpoints. Their **104 Parquet files are byte-identical** to the
+pre-change outputs. This is the full available 27-file legacy sample, not a
+claim about every replay ever recorded on these builds.
+
+The committed 13.01 export baseline was stale from the earlier scoped smoke
+field additions. Both the pre-change `18a0c60` binary and this implementation
+produce the same four differences: 116 more decoded rows, 116 fewer
+not-in-table rows, `fields.parquet` growing by 133 bytes to 16,455,178, and its
+SHA-256 changing to
+`b186a9b50b4f73f1c3a7d8482431732af5413420ba2ca9992c314bc61cb41b93`.
+The 116 values are 20 `CreatedByCharacter` GUIDs and 96 `bInPersistentData`
+booleans on the previously accepted Smonk/Wushu scopes. Independent Python
+IntPacked/Bool decoding matches all of them. No rows or other main tables change.
+The baseline and its quoted documentation figures are refreshed for those
+already-present values; the legacy support changes introduce no 13.01 drift.
+The paired checkpoint baseline additionally gains 48 GUID and 48 Bool values
+from those same scopes, all independently matched to raw bits. Its field file
+shrinks by 320 bytes to 1,218,992, with SHA-256
+`21ce023b9a7c3b67c0d892cc519f50b097a7e97c88d6da93d98ad78cae00806e`.
+The archived pre-upstream binary reproduces both original baseline hashes;
+column comparison confirms only these previously-null typed cells change.
+All rows, raw bytes, names, identities and other columns are identical.
+
+To reproduce, use the acquired binaries and the three pinned source samples
+for each build. Native capture needs optional `pefile` and `unicorn` Python
+packages; ordinary Rust tests use the committed vectors and need neither.
+
+```powershell
+python tools/capture_native_transforms.py --binaries '<binary-root>' --check
+cargo +1.86.0 test -p vrf-transform --locked
+cargo +1.86.0 build --release -p vrfkit --locked
+vrfkit validate '<replay-root>/12.01/sample-1.vrf' --diagnostics
+vrfkit export '<replay-root>/12.01/sample-1.vrf' --out '<exports>/12.01/sample-1' --checkpoints
+python tools/validate_type_evidence.py '<exports>' tools/fixtures/public_fixture_type_evidence.json --compare-typed
+```
+
+Repeat validate/export for samples 1--3 of all nine builds. The same exports
+were checked with the required-counter and reconciliation routines from
+`check_decode_errors_corpus.py`, alongside the framing/loss counters.
 
 ## Replay evidence
 
@@ -34,7 +144,7 @@ regressions cover every legacy branch, the 12.06 boundary, zero/nonzero
 extensions and rejection of missing modern extensions. The legacy regression
 was run against the original reader and failed on the same misplaced length.
 
-## Remaining decoder dependency
+## Earlier identity-transform probe
 
 A temporary identity-transform probe was run on `sample-1` from every build.
 All sixteen validations failed, with framing oracle rates of only
@@ -43,8 +153,8 @@ plaintext passthrough nor merely accepting the branch is a decoding fix.
 
 The upstream parser at
 [`2b66c65`](https://github.com/michel-giehl/ValorantReplayParser/tree/2b66c65a7b116154e18ebb84d9f6795f2b080233/src/Replay.Encoding/PayloadEncryption/VersionedTransforms)
-has transforms only for the same eight builds vrfkit already supports.
-The missing transforms must be recovered and verified from the acquired
+has transforms only for the eight previously supported builds.
+The additional nine transforms above were recovered from the acquired
 game executables listed below. The upstream maintainer describes
 locating the transformed reader through `UActorChannel::ReadContentBlockHeader`
 in [issue #2](https://github.com/michel-giehl/ValorantReplayParser/issues/2).
@@ -130,9 +240,27 @@ chunks referenced by those executables gives 1,688,334,507 bytes, or
 HTTP/TLS overhead and retries are not measured by that figure. Generated
 metadata and future Ghidra databases need additional space.
 
-Executable acquisition is complete. Legacy transform recovery and replay
-validation remain outstanding; no legacy payload transform was registered
-merely because its binary was downloaded.
+Executable acquisition is complete. The seven 11.06--12.00 executables have
+high-entropy encrypted `.text` data, no plaintext PRNG-multiplier references,
+a NOP entry point and an imported `stub.dll!packman`. The separately acquired
+11.06 `stub.dll` is itself packed/virtualized: its exported `packman` address
+has no on-disk code, and its entry point enters the protected stub section.
+These files do not yet provide a callable native reader for the oracle.
+
+This matches the mechanism described in the first-hand
+[Packman analysis](https://hypercall.net/posts/Packman/): the loader prepares
+and decrypts code at runtime. The public
+[ValorantUnpacker](https://github.com/nitrog0d/ValorantUnpacker) implementation
+was also inspected; it reads a running game through an injected DLL, rather
+than supplying an offline decryption algorithm. It was not executed.
+
+Completing these seven builds still requires their correctly decrypted reader
+code, a matching executable memory dump, or recovery of the protected loader's
+offline decryption. No verified source of those matching dumps or usable
+offline unpacker was found in this investigation. Merely downloading each
+protected executable again does not resolve that dependency. The installed
+game and Vanguard configuration were left unchanged, and these seven branches
+continue to fail closed for payload decoding.
 
 ## Regression scope and commands
 

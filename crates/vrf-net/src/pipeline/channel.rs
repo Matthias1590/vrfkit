@@ -30,6 +30,10 @@ use super::{ActorChannelState, ChannelTable, PLAYER_CONTROLLER_LEAF, Replication
 /// | archetype GUID path (class default object) | `Default__BaseReplayController_C` |
 /// | `/_Core/` elided alias | `/Game/Characters/BaseReplayController` |
 ///
+/// In the 12.01--12.06 samples the same role is named BaseJanusController;
+/// its opening bunch also carries the net-player-index byte. Accept that exact
+/// class leaf, preserving the same normalization and rejection of other actors.
+///
 /// So this normalises instead of comparing: take the last `/`-separated
 /// segment, drop anything before a `.` (the `Asset.Class_C` form), strip a
 /// `Default__` prefix and a `_C` suffix, then compare the bare name.
@@ -43,7 +47,7 @@ pub(super) fn is_player_controller_path(path: &str) -> bool {
     let class = segment.rsplit('.').next().unwrap_or(segment);
     let class = class.strip_prefix("Default__").unwrap_or(class);
     let class = class.strip_suffix("_C").unwrap_or(class);
-    class == PLAYER_CONTROLLER_LEAF
+    matches!(class, PLAYER_CONTROLLER_LEAF | "BaseJanusController")
 }
 
 /// Whether this channel's actor or archetype resolves to the replay
@@ -228,6 +232,10 @@ mod tests {
             "Default__BaseReplayController_C",
             "/Game/Characters/BaseReplayController",
             "BaseReplayController",
+            "/Game/Characters/_Core/BaseJanusController.BaseJanusController_C",
+            "/Game/Characters/_Core/BaseJanusController",
+            "Default__BaseJanusController_C",
+            "BaseJanusController",
         ] {
             assert!(is_player_controller_path(path), "{path}");
         }
@@ -236,6 +244,8 @@ mod tests {
             "/Game/Characters/_Core/BaseReplayControllerExtra",
             "/Game/Characters/_Core/PlayerController.PlayerController_C",
             "Default__BaseReplayController_D",
+            "Default__BaseJanusController_D",
+            "BaseJanusControllerExtra",
         ] {
             assert!(!is_player_controller_path(path), "{path}");
         }

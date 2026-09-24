@@ -1,14 +1,16 @@
-//! Bit-exactness check for all eight per-build payload transforms.
+//! Bit-exactness check for the eight transforms ported from upstream.
 //!
 //! The vectors are lifted mechanically from the reference implementation's test
 //! fixture (see `tools/extract_golden.py`), so a passing run means our port
 //! agrees with it byte for byte on every staging boundary of the algorithm.
 //!
-//! This is the only external check on the transform layer. Everything downstream
+//! Legacy builds have separate native-machine-code vectors in `native.rs`.
+//! Everything downstream
 //! -- field framing, schema binding, metrics -- is built on the assumption that
 //! these bytes are right, so a failure here invalidates all of it.
 
 include!("data/golden_vectors.rs");
+include!("data/native_vectors.rs");
 
 use vrf_bitio::BitReader;
 use vrf_transform::{TransformVersion, seed_for};
@@ -71,7 +73,11 @@ fn every_registered_build_is_covered() {
         let count = VECTORS
             .iter()
             .filter(|(b, _, _)| *b == version.branch())
-            .count();
+            .count()
+            + NATIVE_VECTORS
+                .iter()
+                .filter(|(b, _, _, _, _)| *b == version.branch())
+                .count();
         assert!(count > 0, "{} has no golden vectors", version.branch());
     }
 }
@@ -85,6 +91,12 @@ fn vectors_cover_the_staging_boundaries() {
             .iter()
             .filter(|(b, _, _)| *b == version.branch())
             .map(|(_, bits, _)| *bits)
+            .chain(
+                NATIVE_VECTORS
+                    .iter()
+                    .filter(|(b, _, _, _, _)| *b == version.branch())
+                    .map(|(_, bits, _, _, _)| *bits),
+            )
             .collect();
         for required in [0usize, 1, 7, 8, 31, 32, 63, 64, 65] {
             assert!(

@@ -1182,12 +1182,16 @@ impl ExportSink<'_> {
 
     /// Decode TeamEconomy blob and emit sub-field rows.
     fn decode_team_economy_blob(&mut self, raw: &[u8], bit_count: u32) -> bool {
-        use vrf_decode::structs::decode_team_economy;
+        use vrf_decode::structs::decode_team_economy_declared;
 
         let Some(mut reader) = self.blob_bit_reader(raw, bit_count) else {
             return false;
         };
-        let results = match decode_team_economy(&mut reader) {
+        let decoded = {
+            let declared = Self::declared_handle_names(self.cache, &self.current_group_path);
+            decode_team_economy_declared(&mut reader, &declared)
+        };
+        let results = match decoded {
             Ok(results) => results,
             Err(err) => return self.record_blob_failure(&err),
         };

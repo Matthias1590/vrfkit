@@ -49,20 +49,16 @@
 //! - `RoundNumber`, `StartOfRoundMoney`, `StartOfRoundLoadoutValue`,
 //!   `EndOfRoundMoney`, `EndOfRoundLoadoutValue` (all Int32)
 //!
-//! ## TeamEconomy (`BombGameState`, 13.01 only) -- HANDLES, deliberately
-//! - 56: ReplicationId (IntPacked), 57: LoadoutValue (Int32),
-//!   58: AverageLoadoutValue (Int32)
+//! ## TeamEconomy (`BombGameState`, through 13.01)
+//! - `241`: ReplicationId (IntPacked; hardcoded FName index)
+//! - `LoadoutValue`, `AverageLoadoutValue` (Int32)
 //!
-//! This one keeps the numbers because it has no choice: the replay declares
-//! handle 56 as `"241"`, a hardcoded FName index rather than a name, so there
-//! is nothing to match on. Generalising it is also pointless -- the property
-//! does not exist in 13.02, where team economy moved into a separately
-//! replicated `/Script/ShooterGame.BaseTeamState` actor. Nothing in THIS module
-//! reads that one and nothing needs to: it replicates plain scalars, so the
-//! overlay table types them directly (`LoadoutValue` and `AverageLoadoutValue`,
-//! Int32, from `ADDITIONS` in `apply_type_corrections.py`) and the field stream
-//! writes them like any other property. The failure counter covers this decoder
-//! if 13.01's numbers ever move.
+//! The declared handles are 53..=55 in the 12.01--12.05 samples and 56..=58
+//! from 12.06 through 13.01. The parser uses the declaration, including the
+//! numeric FName spelling, rather than treating the later handles as universal.
+//! The original `decode_team_economy` API retains its fixed-handle behavior;
+//! `decode_team_economy_declared` is the schema-aware entry point.
+//! In 13.02 the property moved into separately replicated BaseTeamState actors.
 //!
 //! # FName wire format (from `FArchive.ReadFNameCore`)
 //! ```text
@@ -87,7 +83,7 @@ mod tests;
 
 pub use round_infos::{PlayerRoundInfo, decode_round_infos};
 pub use round_results::{AresRoundOutcome, AresTeamRole, RoundResult, decode_round_results};
-pub use team_economy::{TeamEconomyUpdate, decode_team_economy};
+pub use team_economy::{TeamEconomyUpdate, decode_team_economy, decode_team_economy_declared};
 
 /// Errors that can occur while decoding a struct-array blob.
 #[derive(Debug, Clone, thiserror::Error)]

@@ -20,7 +20,7 @@
 //!
 //! # Per-build variation
 //!
-//! The algorithm skeleton has been stable from release-12.10 to release-13.06.
+//! The algorithm skeleton has been stable from release-12.01 to release-13.06.
 //! What changes per build is two constants and the order of a handful of bit
 //! primitives; see [`versions`]. Adding a build means writing one `impl` with
 //! two constants and three word functions.
@@ -55,9 +55,8 @@
 //! [`TransformVersion`] is non-exhaustive, so adding a build does not change the
 //! registry's public type and external callers cannot match every future variant.
 //! Per-build gating would still remove existing, publicly named variants and is
-//! therefore not offered. The cost is small: the eight `impl`s are branch-free
-//! arithmetic, and the only sizeable data is the three S-box tables (used by
-//! release-13.00, release-13.02, and release-13.06).
+//! therefore not offered. The cost is small: the per-build `impl`s are branch-free
+//! arithmetic, and the only sizeable data is the three S-box tables shared by multiple builds.
 
 #![forbid(unsafe_code)]
 
@@ -65,7 +64,10 @@ pub mod helpers;
 pub mod sbox;
 pub mod versions;
 
-use versions::{SeededTransform, V12_10, V12_11, V13_00, V13_01, V13_02, V13_04, V13_05, V13_06};
+use versions::{
+    SeededTransform, V12_01, V12_02, V12_03, V12_04, V12_05, V12_06, V12_07, V12_08, V12_09,
+    V12_10, V12_11, V13_00, V13_01, V13_02, V13_04, V13_05, V13_06,
+};
 use vrf_bitio::{BitError, BitReader, Result as BitResult};
 
 /// Derive the transform seed for a content block.
@@ -151,6 +153,24 @@ pub fn transform_in_place<T: SeededTransform>(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum TransformVersion {
+    /// `++Ares-Core+release-12.01`
+    V1201,
+    /// `++Ares-Core+release-12.02`
+    V1202,
+    /// `++Ares-Core+release-12.03`
+    V1203,
+    /// `++Ares-Core+release-12.04`
+    V1204,
+    /// `++Ares-Core+release-12.05`
+    V1205,
+    /// `++Ares-Core+release-12.06`
+    V1206,
+    /// `++Ares-Core+release-12.07`
+    V1207,
+    /// `++Ares-Core+release-12.08`
+    V1208,
+    /// `++Ares-Core+release-12.09`
+    V1209,
     /// `++Ares-Core+release-12.10`
     V1210,
     /// `++Ares-Core+release-12.11`
@@ -177,6 +197,15 @@ pub enum TransformVersion {
 /// [`non_exhaustive`](https://doc.rust-lang.org/reference/attributes/type_system.html#the-non_exhaustive-attribute),
 /// so downstream matches must retain a fallback arm for future builds.
 pub const ALL_VERSIONS: &[TransformVersion] = &[
+    TransformVersion::V1201,
+    TransformVersion::V1202,
+    TransformVersion::V1203,
+    TransformVersion::V1204,
+    TransformVersion::V1205,
+    TransformVersion::V1206,
+    TransformVersion::V1207,
+    TransformVersion::V1208,
+    TransformVersion::V1209,
     TransformVersion::V1210,
     TransformVersion::V1211,
     TransformVersion::V1300,
@@ -234,6 +263,15 @@ impl TransformVersion {
     #[must_use]
     pub const fn branch(self) -> &'static str {
         match self {
+            Self::V1201 => V12_01::BRANCH,
+            Self::V1202 => V12_02::BRANCH,
+            Self::V1203 => V12_03::BRANCH,
+            Self::V1204 => V12_04::BRANCH,
+            Self::V1205 => V12_05::BRANCH,
+            Self::V1206 => V12_06::BRANCH,
+            Self::V1207 => V12_07::BRANCH,
+            Self::V1208 => V12_08::BRANCH,
+            Self::V1209 => V12_09::BRANCH,
             Self::V1210 => V12_10::BRANCH,
             Self::V1211 => V12_11::BRANCH,
             Self::V1300 => V13_00::BRANCH,
@@ -254,6 +292,15 @@ impl TransformVersion {
     /// Transform `buf` in place.
     pub fn apply(self, buf: &mut [u8], bit_count: usize, seed: u32) -> BitResult<()> {
         match self {
+            Self::V1201 => transform_in_place::<V12_01>(buf, bit_count, seed),
+            Self::V1202 => transform_in_place::<V12_02>(buf, bit_count, seed),
+            Self::V1203 => transform_in_place::<V12_03>(buf, bit_count, seed),
+            Self::V1204 => transform_in_place::<V12_04>(buf, bit_count, seed),
+            Self::V1205 => transform_in_place::<V12_05>(buf, bit_count, seed),
+            Self::V1206 => transform_in_place::<V12_06>(buf, bit_count, seed),
+            Self::V1207 => transform_in_place::<V12_07>(buf, bit_count, seed),
+            Self::V1208 => transform_in_place::<V12_08>(buf, bit_count, seed),
+            Self::V1209 => transform_in_place::<V12_09>(buf, bit_count, seed),
             Self::V1210 => transform_in_place::<V12_10>(buf, bit_count, seed),
             Self::V1211 => transform_in_place::<V12_11>(buf, bit_count, seed),
             Self::V1300 => transform_in_place::<V13_00>(buf, bit_count, seed),

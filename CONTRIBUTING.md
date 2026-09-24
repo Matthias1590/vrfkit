@@ -231,6 +231,7 @@ These corrupt downstream consumers silently — no test fails when they break.
 | `crates/vrf-decode/src/scoped_types.rs` | `tools/generate_scoped_types.py` from reviewed exact group/name/checksum evidence |
 | `crates/vrf-transform/src/sbox.rs` | `tools/extract_sboxes.py` |
 | `crates/vrf-transform/tests/data/golden_vectors.rs` | `tools/extract_golden.py` |
+| `crates/vrf-transform/tests/data/native_vectors.rs` | `tools/capture_native_transforms.py` against pinned original executable readers |
 | `tools/equippable_table.py` | `tools/extract_equippables.py` from the vendored `third_party/vrp/Replay.Valorant/Combat/ValorantEquippableResolver.cs` |
 
 Ordering for the overlay table is load-bearing:

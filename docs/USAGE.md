@@ -58,7 +58,7 @@ See what the file is -- ReplayInfo, header, branch, chunk summary. It parses
 container metadata without decoding replication payloads. Use the branch to
 check the supported-build list and the info flags to check container encryption.
 
-Container inspection also works on 11.06 through 12.09 (48 replay samples,
+Container inspection also works on 11.06 through 12.00 (21 replay samples,
 three per build). These builds still lack payload transforms, so `validate`,
 `diag` and `export` reject them. A successful `inspect` is not evidence of
 full decoding support; see [legacy-build findings](LEGACY_BUILD_SUPPORT.md).
@@ -204,7 +204,7 @@ member and handle by name.
 ```
 
 (That figure is `02d4d478`'s, from `tools/baselines/export_02d4d478.json`:
-`overlay_decoded_ok / overlay_rows_offered` = 796,804 / 988,995. It moves as
+`overlay_decoded_ok / overlay_rows_offered` = 796,920 / 988,995. It moves as
 overlay entries are added -- re-measure before quoting it.)
 
 The denominator is **every row offered** to the overlay, and thanks to RPC
@@ -223,13 +223,13 @@ Measured on `02d4d478` (48,215,213 bytes):
 
 | File | Rows | Bytes | Notes |
 |---|---|---|---|
-| `fields.parquet` | 1,296,660 | 16,455,045 | |
+| `fields.parquet` | 1,296,660 | 16,455,178 | |
 | `movement.parquet` | 1,844,147 | 31,886,449 | |
 | `actors.parquet` | 3,827 | 87,281 | |
 | `net_guids.parquet` | 16,167 | 153,606 | |
 | `events.parquet` | 195 | 13,411 | |
 | `partials.parquet` | 0 | 2,505 | main-only; with checkpoints: 0 rows, 2,505 bytes |
-| `checkpoint_fields.parquet` | 352,089 | 1,219,312 | requires `--checkpoints` |
+| `checkpoint_fields.parquet` | 352,089 | 1,218,992 | requires `--checkpoints` |
 | `checkpoint_actors.parquet` | 3,014 | 27,118 | requires `--checkpoints` |
 | `checkpoint_net_guids.parquet` | 74,270 | 277,718 | requires `--checkpoints` |
 | `checkpoint_blocks.parquet` | 22,247 | 175,103 | requires `--checkpoints` |
@@ -1008,7 +1008,7 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 704 passing
+cargo +1.86.0 test --workspace --locked                              # 707 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 129 files
@@ -1137,6 +1137,7 @@ silent change must be impossible.
 
 | Build | How it is verified |
 |---|---|
+| 12.01--12.09 | 79 native-machine-code vectors per build + all three available replays each, including checkpoints ([evidence](LEGACY_BUILD_SUPPORT.md)) |
 | 12.10, 12.11, 13.00 | One preserved fixture each + golden vectors |
 | 13.01 | 215-replay portion of the current multi-build sweep |
 | 13.02 | Preserved replay + 204-replay portion of the current sweep |
@@ -1223,3 +1224,13 @@ live in `%LOCALAPPDATA%\vrfkit\baseline-corpora`.
   valplay additionally floors each final engagement segment before summing its
   scoreboard damage, which reproduces Tracker ADR without discarding the exact
   float total.
+
+### Native transform evidence
+
+`capture_native_transforms.py --binaries <root> --check` verifies the committed
+12.01--12.09 vectors against the pinned original PE readers. It requires the
+optional `pefile` and `unicorn` packages and the SHA-256-matched executable
+layout documented in [LEGACY_BUILD_SUPPORT.md](LEGACY_BUILD_SUPPORT.md).
+Without `--check`, it regenerates `crates/vrf-transform/tests/data/native_vectors.rs`.
+Ordinary tests read the vectors without requiring proprietary binaries or an
+emulator. Game binaries and replay exports are not committed.

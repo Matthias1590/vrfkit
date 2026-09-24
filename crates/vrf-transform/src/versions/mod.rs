@@ -8,6 +8,15 @@
 //!
 //! | build | seed addend | offset | offset sign | S-box |
 //! |---|---|---|---|---|
+//! | release-12.01 | `0x13fdd831` | `0x31` | **add** | yes |
+//! | release-12.02 | `0x9830d09d` | `0x1d` | **add** | yes |
+//! | release-12.03 | `0x33d59dff` | `0x01` | subtract | yes |
+//! | release-12.04 | `0xa5684b42` | `0x3e` | subtract | yes |
+//! | release-12.05 | `0xc21d548c` | `0x0c` | **add** | yes |
+//! | release-12.06 | `0x8d686ca6` | `0x26` | **add** | no |
+//! | release-12.07 | `0x2d21d7c3` | `0x3d` | subtract | yes |
+//! | release-12.08 | `0xce2e33e5` | `0x1b` | subtract | yes |
+//! | release-12.09 | `0x7ff2feec` | `0x14` | subtract | no |
 //! | release-12.10 | `0x12fd0ee5` | `0x1b` | subtract | no |
 //! | release-12.11 | `0x409d36a3` | `0x23` | **add** | no |
 //! | release-13.00 | `0x2949b6ef` | `0x11` | subtract | yes |
@@ -17,13 +26,13 @@
 //! | release-13.05 | `0x48c26613` | `0x13` | **add** | no |
 //! | release-13.06 | `0xe974593c` | `0x3c` | **add** | yes |
 //!
-//! In all eight, `TAIL_XOR == SEED_ADDEND & 0xff`. That is asserted per version
+//! In every recovered build, `TAIL_XOR == SEED_ADDEND & 0xff`. That is asserted per version
 //! rather than assumed, so a future build that breaks the pattern fails a test
 //! instead of silently corrupting the final partial byte of every payload.
 //!
 //! ## One file per build
 //!
-//! The eight `impl`s are deliberately kept in separate files. They are near-
+//! The per-build `impl`s are deliberately kept in separate files. They are near-
 //! identical in shape and differ only in the order of a handful of bit
 //! primitives, which is exactly the situation where a copy-paste error is
 //! invisible in review; a per-build file makes `git log` on one build show only
@@ -32,6 +41,15 @@
 
 use crate::helpers::initial_prng_a;
 
+mod v12_01;
+mod v12_02;
+mod v12_03;
+mod v12_04;
+mod v12_05;
+mod v12_06;
+mod v12_07;
+mod v12_08;
+mod v12_09;
 mod v12_10;
 mod v12_11;
 mod v13_00;
@@ -41,6 +59,15 @@ mod v13_04;
 mod v13_05;
 mod v13_06;
 
+pub use v12_01::V12_01;
+pub use v12_02::V12_02;
+pub use v12_03::V12_03;
+pub use v12_04::V12_04;
+pub use v12_05::V12_05;
+pub use v12_06::V12_06;
+pub use v12_07::V12_07;
+pub use v12_08::V12_08;
+pub use v12_09::V12_09;
 pub use v12_10::V12_10;
 pub use v12_11::V12_11;
 pub use v13_00::V13_00;
@@ -110,6 +137,15 @@ mod tests {
             )
         }
         vec![
+            row::<V12_01>(),
+            row::<V12_02>(),
+            row::<V12_03>(),
+            row::<V12_04>(),
+            row::<V12_05>(),
+            row::<V12_06>(),
+            row::<V12_07>(),
+            row::<V12_08>(),
+            row::<V12_09>(),
             row::<V12_10>(),
             row::<V12_11>(),
             row::<V13_00>(),
@@ -136,17 +172,28 @@ mod tests {
         }
     }
 
-    /// Adding the offset is the exception: 12.11, 13.05, and 13.06 do it.
+    /// Compare each recovered offset sign with its native implementation.
     /// Pinning the exact set means a new transform that
     /// copy-pastes the wrong sign is caught here rather than in a corpus sweep.
     #[test]
-    fn only_12_11_13_05_and_13_06_add_the_offset() {
+    fn offset_signs_match_recovered_builds() {
         let adding: Vec<&str> = build_table()
             .into_iter()
             .filter(|row| row.3)
             .map(|row| row.0)
             .collect();
-        assert_eq!(adding, vec![V12_11::BRANCH, V13_05::BRANCH, V13_06::BRANCH]);
+        assert_eq!(
+            adding,
+            vec![
+                V12_01::BRANCH,
+                V12_02::BRANCH,
+                V12_05::BRANCH,
+                V12_06::BRANCH,
+                V12_11::BRANCH,
+                V13_05::BRANCH,
+                V13_06::BRANCH
+            ]
+        );
     }
 
     #[test]

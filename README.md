@@ -11,14 +11,14 @@ external `oozextract` crate. Edition 2024, MSRV 1.86, MIT.
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)
 ![rust](https://img.shields.io/badge/rust-1.86%2B-orange.svg)
 ![edition](https://img.shields.io/badge/edition-2024-orange.svg)
-![builds](https://img.shields.io/badge/builds-12.10--13.06-green.svg)
+![builds](https://img.shields.io/badge/builds-12.01--13.06-green.svg)
 ![unsafe](https://img.shields.io/badge/unsafe-none-success.svg)
 
 Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantReplayParser)
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Verified state:** Rust has **704 passing** tests; Python has **846 passing**
+**Verified state:** Rust has **707 passing** tests; Python has **846 passing**
 tests. The historical 714-file comparison and corpus guards passed. The latest
 upstream changes were checked on a smaller preserved sample; see
 [current status](docs/CURRENT_STATUS.md) for the evidence boundary.
@@ -62,15 +62,17 @@ can be represented by their rows instead of a duplicate raw RPC.
 | **13.00** | `release-13.00` | ✅ Supported | Preserved fixture + golden vectors |
 | **12.11** | `release-12.11` | ✅ Supported | Preserved fixture + golden vectors |
 | **12.10** | `release-12.10` | ✅ Supported | Preserved fixture + golden vectors |
+| **12.01--12.09** | `release-12.01` through `release-12.09` | Supported | 711 native-machine-code vectors + all 27 available replays with checkpoints ([evidence](docs/LEGACY_BUILD_SUPPORT.md)) |
 
 All branches are `++Ares-Core+release-<build>`. Adding a build is one
 `SeededTransform` impl (two constants + three word functions); see
 [Adding a new build](#supported-builds-and-the-cost-of-a-new-build).
 
-**11.06 through 12.09: container inspection only.** All 48 available samples
-can be inspected, but their payload transforms are not implemented. They are
-not supported by `validate`, `diag` or `export` yet. See the
-[legacy-build findings](docs/LEGACY_BUILD_SUPPORT.md).
+**11.06 through 12.00: container inspection only.** Their 21 available
+samples can be inspected, but their payload transforms are not recovered.
+The downloaded executables have encrypted code sections; `validate`, `diag`
+and `export` still reject those seven branches. See the
+[remaining dependency](docs/LEGACY_BUILD_SUPPORT.md).
 
 ## Highlights
 
@@ -114,7 +116,7 @@ not supported by `validate`, `diag` or `export` yet. See the
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **704 Rust tests** plus a layered validation suite (framing / bytes / decode
+- **707 Rust tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -168,13 +170,13 @@ Parquet files plus a manifest when checkpoints are included:
 
 | File | Rows | Bytes |
 |---|---|---|
-| `fields.parquet` | 1,296,660 | 16,455,045 |
+| `fields.parquet` | 1,296,660 | 16,455,178 |
 | `movement.parquet` | 1,844,147 | 31,886,449 |
 | `actors.parquet` | 3,827 | 87,281 |
 | `net_guids.parquet` | 16,167 | 153,606 |
 | `events.parquet` | 195 | 13,411 |
 | `partials.parquet` | 0 | 2,505 |
-| `checkpoint_fields.parquet` | 352,089 | 1,219,312 |
+| `checkpoint_fields.parquet` | 352,089 | 1,218,992 |
 | `checkpoint_actors.parquet` | 3,014 | 27,118 |
 | `checkpoint_net_guids.parquet` | 74,270 | 277,718 |
 | `checkpoint_blocks.parquet` | 22,247 | 175,103 |
@@ -359,7 +361,7 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**704 passing**; the full Python suite also has **846 passing** tests. The
+**707 passing**; the full Python suite also has **846 passing** tests. The
 all-corpus guards, all-file comparison, and full documentation check pass.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
@@ -703,13 +705,13 @@ committed export baseline `tools/baselines/export_02d4d478.json` after the
 partial-header and shot-array corrections:
 
 ```
-Decoded OK:   796,804      Decode errors:      0
-Raw/Skip:      26,507      Not in table: 163,650
+Decoded OK:   796,920      Decode errors:      0
+Raw/Skip:      26,507      Not in table: 163,534
 No field name:  2,034      Typed:          80.6%
 Effect blobs:  61,617
 ```
 
-The four buckets partition `Rows offered` exactly (796,804 + 26,507 + 163,650 +
+The four buckets partition `Rows offered` exactly (796,920 + 26,507 + 163,534 +
 2,034 = 988,995), and `Typed` is `Decoded OK / Rows offered`. The figures this
 block held until 2026-08-30 partitioned the same 988,983 rows differently -- they
 were an older snapshot, taken before overlay entries that moved rows out of `Not
@@ -804,12 +806,21 @@ reads only `archive.BitsRemaining`. Before this fix, all 364 rows of
 ## Supported builds and the cost of a new build
 
 The payload transform changes per game build, but far more is **constant**
-across releases 12.10 through 13.06: the PRNG and its multipliers, the seed-mix
+across supported releases 12.01 through 13.06: the PRNG and its multipliers, the seed-mix
 skeleton, the 64 -> 32 -> 8 -> tail staging, the tail-XOR handling, and even
 the S-box table itself. What actually changes per build:
 
 | | seed addend | offset | sign | S-box |
 |---|---|---|---|---|
+| release-12.01 | `0x13fdd831` | `0x31` | **+** | used |
+| release-12.02 | `0x9830d09d` | `0x1d` | **+** | used |
+| release-12.03 | `0x33d59dff` | `0x01` | - | used |
+| release-12.04 | `0xa5684b42` | `0x3e` | - | used |
+| release-12.05 | `0xc21d548c` | `0x0c` | **+** | used |
+| release-12.06 | `0x8d686ca6` | `0x26` | **+** | unused |
+| release-12.07 | `0x2d21d7c3` | `0x3d` | - | used |
+| release-12.08 | `0xce2e33e5` | `0x1b` | - | used |
+| release-12.09 | `0x7ff2feec` | `0x14` | - | unused |
 | release-12.10 | `0x12fd0ee5` | `0x1b` | - | unused |
 | release-12.11 | `0x409d36a3` | `0x23` | **+** | unused |
 | release-13.00 | `0x2949b6ef` | `0x11` | - | used |
@@ -819,7 +830,7 @@ the S-box table itself. What actually changes per build:
 | release-13.05 | `0x48c26613` | `0x13` | **+** | unused |
 | release-13.06 | `0xe974593c` | `0x3c` | **+** | used |
 
-In all eight builds the **tail-XOR byte equals the low byte of the seed
+In all seventeen supported builds the **tail-XOR byte equals the low byte of the seed
 addend.** It is a derived value, not an independent constant, and the
 relationship is pinned by a test in `versions/mod.rs` -- if a future build breaks
 the pattern, the test fails instead of the final byte silently corrupting.
@@ -850,6 +861,10 @@ machine-local corpus can rotate; the reproducible transform oracle remains the
 build, eight builds). The 13.06 implementation was also validated on six real
 replays; [the upstream parity report](docs/UPSTREAM_PARITY.md) records the
 before/after comparisons and the limits of that sample.
+
+The nine newly recovered 12.01--12.09 builds add 711 native-machine-code
+vectors and a full 27-sample main/checkpoint validation; see the
+[legacy support report](docs/LEGACY_BUILD_SUPPORT.md).
 
 The 768-byte S-box is shared across builds, which makes it usable as a
 **signature for locating the transform function in a binary.**
@@ -890,7 +905,7 @@ and framing. Payloads lost before export require parsing the original replay.
 ### 2. Minimal cost per build update
 
 See [Supported builds](#supported-builds-and-the-cost-of-a-new-build). Across
-eight builds the only per-build variables are two constants (seed addend,
+the supported builds the only per-build variables are two constants (seed addend,
 offset) and a sign, plus whether the S-box stage is enabled; the PRNG,
 staging, tail-XOR, and S-box table are shared. A new build is one
 `SeededTransform` impl.
@@ -942,7 +957,7 @@ that way is a trap:
 
 ## Generated files
 
-Six files in the tree are generated and must never be edited by hand:
+The following files are generated and must never be edited by hand:
 
 | Generated file | Generator | Notes |
 |---|---|---|
@@ -951,6 +966,7 @@ Six files in the tree are generated and must never be edited by hand:
 | `crates/vrf-decode/src/scoped_types.rs` | `tools/generate_scoped_types.py` | Exact group/name/checksum primitive types for ambiguous field names; no cross-group propagation |
 | `crates/vrf-transform/src/sbox.rs` | `tools/extract_sboxes.py` | 768-byte S-box, shared across builds |
 | `crates/vrf-transform/tests/data/golden_vectors.rs` | `tools/extract_golden.py` | Per-build golden test vectors |
+| `crates/vrf-transform/tests/data/native_vectors.rs` | `tools/capture_native_transforms.py` | Expected bytes from pinned original executable readers |
 | `tools/equippable_table.py` | `tools/extract_equippables.py` | Weapon class path to display name, from the vendored `ValorantEquippableResolver.cs` |
 
 The overlay table's and the equippable table's input is in the tree, so anyone

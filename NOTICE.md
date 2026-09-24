@@ -36,7 +36,7 @@ SOFTWARE.
 
 | Area | Relationship |
 |---|---|
-| `crates/vrf-transform` | The eight per-build payload transforms and their constants are a port of `Replay.Encoding/PayloadEncryption`. The substitution tables and golden test vectors are extracted mechanically from that source (`tools/extract_sboxes.py`, `tools/extract_golden.py`). |
+| `crates/vrf-transform` | The eight 12.10--13.06 per-build payload transforms and their constants are a port of `Replay.Encoding/PayloadEncryption`. The substitution tables and golden test vectors are extracted mechanically from that source (`tools/extract_sboxes.py`, `tools/extract_golden.py`). |
 | `crates/vrf-bitio` | The Unreal wire primitives (`IntPacked`, bounded `SerializedInt`, `FString`, bit copying) follow the semantics implemented in `Replay.Encoding/Archives`. |
 | `third_party/vrp` | ValorantReplayParser's `src/Replay.Valorant` C# descriptor sources (upstream `2d2e05e` plus five local descriptor commits), with a selective reveal descriptor update from `2b66c65` and upstream's `LICENSE`. Its README records the exact revisions and local adaptations. |
 | `crates/vrf-decode/src/table.rs` | Generated from that copy (`tools/extract_descriptors.py`), then corrected against wire evidence (`tools/apply_type_corrections.py`). |
@@ -45,7 +45,11 @@ SOFTWARE.
 | `tools/extract_player_effects.py` | The player-body / possessed-device distinction follows the flash and nearsight correction in upstream `2b66c65`; the tool retains non-player observations and does not infer unique hits. |
 
 The reverse engineering of VALORANT's payload transformation originates with that
-project; this repository reimplements the result rather than rediscovering it.
+project. The additional 12.01--12.09 word transforms were recovered independently
+from pinned original executables, using the shared primitives established by
+that project. Native expected-byte vectors are captured by
+`tools/capture_native_transforms.py`; their staging-boundary input is the
+upstream test payload. No game executable bytes are distributed here.
 
 ## Prior art acknowledged upstream
 

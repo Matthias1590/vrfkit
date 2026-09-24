@@ -2675,6 +2675,31 @@ mod tests {
         );
     }
 
+    /// The 12.01--12.06 replay controller is named BaseJanusController.
+    /// Its player-index byte must be consumed before the first property block,
+    /// just like BaseReplayController from 12.07 onward.
+    #[test]
+    fn legacy_controller_property_block_is_reached() {
+        let mut payload = Vec::new();
+        write_int_packed(&mut payload, 2);
+        write_minimal_spawn_data(&mut payload, 9);
+        payload.extend([false; 8]); // Net player index, observed before the header.
+        payload.extend([true, true]); // Actor RepLayout block.
+        write_int_packed(&mut payload, 0);
+        let packet = build_open_bunch_packet(2, &payload);
+
+        let mut sink = TestSink::default();
+        sink.guid_paths
+            .insert(9, "Default__BaseJanusController_C".to_string());
+        let mut reader = ReplicationReader::new("++Ares-Core+release-12.01").unwrap();
+        reader.process_packet(&packet, 0, &mut sink);
+
+        assert_eq!(reader.stats().skipped_bits, 0);
+        assert_eq!(sink.content_blocks.len(), 1);
+        assert!(sink.content_blocks[0].has_rep_layout);
+        assert!(sink.content_blocks[0].is_actor);
+    }
+
     /// A non-controller dynamic actor has no net-player-index byte on the wire,
     /// so the byte must NOT be consumed. The content-block header must sit
     /// immediately after the spawn data and frame correctly.
