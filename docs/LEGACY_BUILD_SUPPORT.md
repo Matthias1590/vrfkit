@@ -44,8 +44,8 @@ plaintext passthrough nor merely accepting the branch is a decoding fix.
 The upstream parser at
 [`2b66c65`](https://github.com/michel-giehl/ValorantReplayParser/tree/2b66c65a7b116154e18ebb84d9f6795f2b080233/src/Replay.Encoding/PayloadEncryption/VersionedTransforms)
 has transforms only for the same eight builds vrfkit already supports.
-Deriving and verifying the missing transforms needs their implementation or
-the relevant archived game executables. The upstream maintainer describes
+The missing transforms must be recovered and verified from the acquired
+game executables listed below. The upstream maintainer describes
 locating the transformed reader through `UActorChannel::ReadContentBlockHeader`
 in [issue #2](https://github.com/michel-giehl/ValorantReplayParser/issues/2).
 
@@ -83,8 +83,8 @@ be recovered and checked for each executable, not assumed to carry over.
 The manifest-link archive
 [`Morilli/riot-manifests` at `573d6e7`](https://github.com/Morilli/riot-manifests/tree/573d6e78edc51395a03513800230eab3dbadbf92/VALORANT/na)
 contains 29 patch entries covering all sixteen missing builds. These are
-links to Riot manifests, not archived game executables. Acquisition remains
-blocked in the measured environment. A follow-up browser check of the CDN
+links to Riot manifests, not archived game executables. Acquisition was
+initially blocked in the measured environment. A browser check of the CDN
 hostname's HTTP root displayed an SK Broadband school-network notice stating
 that firewall policy blocks the page. DNS resolves several Riot hostnames to
 that warning server, whose expired, mismatched certificate caused the HTTPS
@@ -92,14 +92,47 @@ failures. The earlier TLS error is therefore evidence of the local network
 block, not evidence that Riot's own CDN certificate is invalid or that the
 archived files have disappeared.
 
-Acquisition needs network-administrator authorization for the CDN or a
-separate network on which these downloads are permitted. After connectivity
-is restored, fetch the saved manifest for each build and select only
-`ShooterGame/Binaries/Win64/VALORANT-Win64-Shipping.exe`. Verify the downloaded
-content against its manifest, record its build and SHA-256, and analyze it
-without replacing the installed game. No legacy executable has yet been
-obtained and no legacy payload transform was registered on the strength of
-the manifest links.
+After the user requested a retry, DNS resolved to Riot's CloudFront endpoint
+and certificate-verified HTTPS downloads succeeded. All sixteen executables
+below were acquired from the latest recorded patch for each replay branch.
+Only `ShooterGame/Binaries/Win64/VALORANT-Win64-Shipping.exe` was selected;
+the installed game was not replaced or launched. Every downloaded file:
+
+- Passed `ManifestDownloader --verify-only` against its RMAN chunk hashes.
+- Contained its expected `++Ares-Core+release-<build>` branch label.
+- Had a valid Windows Authenticode signature from `Riot Games, Inc.`.
+- Was recorded with its SHA-256, manifest ID/hash, source URL and archive
+  commit in the local acquisition catalog.
+
+| Replay build | Acquired patch | Executable bytes |
+|---|---|---:|
+| 11.06 | 11.06.00.3836880 | 201,181,352 |
+| 11.07 | 11.07.00.3855133 | 201,408,608 |
+| 11.08 | 11.08.00.3918089 | 202,602,752 |
+| 11.09 | 11.09.00.3920876 | 203,230,824 |
+| 11.10 | 11.10.00.4002057 | 202,949,848 |
+| 11.11 | 11.11.00.4091853 | 208,825,552 |
+| 12.00 | 12.00.00.4183428 | 208,267,728 |
+| 12.01 | 12.01.00.4211771 | 208,325,576 |
+| 12.02 | 12.02.00.4226954 | 210,556,856 |
+| 12.03 | 12.03.00.4322591 | 210,990,720 |
+| 12.04 | 12.04.00.4354757 | 212,279,904 |
+| 12.05 | 12.05.00.4440267 | 213,755,024 |
+| 12.06 | 12.06.00.4440219 | 214,659,936 |
+| 12.07 | 12.07.00.4488404 | 214,767,368 |
+| 12.08 | 12.08.00.4578383 | 214,750,840 |
+| 12.09 | 12.09.00.4704114 | 184,074,872 |
+
+The selected manifest file sizes sum to **3,312,627,760 bytes** (3.313 GB,
+3.085 GiB). The sixteen RMAN files add 148,679,917 bytes. Summing the compressed
+chunks referenced by those executables gives 1,688,334,507 bytes, or
+**1,837,014,424 bytes** including manifests for the nominal download payload;
+HTTP/TLS overhead and retries are not measured by that figure. Generated
+metadata and future Ghidra databases need additional space.
+
+Executable acquisition is complete. Legacy transform recovery and replay
+validation remain outstanding; no legacy payload transform was registered
+merely because its binary was downloaded.
 
 ## Regression scope and commands
 
