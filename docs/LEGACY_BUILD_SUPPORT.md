@@ -1,4 +1,4 @@
-# Legacy replay support investigation, 2026-09-24
+# Build support validation, 2026-09-24
 
 **Status: 12.01--12.09 now have verified payload transforms.** All 27 available
 replays pass ReplayData validation and checkpoint-enabled export. Builds
@@ -71,12 +71,12 @@ Independent Python decoding of the existing public-fixture evidence types
 matches **410,350 values**, with no missing specification, width failure or
 typed mismatch, across all 54 main/checkpoint field tables. A separate direct
 bit walk of TeamEconomy matches **7,797 child values from 1,110 parent rows**,
-including the legacy nonzero loadout values. Captured regression fixtures pin
+including the 12.01--12.05 nonzero loadout values. Captured regression fixtures pin
 the first two 12.01 updates and reject unknown/missing declarations.
 
 Eight previously supported builds were revalidated and re-exported, one replay
 each with checkpoints. Their **104 Parquet files are byte-identical** to the
-pre-change outputs. This is the full available 27-file legacy sample, not a
+pre-change outputs. This is the full available 27-file sample for 12.01--12.09, not a
 claim about every replay ever recorded on these builds.
 
 The committed 13.01 export baseline was stale from the earlier scoped smoke
@@ -89,7 +89,7 @@ The 116 values are 20 `CreatedByCharacter` GUIDs and 96 `bInPersistentData`
 booleans on the previously accepted Smonk/Wushu scopes. Independent Python
 IntPacked/Bool decoding matches all of them. No rows or other main tables change.
 The baseline and its quoted documentation figures are refreshed for those
-already-present values; the legacy support changes introduce no 13.01 drift.
+already-present values; the 12.01--12.09 support changes introduce no 13.01 drift.
 The paired checkpoint baseline additionally gains 48 GUID and 48 Bool values
 from those same scopes, all independently matched to raw bits. Its field file
 shrinks by 320 bytes to 1,218,992, with SHA-256

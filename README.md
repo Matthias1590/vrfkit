@@ -62,7 +62,15 @@ can be represented by their rows instead of a duplicate raw RPC.
 | **13.00** | `release-13.00` | ✅ Supported | Preserved fixture + golden vectors |
 | **12.11** | `release-12.11` | ✅ Supported | Preserved fixture + golden vectors |
 | **12.10** | `release-12.10` | ✅ Supported | Preserved fixture + golden vectors |
-| **12.01--12.09** | `release-12.01` through `release-12.09` | Supported | 711 native-machine-code vectors + all 27 available replays with checkpoints ([evidence](docs/LEGACY_BUILD_SUPPORT.md)) |
+| **12.09** | `release-12.09` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **12.08** | `release-12.08` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **12.07** | `release-12.07` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **12.06** | `release-12.06` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **12.05** | `release-12.05` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **12.04** | `release-12.04` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **12.03** | `release-12.03` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **12.02** | `release-12.02` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **12.01** | `release-12.01` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
 
 All branches are `++Ares-Core+release-<build>`. Adding a build is one
 `SeededTransform` impl (two constants + three word functions); see
@@ -864,7 +872,7 @@ before/after comparisons and the limits of that sample.
 
 The nine newly recovered 12.01--12.09 builds add 711 native-machine-code
 vectors and a full 27-sample main/checkpoint validation; see the
-[legacy support report](docs/LEGACY_BUILD_SUPPORT.md).
+[build support validation report](docs/LEGACY_BUILD_SUPPORT.md).
 
 The 768-byte S-box is shared across builds, which makes it usable as a
 **signature for locating the transform function in a binary.**

@@ -61,7 +61,7 @@ check the supported-build list and the info flags to check container encryption.
 Container inspection also works on 11.06 through 12.00 (21 replay samples,
 three per build). These builds still lack payload transforms, so `validate`,
 `diag` and `export` reject them. A successful `inspect` is not evidence of
-full decoding support; see [legacy-build findings](LEGACY_BUILD_SUPPORT.md).
+full decoding support; see [build support findings](LEGACY_BUILD_SUPPORT.md).
 
 ReplayInfo includes a free-form friendly name. When command output will be
 shared or archived, pass `--redact-identifiers`; the command prints
@@ -698,7 +698,7 @@ m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); print(len(m
 | `compare_rpc_params.py` | RPC parameter comparison |
 | `compare_with_csharp.py` | Diff against the C# parser |
 | `check_effect_decoder.py` | Effect decoder (12 cases) |
-| `check_ascii.py` | Rust source ASCII sweep (129 files) |
+| `check_ascii.py` | Rust source ASCII sweep (140 files) |
 | `check_docs.py` | This document itself (below) |
 | `atomic_io.py` | Internal containment, recursive-removal and atomic-replacement helpers shared by mutating tools |
 
@@ -1011,7 +1011,7 @@ field meaning; the analyzer deliberately performs no type inference.
 cargo +1.86.0 test --workspace --locked                              # 707 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
-python -W error tools/check_ascii.py --check                         # 129 files
+python -W error tools/check_ascii.py --check                         # 140 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
 python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 846 tests
 python -W error tools/check_docs.py --fast
@@ -1137,13 +1137,26 @@ silent change must be impossible.
 
 | Build | How it is verified |
 |---|---|
-| 12.01--12.09 | 79 native-machine-code vectors per build + all three available replays each, including checkpoints ([evidence](LEGACY_BUILD_SUPPORT.md)) |
-| 12.10, 12.11, 13.00 | One preserved fixture each + golden vectors |
+| 12.01 | 79 native golden vectors + three real replays with checkpoint export |
+| 12.02 | 79 native golden vectors + three real replays with checkpoint export |
+| 12.03 | 79 native golden vectors + three real replays with checkpoint export |
+| 12.04 | 79 native golden vectors + three real replays with checkpoint export |
+| 12.05 | 79 native golden vectors + three real replays with checkpoint export |
+| 12.06 | 79 native golden vectors + three real replays with checkpoint export |
+| 12.07 | 79 native golden vectors + three real replays with checkpoint export |
+| 12.08 | 79 native golden vectors + three real replays with checkpoint export |
+| 12.09 | 79 native golden vectors + three real replays with checkpoint export |
+| 12.10 | Preserved fixture + golden vectors |
+| 12.11 | Preserved fixture + golden vectors |
+| 13.00 | Preserved fixture + golden vectors |
 | 13.01 | 215-replay portion of the current multi-build sweep |
 | 13.02 | Preserved replay + 204-replay portion of the current sweep |
 | 13.04 | Preserved fixture + upstream golden vectors + 108-replay export/checkpoint sweep |
 | 13.05 | Preserved fixture + golden vectors + 187-file portion of the 714-file sweep |
 | 13.06 | Six preserved fixtures + 11 upstream golden vectors + main/checkpoint exports ([details](UPSTREAM_PARITY.md)) |
+
+The [build support validation report](LEGACY_BUILD_SUPPORT.md) records the
+native vectors and replay results for 12.01--12.09.
 
 The current 714-file sweep passes ReplayData block validation and separately
 reports zero checkpoint block loss. All 961,004 partial fragments now reassemble
