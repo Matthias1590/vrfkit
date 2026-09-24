@@ -54,9 +54,14 @@ vrfkit export   <file.vrf> --out <dir> [--checkpoints]
 
 ### `inspect`
 
-See what the file is -- ReplayInfo, header, branch, chunk summary. It does no
-parsing, so it returns immediately. Use it to check up front whether the build
-is supported and whether the file is encrypted.
+See what the file is -- ReplayInfo, header, branch, chunk summary. It parses
+container metadata without decoding replication payloads. Use the branch to
+check the supported-build list and the info flags to check container encryption.
+
+Container inspection also works on 11.06 through 12.09 (48 replay samples,
+three per build). These builds still lack payload transforms, so `validate`,
+`diag` and `export` reject them. A successful `inspect` is not evidence of
+full decoding support; see [legacy-build findings](LEGACY_BUILD_SUPPORT.md).
 
 ReplayInfo includes a free-form friendly name. When command output will be
 shared or archived, pass `--redact-identifiers`; the command prints
@@ -1003,7 +1008,7 @@ field meaning; the analyzer deliberately performs no type inference.
 ### Quick sweep -- after any change
 
 ```bash
-cargo +1.86.0 test --workspace --locked                              # 702 passing
+cargo +1.86.0 test --workspace --locked                              # 704 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
 python -W error tools/check_ascii.py --check                         # 129 files

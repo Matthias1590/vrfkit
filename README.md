@@ -18,7 +18,7 @@ Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantRepl
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Verified state:** Rust has **702 passing** tests; Python has **846 passing**
+**Verified state:** Rust has **704 passing** tests; Python has **846 passing**
 tests. The historical 714-file comparison and corpus guards passed. The latest
 upstream changes were checked on a smaller preserved sample; see
 [current status](docs/CURRENT_STATUS.md) for the evidence boundary.
@@ -67,6 +67,11 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 `SeededTransform` impl (two constants + three word functions); see
 [Adding a new build](#supported-builds-and-the-cost-of-a-new-build).
 
+**11.06 through 12.09: container inspection only.** All 48 available samples
+can be inspected, but their payload transforms are not implemented. They are
+not supported by `validate`, `diag` or `export` yet. See the
+[legacy-build findings](docs/LEGACY_BUILD_SUPPORT.md).
+
 ## Highlights
 
 - **Preservation with explicit accounting** — unknown property payloads and
@@ -109,7 +114,7 @@ All branches are `++Ares-Core+release-<build>`. Adding a build is one
 - **Reproducible** — Parquet output is byte-for-byte identical run to run.
 - **No `unsafe`** — `#![forbid(unsafe_code)]` in every crate; the only FFI is
   Oodle, isolated in an external crate.
-- **702 Rust tests** plus a layered validation suite (framing / bytes / decode
+- **704 Rust tests** plus a layered validation suite (framing / bytes / decode
   errors / semantics).
 
 ## Table of contents
@@ -354,7 +359,7 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**702 passing**; the full Python suite also has **846 passing** tests. The
+**704 passing**; the full Python suite also has **846 passing** tests. The
 all-corpus guards, all-file comparison, and full documentation check pass.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted

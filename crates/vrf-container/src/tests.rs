@@ -137,6 +137,18 @@ mod helpers {
     }
 
     pub fn build_header_payload_custom(custom_version_count: i32, valorant_skip: &[u8]) -> Vec<u8> {
+        build_header_payload_for_branch(
+            "++Ares-Core+release-12.10",
+            custom_version_count,
+            valorant_skip,
+        )
+    }
+
+    pub fn build_header_payload_for_branch(
+        branch: &str,
+        custom_version_count: i32,
+        valorant_skip: &[u8],
+    ) -> Vec<u8> {
         let mut buf = Vec::new();
         add_u32(&mut buf, 0x2CF5_A13D); // NetworkMagic
         add_u32(&mut buf, 19); // NetworkVersion
@@ -155,7 +167,7 @@ mod helpers {
         add_u16(&mut buf, 10); // Minor
         add_u16(&mut buf, 1); // Patch
         add_u32(&mut buf, 123456); // Changelist
-        add_fstring(&mut buf, "++Ares-Core+release-12.10");
+        add_fstring(&mut buf, branch);
 
         // ValorantSkipByteCount + skip bytes
         buf.extend_from_slice(valorant_skip);
@@ -487,6 +499,45 @@ fn header_alternate_valorant_skip_bytes() {
     let header = header::parse_replay_header(&payload).unwrap();
     assert_eq!(header.replay_version.branch, "++Ares-Core+release-12.10");
     assert_eq!(header.ue4_version, 1001);
+}
+
+#[test]
+fn header_legacy_builds_have_no_valorant_skip_field() {
+    for build in [
+        "11.06", "11.07", "11.08", "11.09", "11.10", "11.11", "12.00", "12.01", "12.02", "12.03",
+        "12.04", "12.05",
+    ] {
+        let branch = format!("++Ares-Core+release-{build}");
+        let payload = helpers::build_header_payload_for_branch(&branch, 3, &[]);
+        let parsed = header::parse_replay_header(&payload);
+        assert!(parsed.is_ok(), "{build}: {parsed:?}");
+        let header = parsed.unwrap();
+        assert_eq!(header.replay_version.branch, branch);
+        assert_eq!(header.ue4_version, 1001);
+        assert_eq!(header.ue5_version, 1002);
+        assert_eq!(header.package_version_license, 1003);
+        assert_eq!(header.level_names_and_times, vec![("Ascent".into(), 42)]);
+        assert_eq!(header.game_specific_data, ["valorant", "competitive"]);
+        assert_eq!(header.platform, "Windows");
+        assert_eq!(header.build_target_type, 3);
+        assert_eq!(header.trailing_bytes, 0);
+    }
+}
+
+#[test]
+fn header_skip_field_starts_at_12_06() {
+    for build in ["12.06", "12.07", "12.08", "12.09", "12.10", "13.06"] {
+        let branch = format!("++Ares-Core+release-{build}");
+        for skip in [&[0, 0, 0, 0][..], &[3, 0, 0, 0, 49, 56, 0][..]] {
+            let payload = helpers::build_header_payload_for_branch(&branch, 3, skip);
+            let header = header::parse_replay_header(&payload).unwrap();
+            assert_eq!(header.ue4_version, 1001, "{build}");
+            assert_eq!(header.platform, "Windows", "{build}");
+            assert_eq!(header.trailing_bytes, 0, "{build}");
+        }
+        let missing = helpers::build_header_payload_for_branch(&branch, 3, &[]);
+        assert!(header::parse_replay_header(&missing).is_err(), "{build}");
+    }
 }
 
 #[test]

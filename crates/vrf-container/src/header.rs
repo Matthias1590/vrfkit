@@ -17,8 +17,8 @@
 //! | ... | u16 | ReplayVersion.Patch |
 //! | ... | u32 | ReplayVersion.Changelist |
 //! | ... | FString | ReplayVersion.Branch |
-//! | ... | u32 | ValorantSkipByteCount |
-//! | ... | [N] | Valorant-specific skip bytes |
+//! | ... | u32 | ValorantSkipByteCount (release-12.06 onward) |
+//! | ... | [N] | Valorant-specific skip bytes (release-12.06 onward) |
 //! | ... | u32 | UE4Version |
 //! | ... | u32 | UE5Version |
 //! | ... | u32 | PackageVersionLicense |
@@ -183,11 +183,31 @@ pub(crate) fn parse_replay_header(payload: &[u8]) -> Result<ReplayHeader, Contai
     };
 
     // --- Valorant-specific skip bytes -------------------------------------
-    let valorant_skip_count = read_u32(&mut reader, "valorant skip byte count")?;
-    let skip_bits_val = u64::from(valorant_skip_count) * 8;
-    reader
-        .skip_bits(skip_bits_val)
-        .map_err(|e| ContainerError::BitIo(e.to_string()))?;
+    // All 36 sampled replays from 11.06 through 12.05 put UE4Version (522)
+    // immediately after Branch. The length-prefixed extension first appears
+    // in the 12.06 samples. Do not retry a malformed modern header as legacy:
+    // doing so would silently interpret its length as a package version.
+    let legacy_header = matches!(
+        replay_version.branch.as_str(),
+        "++Ares-Core+release-11.06"
+            | "++Ares-Core+release-11.07"
+            | "++Ares-Core+release-11.08"
+            | "++Ares-Core+release-11.09"
+            | "++Ares-Core+release-11.10"
+            | "++Ares-Core+release-11.11"
+            | "++Ares-Core+release-12.00"
+            | "++Ares-Core+release-12.01"
+            | "++Ares-Core+release-12.02"
+            | "++Ares-Core+release-12.03"
+            | "++Ares-Core+release-12.04"
+            | "++Ares-Core+release-12.05"
+    );
+    if !legacy_header {
+        let valorant_skip_count = read_u32(&mut reader, "valorant skip byte count")?;
+        reader
+            .skip_bits(u64::from(valorant_skip_count) * 8)
+            .map_err(|e| ContainerError::BitIo(e.to_string()))?;
+    }
 
     // --- UE versions ------------------------------------------------------
     let ue4_version = read_u32(&mut reader, "UE4 version")?;
