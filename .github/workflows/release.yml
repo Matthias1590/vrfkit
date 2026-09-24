@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build Windows release
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.86.0
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo +1.86.0 build --release --locked -p vrfkit
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $archive = "vrfkit-$tag-windows-x64.zip"
+          Compress-Archive -Path target/release/vrfkit.exe -DestinationPath $archive
+          (Get-FileHash -Algorithm SHA256 $archive).Hash.ToLowerInvariant() + "  " + $archive |
+            Set-Content -NoNewline "$archive.sha256"
+
+      - name: Create GitHub release
+        shell: pwsh
+        env:
+          GH_TOKEN: "${{ github.token }}"
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $archive = "vrfkit-$tag-windows-x64.zip"
+          gh release create $tag $archive "$archive.sha256" --verify-tag --generate-notes --title $tag
