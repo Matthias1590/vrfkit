@@ -54,6 +54,41 @@ by validation and checkpoint-enabled export of all three available samples
 for its build. Frame success alone is not evidence that typed values agree
 with the wire.
 
+## Binary analysis feasibility check
+
+The analysis path was exercised on the installed 13.06 executable, without
+launching the game or modifying its files. Its SHA-256 is
+`8f033b34913a2e16fb6630fe67ac758baf3612e08315b8b74241ed7f5eb537a2`.
+Ghidra 12.1.2 headless import and targeted decompilation located a seeded bit
+reader at RVA `0x04534320` (VA `0x144534320` at image base `0x140000000`).
+Its seed addend `0xe974593c`, initialization offset `0x3c`, PRNG multiplier
+`0x2545f4914f6cdd1d` and transform operations match the 13.06 implementation.
+
+For an independent check, Unicorn emulated that original x86-64 function
+and its native bit-copy helper directly from the PE image. The Windows x64
+arguments were a reader pointer, output pointer and bit count. In this
+executable the reader's source pointer, total bits, current bit position and
+seed are at offsets `0x98`, `0xa8`, `0xb0` and `0xb8`. Each case reset the
+reader and input bytes, used bit position zero, and set the seed to
+`bit_count ^ actor_net_guid`. Emulation required return to the caller within
+the instruction/time limit before comparing output bytes.
+
+All eleven 13.06 cases from
+[`golden_vectors.rs`](../crates/vrf-transform/tests/data/golden_vectors.rs)
+matched: 0, 1, 7, 8, 31, 32, 63, 64, 65, 287 and 288 bits. This verifies a
+practical way to obtain an independent native-code oracle; it does not add
+support for any legacy build. Addresses, reader layouts and algorithms must
+be recovered and checked for each executable, not assumed to carry over.
+
+The manifest-link archive
+[`Morilli/riot-manifests` at `573d6e7`](https://github.com/Morilli/riot-manifests/tree/573d6e78edc51395a03513800230eab3dbadbf92/VALORANT/na)
+contains 29 patch entries covering all sixteen missing builds. These are
+links to Riot manifests, not archived game executables. Acquisition remains
+blocked in the measured environment: the Riot CDN endpoint presents an
+expired certificate for a different host, so the manifest download fails
+TLS verification. No legacy executable was obtained and no legacy payload
+transform was registered on the strength of those links.
+
 ## Regression scope and commands
 
 Eight previously supported builds were checked before and after this change:
