@@ -1,3 +1,5 @@
+> This is a fork of [yakisoba's vrfkit repo](https://github.com/yakisoba0728/vrfkit)
+
 # vrfkit
 
 A Rust toolkit that parses VALORANT replay files (`.vrf`, Unreal Engine network
