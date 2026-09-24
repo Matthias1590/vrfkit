@@ -1,4 +1,4 @@
-//! Compare legacy transforms with the original executable's machine code.
+//! Compare per-build transforms with the original executable's machine code.
 
 include!("data/native_vectors.rs");
 

@@ -20,7 +20,7 @@
 //!
 //! # Per-build variation
 //!
-//! The algorithm skeleton has been stable from release-12.01 to release-13.06.
+//! The algorithm skeleton has been stable from release-11.06 to release-13.06.
 //! What changes per build is two constants and the order of a handful of bit
 //! primitives; see [`versions`]. Adding a build means writing one `impl` with
 //! two constants and three word functions.
@@ -65,8 +65,9 @@ pub mod sbox;
 pub mod versions;
 
 use versions::{
-    SeededTransform, V12_01, V12_02, V12_03, V12_04, V12_05, V12_06, V12_07, V12_08, V12_09,
-    V12_10, V12_11, V13_00, V13_01, V13_02, V13_04, V13_05, V13_06,
+    SeededTransform, V11_06, V11_07, V11_08, V11_09, V11_10, V11_11, V12_00, V12_01, V12_02,
+    V12_03, V12_04, V12_05, V12_06, V12_07, V12_08, V12_09, V12_10, V12_11, V13_00, V13_01, V13_02,
+    V13_04, V13_05, V13_06,
 };
 use vrf_bitio::{BitError, BitReader, Result as BitResult};
 
@@ -153,6 +154,20 @@ pub fn transform_in_place<T: SeededTransform>(
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
 pub enum TransformVersion {
+    /// `++Ares-Core+release-11.06`
+    V1106,
+    /// `++Ares-Core+release-11.07`
+    V1107,
+    /// `++Ares-Core+release-11.08`
+    V1108,
+    /// `++Ares-Core+release-11.09`
+    V1109,
+    /// `++Ares-Core+release-11.10`
+    V1110,
+    /// `++Ares-Core+release-11.11`
+    V1111,
+    /// `++Ares-Core+release-12.00`
+    V1200,
     /// `++Ares-Core+release-12.01`
     V1201,
     /// `++Ares-Core+release-12.02`
@@ -197,6 +212,13 @@ pub enum TransformVersion {
 /// [`non_exhaustive`](https://doc.rust-lang.org/reference/attributes/type_system.html#the-non_exhaustive-attribute),
 /// so downstream matches must retain a fallback arm for future builds.
 pub const ALL_VERSIONS: &[TransformVersion] = &[
+    TransformVersion::V1106,
+    TransformVersion::V1107,
+    TransformVersion::V1108,
+    TransformVersion::V1109,
+    TransformVersion::V1110,
+    TransformVersion::V1111,
+    TransformVersion::V1200,
     TransformVersion::V1201,
     TransformVersion::V1202,
     TransformVersion::V1203,
@@ -263,6 +285,13 @@ impl TransformVersion {
     #[must_use]
     pub const fn branch(self) -> &'static str {
         match self {
+            Self::V1106 => V11_06::BRANCH,
+            Self::V1107 => V11_07::BRANCH,
+            Self::V1108 => V11_08::BRANCH,
+            Self::V1109 => V11_09::BRANCH,
+            Self::V1110 => V11_10::BRANCH,
+            Self::V1111 => V11_11::BRANCH,
+            Self::V1200 => V12_00::BRANCH,
             Self::V1201 => V12_01::BRANCH,
             Self::V1202 => V12_02::BRANCH,
             Self::V1203 => V12_03::BRANCH,
@@ -292,6 +321,13 @@ impl TransformVersion {
     /// Transform `buf` in place.
     pub fn apply(self, buf: &mut [u8], bit_count: usize, seed: u32) -> BitResult<()> {
         match self {
+            Self::V1106 => transform_in_place::<V11_06>(buf, bit_count, seed),
+            Self::V1107 => transform_in_place::<V11_07>(buf, bit_count, seed),
+            Self::V1108 => transform_in_place::<V11_08>(buf, bit_count, seed),
+            Self::V1109 => transform_in_place::<V11_09>(buf, bit_count, seed),
+            Self::V1110 => transform_in_place::<V11_10>(buf, bit_count, seed),
+            Self::V1111 => transform_in_place::<V11_11>(buf, bit_count, seed),
+            Self::V1200 => transform_in_place::<V12_00>(buf, bit_count, seed),
             Self::V1201 => transform_in_place::<V12_01>(buf, bit_count, seed),
             Self::V1202 => transform_in_place::<V12_02>(buf, bit_count, seed),
             Self::V1203 => transform_in_place::<V12_03>(buf, bit_count, seed),

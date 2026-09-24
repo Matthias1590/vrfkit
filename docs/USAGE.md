@@ -58,10 +58,9 @@ See what the file is -- ReplayInfo, header, branch, chunk summary. It parses
 container metadata without decoding replication payloads. Use the branch to
 check the supported-build list and the info flags to check container encryption.
 
-Container inspection also works on 11.06 through 12.00 (21 replay samples,
-three per build). These builds still lack payload transforms, so `validate`,
-`diag` and `export` reject them. A successful `inspect` is not evidence of
-full decoding support; see [build support findings](LEGACY_BUILD_SUPPORT.md).
+Builds 11.06 through 12.09 also have verified payload transforms. All 48
+available samples pass validation and checkpoint-enabled export; see
+[build support findings](LEGACY_BUILD_SUPPORT.md).
 
 ReplayInfo includes a free-form friendly name. When command output will be
 shared or archived, pass `--redact-identifiers`; the command prints
@@ -698,7 +697,7 @@ m=importlib.util.module_from_spec(spec); spec.loader.exec_module(m); print(len(m
 | `compare_rpc_params.py` | RPC parameter comparison |
 | `compare_with_csharp.py` | Diff against the C# parser |
 | `check_effect_decoder.py` | Effect decoder (12 cases) |
-| `check_ascii.py` | Rust source ASCII sweep (140 files) |
+| `check_ascii.py` | Rust source ASCII sweep (147 files) |
 | `check_docs.py` | This document itself (below) |
 | `atomic_io.py` | Internal containment, recursive-removal and atomic-replacement helpers shared by mutating tools |
 
@@ -1011,9 +1010,9 @@ field meaning; the analyzer deliberately performs no type inference.
 cargo +1.86.0 test --workspace --locked                              # 707 passing
 cargo +1.86.0 clippy --workspace --all-targets --all-features --locked -- -D warnings
 cargo +1.86.0 fmt --check
-python -W error tools/check_ascii.py --check                         # 140 files
+python -W error tools/check_ascii.py --check                         # 147 files
 python -W error tools/check_effect_decoder.py --check                # 12 cases
-python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 846 tests
+python -W error -m unittest discover -s tools/tests -p "test_*.py"   # 850 tests
 python -W error tools/check_docs.py --fast
 python -W error tools/apply_type_corrections.py --check              # 187 corrections
 python -W error tools/extract_checksum_types.py --export tools/fixtures/checksum_export --check
@@ -1137,6 +1136,13 @@ silent change must be impossible.
 
 | Build | How it is verified |
 |---|---|
+| 11.06 | 79 native golden vectors + three real replays with checkpoint export |
+| 11.07 | 79 native golden vectors + three real replays with checkpoint export |
+| 11.08 | 79 native golden vectors + three real replays with checkpoint export |
+| 11.09 | 79 native golden vectors + three real replays with checkpoint export |
+| 11.10 | 79 native golden vectors + three real replays with checkpoint export |
+| 11.11 | 79 native golden vectors + three real replays with checkpoint export |
+| 12.00 | 79 native golden vectors + three real replays with checkpoint export |
 | 12.01 | 79 native golden vectors + three real replays with checkpoint export |
 | 12.02 | 79 native golden vectors + three real replays with checkpoint export |
 | 12.03 | 79 native golden vectors + three real replays with checkpoint export |
@@ -1156,7 +1162,7 @@ silent change must be impossible.
 | 13.06 | Six preserved fixtures + 11 upstream golden vectors + main/checkpoint exports ([details](UPSTREAM_PARITY.md)) |
 
 The [build support validation report](LEGACY_BUILD_SUPPORT.md) records the
-native vectors and replay results for 12.01--12.09.
+native vectors and replay results for 11.06--12.09.
 
 The current 714-file sweep passes ReplayData block validation and separately
 reports zero checkpoint block loss. All 961,004 partial fragments now reassemble
@@ -1240,10 +1246,17 @@ live in `%LOCALAPPDATA%\vrfkit\baseline-corpora`.
 
 ### Native transform evidence
 
-`capture_native_transforms.py --binaries <root> --check` verifies the committed
-12.01--12.09 vectors against the pinned original PE readers. It requires the
-optional `pefile` and `unicorn` packages and the SHA-256-matched executable
-layout documented in [LEGACY_BUILD_SUPPORT.md](LEGACY_BUILD_SUPPORT.md).
+`recover_native_binaries.py --binaries <archive-root> --output <recovered-root>`
+recovers the seven protected 11.06--12.00 code images from SHA-256-pinned EXE
+and `stub.dll` pairs. It needs optional `pefile`, `unicorn` and `numpy` packages.
+Only analysis copies are written; both input and output hashes are checked.
+Use `--build 11.06` to select one build, or omit it for all seven. See the
+[offline recovery measurements](BUILD_RECOVERY_RESEARCH.md).
+
+`capture_native_transforms.py --binaries <archive-root> --recovered-binaries <recovered-root> --check`
+verifies all 1,264 committed 11.06--12.09 vectors against the pinned native
+PE readers. It requires optional `pefile` and `unicorn` packages and the
+executable layout documented in [LEGACY_BUILD_SUPPORT.md](LEGACY_BUILD_SUPPORT.md).
 Without `--check`, it regenerates `crates/vrf-transform/tests/data/native_vectors.rs`.
 Ordinary tests read the vectors without requiring proprietary binaries or an
 emulator. Game binaries and replay exports are not committed.

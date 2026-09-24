@@ -8,6 +8,13 @@
 //!
 //! | build | seed addend | offset | offset sign | S-box |
 //! |---|---|---|---|---|
+//! | release-11.06 | `0x3325e3bd` | `0x3d` | **add** | yes |
+//! | release-11.07 | `0x17b077d3` | `0x2d` | subtract | yes |
+//! | release-11.08 | `0xacf2cdff` | `0x01` | subtract | no |
+//! | release-11.09 | `0x12cf14e5` | `0x1b` | subtract | yes |
+//! | release-11.10 | `0x34e9d3ec` | `0x14` | subtract | yes |
+//! | release-11.11 | `0xc4445c41` | `0x3f` | subtract | yes |
+//! | release-12.00 | `0x70876679` | `0x07` | subtract | no |
 //! | release-12.01 | `0x13fdd831` | `0x31` | **add** | yes |
 //! | release-12.02 | `0x9830d09d` | `0x1d` | **add** | yes |
 //! | release-12.03 | `0x33d59dff` | `0x01` | subtract | yes |
@@ -41,6 +48,13 @@
 
 use crate::helpers::initial_prng_a;
 
+mod v11_06;
+mod v11_07;
+mod v11_08;
+mod v11_09;
+mod v11_10;
+mod v11_11;
+mod v12_00;
 mod v12_01;
 mod v12_02;
 mod v12_03;
@@ -59,6 +73,13 @@ mod v13_04;
 mod v13_05;
 mod v13_06;
 
+pub use v11_06::V11_06;
+pub use v11_07::V11_07;
+pub use v11_08::V11_08;
+pub use v11_09::V11_09;
+pub use v11_10::V11_10;
+pub use v11_11::V11_11;
+pub use v12_00::V12_00;
 pub use v12_01::V12_01;
 pub use v12_02::V12_02;
 pub use v12_03::V12_03;
@@ -137,6 +158,13 @@ mod tests {
             )
         }
         vec![
+            row::<V11_06>(),
+            row::<V11_07>(),
+            row::<V11_08>(),
+            row::<V11_09>(),
+            row::<V11_10>(),
+            row::<V11_11>(),
+            row::<V12_00>(),
             row::<V12_01>(),
             row::<V12_02>(),
             row::<V12_03>(),
@@ -185,6 +213,7 @@ mod tests {
         assert_eq!(
             adding,
             vec![
+                V11_06::BRANCH,
                 V12_01::BRANCH,
                 V12_02::BRANCH,
                 V12_05::BRANCH,

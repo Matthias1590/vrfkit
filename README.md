@@ -11,14 +11,14 @@ external `oozextract` crate. Edition 2024, MSRV 1.86, MIT.
 ![license](https://img.shields.io/badge/license-MIT-blue.svg)
 ![rust](https://img.shields.io/badge/rust-1.86%2B-orange.svg)
 ![edition](https://img.shields.io/badge/edition-2024-orange.svg)
-![builds](https://img.shields.io/badge/builds-12.01--13.06-green.svg)
+![builds](https://img.shields.io/badge/builds-11.06--13.06-green.svg)
 ![unsafe](https://img.shields.io/badge/unsafe-none-success.svg)
 
 Derived from [ValorantReplayParser](https://github.com/michel-giehl/ValorantReplayParser)
 by Michel Giehl; see [`NOTICE.md`](NOTICE.md). Not affiliated with, endorsed
 by, or approved by Riot Games.
 
-**Verified state:** Rust has **707 passing** tests; Python has **846 passing**
+**Verified state:** Rust has **707 passing** tests; Python has **850 passing**
 tests. The historical 714-file comparison and corpus guards passed. The latest
 upstream changes were checked on a smaller preserved sample; see
 [current status](docs/CURRENT_STATUS.md) for the evidence boundary.
@@ -71,16 +71,21 @@ can be represented by their rows instead of a duplicate raw RPC.
 | **12.03** | `release-12.03` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
 | **12.02** | `release-12.02` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
 | **12.01** | `release-12.01` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **12.00** | `release-12.00` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **11.11** | `release-11.11` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **11.10** | `release-11.10` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **11.09** | `release-11.09` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **11.08** | `release-11.08` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **11.07** | `release-11.07` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
+| **11.06** | `release-11.06` | ✅ Supported | 79 native golden vectors + three real replays with checkpoint export |
 
 All branches are `++Ares-Core+release-<build>`. Adding a build is one
 `SeededTransform` impl (two constants + three word functions); see
 [Adding a new build](#supported-builds-and-the-cost-of-a-new-build).
 
-**11.06 through 12.00: container inspection only.** Their 21 available
-samples can be inspected, but their payload transforms are not recovered.
-The downloaded executables have encrypted code sections; `validate`, `diag`
-and `export` still reject those seven branches. See the
-[remaining dependency](docs/LEGACY_BUILD_SUPPORT.md).
+All 48 available samples from 11.06 through 12.09 pass validation and
+checkpoint-enabled export. The [build support report](docs/LEGACY_BUILD_SUPPORT.md)
+records native-function comparisons, replay counts and independent value checks.
 
 ## Highlights
 
@@ -369,7 +374,7 @@ it as one gives the year 3626.
 ## Status
 
 Work in progress. Currently verified: `cargo +1.86.0 test --workspace --locked`
-**707 passing**; the full Python suite also has **846 passing** tests. The
+**707 passing**; the full Python suite also has **850 passing** tests. The
 all-corpus guards, all-file comparison, and full documentation check pass.
 
 Re-measure per-crate counts with `cargo test -p <crate>`. Counts are omitted
@@ -814,12 +819,19 @@ reads only `archive.BitsRemaining`. Before this fix, all 364 rows of
 ## Supported builds and the cost of a new build
 
 The payload transform changes per game build, but far more is **constant**
-across supported releases 12.01 through 13.06: the PRNG and its multipliers, the seed-mix
+across supported releases 11.06 through 13.06: the PRNG and its multipliers, the seed-mix
 skeleton, the 64 -> 32 -> 8 -> tail staging, the tail-XOR handling, and even
 the S-box table itself. What actually changes per build:
 
 | | seed addend | offset | sign | S-box |
 |---|---|---|---|---|
+| release-11.06 | `0x3325e3bd` | `0x3d` | **+** | used |
+| release-11.07 | `0x17b077d3` | `0x2d` | - | used |
+| release-11.08 | `0xacf2cdff` | `0x01` | - | unused |
+| release-11.09 | `0x12cf14e5` | `0x1b` | - | used |
+| release-11.10 | `0x34e9d3ec` | `0x14` | - | used |
+| release-11.11 | `0xc4445c41` | `0x3f` | - | used |
+| release-12.00 | `0x70876679` | `0x07` | - | unused |
 | release-12.01 | `0x13fdd831` | `0x31` | **+** | used |
 | release-12.02 | `0x9830d09d` | `0x1d` | **+** | used |
 | release-12.03 | `0x33d59dff` | `0x01` | - | used |
@@ -838,7 +850,7 @@ the S-box table itself. What actually changes per build:
 | release-13.05 | `0x48c26613` | `0x13` | **+** | unused |
 | release-13.06 | `0xe974593c` | `0x3c` | **+** | used |
 
-In all seventeen supported builds the **tail-XOR byte equals the low byte of the seed
+In all twenty-four supported builds the **tail-XOR byte equals the low byte of the seed
 addend.** It is a derived value, not an independent constant, and the
 relationship is pinned by a test in `versions/mod.rs` -- if a future build breaks
 the pattern, the test fails instead of the final byte silently corrupting.
@@ -870,8 +882,8 @@ build, eight builds). The 13.06 implementation was also validated on six real
 replays; [the upstream parity report](docs/UPSTREAM_PARITY.md) records the
 before/after comparisons and the limits of that sample.
 
-The nine newly recovered 12.01--12.09 builds add 711 native-machine-code
-vectors and a full 27-sample main/checkpoint validation; see the
+The sixteen recovered 11.06--12.09 builds add 1,264 native-machine-code
+vectors and a full 48-sample main/checkpoint validation; see the
 [build support validation report](docs/LEGACY_BUILD_SUPPORT.md).
 
 The 768-byte S-box is shared across builds, which makes it usable as a

@@ -1,13 +1,83 @@
 # Build support validation, 2026-09-24
 
-**Status: 12.01--12.09 now have verified payload transforms.** All 27 available
-replays pass ReplayData validation and checkpoint-enabled export. Builds
-11.06--11.11 and 12.00 remain container-only: their acquired executables have
-encrypted code sections, and their payload transforms are not recovered.
-The original request to support all sixteen builds, and issue #14, are not
-fully resolved.
+**Status: all sixteen builds from 11.06 through 12.09 have verified payload
+transforms.** All 48 available replays pass ReplayData validation and
+checkpoint-enabled export. Together with the eight existing versions, the
+parser supports 24 exact branches. Unknown branches still fail closed.
 
-## Native transform recovery and replay results
+## 11.06--12.00 recovery and replay results
+
+The implementation following `6cbf2bec0645c5278c099839d5db9708e9a45f21`
+adds seven per-build transforms without changing shared parser behavior.
+Resolve its commit with
+`git log -1 --format=%H -- crates/vrf-transform/src/versions/v11_06.rs`.
+The original binaries have two layers of encrypted code. Both were recovered
+fully offline from each matching EXE and `stub.dll`, using bounded native
+cipher fragments and independently checked arithmetic. The reproducible
+[recovery tool](../tools/recover_native_binaries.py) pins all seven input
+pairs and recovered outputs in its [catalog](../tools/fixtures/native_recovery.json).
+The [recovery research](BUILD_RECOVERY_RESEARCH.md) records the method and scope.
+
+Each recovered reader was decompiled separately and emulated independently of
+the Rust implementation. Its 79 native cases match, for **553 additional
+cases** and **1,264 native cases** across all sixteen recovered builds. The
+88 upstream vectors remain unchanged. Changing an 11.06 rotation count made
+the native comparison fail; restoring it passed. All referenced substitution
+tables match the shared S-boxes byte for byte. No installed game or driver
+was started or changed.
+
+| Build | Replays | ReplayData scored blocks | Checkpoint blocks | Main typed overlay |
+|---|---:|---:|---:|---:|
+| 11.06 | 3 | 1,983,592 | 73,760 | 82.5% |
+| 11.07 | 3 | 1,987,726 | 72,553 | 80.8% |
+| 11.08 | 3 | 1,969,145 | 76,440 | 79.4% |
+| 11.09 | 3 | 2,158,062 | 78,172 | 82.7% |
+| 11.10 | 3 | 1,839,369 | 67,573 | 82.3% |
+| 11.11 | 3 | 2,205,209 | 83,268 | 83.9% |
+| 12.00 | 3 | 2,031,069 | 77,828 | 85.1% |
+
+All 21 replays report **100%** ReplayData oracle success over **14,174,172**
+scored blocks, and **529,594** checkpoint blocks were walked. Required main
+and checkpoint counters are present and reconcile. Malformed/framing,
+transform, field-stream, lost-RPC, typed-overlay, movement, array-leaf and
+struct-blob failures are zero. Checkpoint skipped bits are zero.
+
+The main overlay decodes **18,544,499 of 22,502,298 offered rows**, with
+**1,517,794** decoded checkpoint rows. These ratios measure typed coverage,
+not full semantic understanding. Unresolved RPC schemas and untyped properties
+remain raw, as on the existing supported builds. They are not hidden as
+successful typed values. Independent Python decoding matches **299,827**
+values across all 42 main/checkpoint field tables, with no width failures,
+missing specifications or typed mismatches. A separate direct bit walk
+matches **6,311 TeamEconomy child values from 899 parent rows**. The existing
+controller and declared-handle compatibility fixes also cover these samples.
+
+The eight previously supported reference replays were revalidated and
+exported with checkpoints. All **104 Parquet files remain byte-identical**.
+This is the complete available three-sample-per-build collection, not a claim
+that every possible replay or field on these branches has been tested.
+
+To reproduce recovery and native comparison, use this directory layout for
+each build: `<root>/<build>/ShooterGame/Binaries/Win64/` containing the
+archived `VALORANT-Win64-Shipping.exe` and matching `stub.dll`. The recovered
+root is separate; the capture tool uses it only for the seven protected builds.
+
+```powershell
+python tools/recover_native_binaries.py --binaries '<archive-root>' --output '<recovered-root>'
+python tools/capture_native_transforms.py --binaries '<archive-root>' --recovered-binaries '<recovered-root>' --check
+cargo +1.86.0 test -p vrf-transform --locked
+cargo +1.86.0 build --release -p vrfkit --locked
+vrfkit validate '<replay-root>/11.06/sample-1.vrf' --diagnostics
+vrfkit export '<replay-root>/11.06/sample-1.vrf' --out '<exports>/11.06/sample-1' --checkpoints
+python tools/validate_type_evidence.py '<exports>' tools/fixtures/public_fixture_type_evidence.json --compare-typed
+```
+
+Repeat validate/export for samples 1--3 of all seven builds. Required-counter,
+nonzero-work and reconciliation checks use `check_decode_errors_corpus.py`.
+Recovery needs optional `pefile`, `unicorn` and `numpy`; ordinary Rust tests
+need no game binaries or emulator.
+
+## 12.01--12.09 recovery and replay results
 
 The implementation following base commit `0d7a798` adds nine transforms and
 two compatibility fixes. The containing implementation commit can be resolved
@@ -103,7 +173,7 @@ for each build. Native capture needs optional `pefile` and `unicorn` Python
 packages; ordinary Rust tests use the committed vectors and need neither.
 
 ```powershell
-python tools/capture_native_transforms.py --binaries '<binary-root>' --check
+python tools/capture_native_transforms.py --binaries '<binary-root>' --recovered-binaries '<recovered-root>' --check
 cargo +1.86.0 test -p vrf-transform --locked
 cargo +1.86.0 build --release -p vrfkit --locked
 vrfkit validate '<replay-root>/12.01/sample-1.vrf' --diagnostics
@@ -186,8 +256,8 @@ the instruction/time limit before comparing output bytes.
 All eleven 13.06 cases from
 [`golden_vectors.rs`](../crates/vrf-transform/tests/data/golden_vectors.rs)
 matched: 0, 1, 7, 8, 31, 32, 63, 64, 65, 287 and 288 bits. This verifies a
-practical way to obtain an independent native-code oracle; it does not add
-support for any legacy build. Addresses, reader layouts and algorithms must
+practical way to obtain an independent native-code oracle; this initial feasibility check did not itself add
+build support. Addresses, reader layouts and algorithms must
 be recovered and checked for each executable, not assumed to carry over.
 
 The manifest-link archive
@@ -240,27 +310,17 @@ chunks referenced by those executables gives 1,688,334,507 bytes, or
 HTTP/TLS overhead and retries are not measured by that figure. Generated
 metadata and future Ghidra databases need additional space.
 
-Executable acquisition is complete. The seven 11.06--12.00 executables have
-high-entropy encrypted `.text` data, no plaintext PRNG-multiplier references,
-a NOP entry point and an imported `stub.dll!packman`. The separately acquired
-11.06 `stub.dll` is itself packed/virtualized: its exported `packman` address
-has no on-disk code, and its entry point enters the protected stub section.
-These files do not yet provide a callable native reader for the oracle.
+All sixteen executables and the seven matching protected-build stubs were
+acquired and verified. The 11.06--12.00 executables have encrypted `.text`, a
+NOP entry point and an imported `stub.dll!packman`; their stubs themselves
+require section decompression. This initially blocked native reader capture.
+The offline recovery above resolves that dependency and pins each recovered
+image by SHA-256. The installation and Vanguard configuration are unchanged.
 
-This matches the mechanism described in the first-hand
-[Packman analysis](https://hypercall.net/posts/Packman/): the loader prepares
-and decrypts code at runtime. The public
-[ValorantUnpacker](https://github.com/nitrog0d/ValorantUnpacker) implementation
-was also inspected; it reads a running game through an injected DLL, rather
-than supplying an offline decryption algorithm. It was not executed.
-
-Completing these seven builds still requires their correctly decrypted reader
-code, a matching executable memory dump, or recovery of the protected loader's
-offline decryption. No verified source of those matching dumps or usable
-offline unpacker was found in this investigation. Merely downloading each
-protected executable again does not resolve that dependency. The installed
-game and Vanguard configuration were left unchanged, and these seven branches
-continue to fail closed for payload decoding.
+The first-hand [Packman analysis](https://hypercall.net/posts/Packman/) helped
+identify the runtime loader architecture. Public in-process unpackers were
+examined as references but were not used to run or inject into the game. The
+committed tool reconstructs the code directly from the archived local bytes.
 
 ## Regression scope and commands
 
@@ -278,7 +338,7 @@ $env:VRFKIT_CORPUS_DIR = '<replay-root>/11.06'
 $env:VRFKIT_REQUIRE_CORPUS = '1'
 cargo +1.86.0 test -p vrf-container --test corpus parse_all_vrf_files --locked -- --exact --nocapture
 vrfkit inspect '<replay-root>/11.06/sample-1.vrf' --redact-identifiers
-vrfkit validate '<replay-root>/11.06/sample-1.vrf' # expected: unsupported branch
+vrfkit validate '<replay-root>/11.06/sample-1.vrf' --diagnostics
 ```
 
 Repeat for every affected directory. For the supported-build comparison, run

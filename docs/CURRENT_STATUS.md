@@ -7,11 +7,11 @@ not remeasure the historical 714-replay totals below. Start with
 [DATA.md](DATA.md) for the exported schema and [USAGE.md](USAGE.md) for commands.
 
 The 2026-09-24 [build support update](LEGACY_BUILD_SUPPORT.md) adds verified
-12.01--12.09 transforms, controller framing and TeamEconomy compatibility.
-All 27 available samples pass main/checkpoint validation, with independent
-native-byte and typed-value checks. Builds 11.06--12.00 remain container-only
-pending recovery of their encrypted executable code. These samples do not
-remeasure the historical inventory below.
+11.06--12.09 transforms, controller framing and TeamEconomy compatibility.
+All 48 available samples pass main/checkpoint validation, with independent
+native-byte and typed-value checks. The seven protected 11.06--12.00 code
+images were recovered offline from their matching archived EXE/stub pairs.
+These samples do not remeasure the historical inventory below.
 
 ## Current measured field inventory
 

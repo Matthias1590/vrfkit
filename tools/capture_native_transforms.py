@@ -94,6 +94,8 @@ def capture(exe: Path, entry: dict):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binaries", type=Path, required=True)
+    parser.add_argument("--recovered-binaries", type=Path,
+                        help="separate recovered-image root for protected builds")
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     catalog = json.loads(CATALOG.read_text(encoding="utf-8"))
@@ -105,7 +107,9 @@ def main():
     ]
     for entry in catalog:
         build = entry["build"]
-        exe = args.binaries / build / "ShooterGame/Binaries/Win64/VALORANT-Win64-Shipping.exe"
+        root = (args.recovered_binaries if entry.get("recovered")
+                and args.recovered_binaries is not None else args.binaries)
+        exe = root / build / "ShooterGame/Binaries/Win64/VALORANT-Win64-Shipping.exe"
         rows = capture(exe, entry)
         lines.extend([
             f'    // {build}: executable SHA-256 {entry["exe_sha256"]}',
