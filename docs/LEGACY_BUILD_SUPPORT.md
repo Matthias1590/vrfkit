@@ -84,10 +84,22 @@ The manifest-link archive
 [`Morilli/riot-manifests` at `573d6e7`](https://github.com/Morilli/riot-manifests/tree/573d6e78edc51395a03513800230eab3dbadbf92/VALORANT/na)
 contains 29 patch entries covering all sixteen missing builds. These are
 links to Riot manifests, not archived game executables. Acquisition remains
-blocked in the measured environment: the Riot CDN endpoint presents an
-expired certificate for a different host, so the manifest download fails
-TLS verification. No legacy executable was obtained and no legacy payload
-transform was registered on the strength of those links.
+blocked in the measured environment. A follow-up browser check of the CDN
+hostname's HTTP root displayed an SK Broadband school-network notice stating
+that firewall policy blocks the page. DNS resolves several Riot hostnames to
+that warning server, whose expired, mismatched certificate caused the HTTPS
+failures. The earlier TLS error is therefore evidence of the local network
+block, not evidence that Riot's own CDN certificate is invalid or that the
+archived files have disappeared.
+
+Acquisition needs network-administrator authorization for the CDN or a
+separate network on which these downloads are permitted. After connectivity
+is restored, fetch the saved manifest for each build and select only
+`ShooterGame/Binaries/Win64/VALORANT-Win64-Shipping.exe`. Verify the downloaded
+content against its manifest, record its build and SHA-256, and analyze it
+without replacing the installed game. No legacy executable has yet been
+obtained and no legacy payload transform was registered on the strength of
+the manifest links.
 
 ## Regression scope and commands
 
